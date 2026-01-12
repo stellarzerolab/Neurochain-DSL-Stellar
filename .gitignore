@@ -1,0 +1,14 @@
+/target
+/logs
+/dist
+macro_raw_latest.log
+macro_run_latest.log
+
+# Model files are distributed separately (GitHub Releases).
+/models/**
+!/models/README.md
+!/models/manifest.json
+!/models/LICENSE
+!/models/THIRD_PARTY_NOTICES.md
+!/models/**/
+!/models/**/README.md
