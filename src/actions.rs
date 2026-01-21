@@ -77,8 +77,7 @@ pub struct Allowlist {
 impl Allowlist {
     pub fn from_env() -> Self {
         let assets = parse_allowlist(std::env::var("NC_ASSET_ALLOWLIST").unwrap_or_default());
-        let contracts =
-            parse_allowlist(std::env::var("NC_SOROBAN_ALLOWLIST").unwrap_or_default());
+        let contracts = parse_allowlist(std::env::var("NC_SOROBAN_ALLOWLIST").unwrap_or_default());
         Self { assets, contracts }
     }
 
@@ -283,8 +282,7 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
                     (Some(contract_id), Some(function)) => Action::SorobanContractInvoke {
                         contract_id: contract_id.clone(),
                         function: function.clone(),
-                        args: parse_args_json(args_raw)
-                            .unwrap_or_else(|| serde_json::Value::Null),
+                        args: parse_args_json(args_raw).unwrap_or_else(|| serde_json::Value::Null),
                     },
                     _ => Action::Unknown {
                         reason: format!("line {}: missing contract_id/function", idx + 1),
@@ -303,7 +301,8 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
     }
 
     if plan.actions.is_empty() {
-        plan.warnings.push("no actions detected in .nc input".to_string());
+        plan.warnings
+            .push("no actions detected in .nc input".to_string());
     }
 
     plan
@@ -387,7 +386,7 @@ fn unquote(value: &str) -> String {
         let bytes = trimmed.as_bytes();
         let first = bytes[0] as char;
         let last = bytes[bytes.len() - 1] as char;
-        if (first == '"' && last == '"') || (first == ''' && last == ''') {
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
             return trimmed[1..trimmed.len() - 1].to_string();
         }
     }

@@ -6,7 +6,9 @@ use neurochain::actions::{parse_action_plan_from_nc, validate_plan, ActionPlan, 
 fn print_usage() {
     eprintln!("Usage: neurochain-soroban <file.nc|plan.json>");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
-    eprintln!("Manual .nc lines can start with 'stellar.' or 'soroban.' (optionally prefixed by '#').");
+    eprintln!(
+        "Manual .nc lines can start with 'stellar.' or 'soroban.' (optionally prefixed by '#')."
+    );
 }
 
 fn main() {
@@ -44,7 +46,10 @@ fn main() {
         }
         eprintln!("Allowlist warnings (stub, not enforced):");
         for violation in &violations {
-            eprintln!("- #{} {}: {}", violation.index, violation.action, violation.reason);
+            eprintln!(
+                "- #{} {}: {}",
+                violation.index, violation.action, violation.reason
+            );
         }
     }
 
