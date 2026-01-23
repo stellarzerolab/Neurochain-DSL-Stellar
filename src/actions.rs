@@ -2,13 +2,30 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+fn default_schema_version() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionPlan {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub actions: Vec<Action>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+}
+
+impl Default for ActionPlan {
+    fn default() -> Self {
+        Self {
+            schema_version: default_schema_version(),
+            actions: Vec::new(),
+            warnings: Vec::new(),
+            source: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,12 +180,63 @@ pub fn validate_plan(plan: &ActionPlan, allowlist: &Allowlist) -> Vec<AllowlistV
     violations
 }
 
+pub fn enforce_allowlist(
+    plan: &ActionPlan,
+    allowlist: &Allowlist,
+) -> Result<(), Vec<AllowlistViolation>> {
+    let violations = validate_plan(plan, allowlist);
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations)
+    }
+}
+
 fn parse_allowlist(raw: String) -> HashSet<String> {
     raw.split(',')
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+fn strip_inline_comment(line: &str) -> String {
+    let mut out = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if let Some(active) = quote {
+            if ch == '\\' {
+                out.push(ch);
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+                continue;
+            }
+            if ch == active {
+                quote = None;
+            }
+            out.push(ch);
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            out.push(ch);
+            continue;
+        }
+
+        if ch == '#' {
+            break;
+        }
+        if ch == '/' && chars.peek() == Some(&'/') {
+            break;
+        }
+
+        out.push(ch);
+    }
+
+    out.trim_end().to_string()
 }
 
 pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
@@ -180,13 +248,20 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
             continue;
         }
         if let Some(stripped) = line.strip_prefix('#') {
-            line = stripped.trim();
+            line = stripped.trim_start();
         } else if let Some(stripped) = line.strip_prefix("//") {
-            line = stripped.trim();
+            line = stripped.trim_start();
         }
         if let Some(stripped) = line.strip_prefix("action ") {
-            line = stripped.trim();
+            line = stripped.trim_start();
         }
+
+        let line = strip_inline_comment(line);
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
         if !(line.starts_with("stellar.") || line.starts_with("soroban.")) {
             continue;
         }
@@ -335,14 +410,21 @@ fn split_tokens(line: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
+    let mut chars = line.chars().peekable();
 
-    for ch in line.chars() {
+    while let Some(ch) = chars.next() {
         if let Some(active) = quote {
+            if ch == '\\' {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+                continue;
+            }
             if ch == active {
                 quote = None;
-            } else {
-                current.push(ch);
+                continue;
             }
+            current.push(ch);
             continue;
         }
 

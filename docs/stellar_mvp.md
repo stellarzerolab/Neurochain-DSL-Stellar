@@ -52,6 +52,7 @@ Passkeys, smart wallet policies, sponsorship/fee-bumps, TTL/rent hygiene, and ba
 ## Phase 1 — Action schema + allowlist (core)
 
 Create a clear action schema (enum/struct) in the shared core.
+- ActionPlan carries a `schema_version` (currently `1`) for forward compatibility.
 
 **Classic Stellar**
 - `stellar.account.balance`
@@ -67,6 +68,7 @@ Create a clear action schema (enum/struct) in the shared core.
 Allowlist (MVP):
 - Asset allowlist: only certain `asset_code + issuer`.
 - Contract allowlist: only certain `contract_id + function`.
+- Enforcement toggle: set `NC_ALLOWLIST_ENFORCE=1` to hard-fail (default = warnings).
 
 **Definition of Done**
 - Action plans can be serialized (JSON) and validated (allowlist + required fields).
@@ -83,6 +85,10 @@ Build a CLI binary (e.g. `neurochain-soroban`) that:
 4) prints a preview (fee estimate + effects)
 5) asks for confirm (Y/N)
 6) submits or prints a tx hash
+
+CLI flags (stub):
+- `--flow` enables simulate → preview → confirm → submit
+- `--yes` auto-confirms submit in `--flow` mode
 
 **Definition of Done**
 - `BalanceQuery` or `TxStatus` works end-to-end.
