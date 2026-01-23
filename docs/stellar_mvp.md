@@ -40,8 +40,13 @@ Passkeys, smart wallet policies, sponsorship/fee-bumps, TTL/rent hygiene, and ba
 
 - `NC_SOROBAN_NETWORK` = `testnet`
 - `NC_SOROBAN_RPC_URL` = testnet RPC
+- `NC_STELLAR_HORIZON_URL` = testnet Horizon (default)
+- `NC_FRIENDBOT_URL` = friendbot (testnet only)
 - `NC_SOROBAN_SECRET_KEY` or `NC_SOROBAN_KEYFILE` (never log)
+- `NC_SOROBAN_SOURCE` / `NC_STELLAR_SOURCE` (stellar CLI key name)
 - `NC_SOROBAN_ALLOWLIST` (contract IDs + functions)
+- `NC_STELLAR_CLI` = `stellar` (override CLI path)
+- `NC_SOROBAN_SIMULATE_FLAG` = `--simulate` (override CLI simulate flag)
 - `NC_API_KEY` (server-only, optional)
 
 **Definition of Done**

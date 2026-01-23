@@ -15,6 +15,7 @@ regex        = "1.10"
 axum         = "0.7"
 tokio        = { version = "1.37", features = ["full"] }
 tower-http   = { version = "0.5", features = ["cors"] }
+reqwest      = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [dev-dependencies]
 assert_cmd   = "2"
