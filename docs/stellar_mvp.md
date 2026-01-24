@@ -46,7 +46,7 @@ Passkeys, smart wallet policies, sponsorship/fee-bumps, TTL/rent hygiene, and ba
 - `NC_SOROBAN_SOURCE` / `NC_STELLAR_SOURCE` (stellar CLI key name)
 - `NC_SOROBAN_ALLOWLIST` (contract IDs + functions)
 - `NC_STELLAR_CLI` = `stellar` (override CLI path)
-- `NC_SOROBAN_SIMULATE_FLAG` = `--simulate` (override CLI simulate flag)
+- `NC_SOROBAN_SIMULATE_FLAG` = `--send no` (CLI 25+ simulate flag)
 - `NC_API_KEY` (server-only, optional)
 
 **Definition of Done**

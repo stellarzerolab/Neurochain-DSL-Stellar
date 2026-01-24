@@ -21,7 +21,7 @@ fn print_usage() {
     eprintln!("Env: NC_FRIENDBOT_URL (default: testnet Friendbot)");
     eprintln!("Env: NC_SOROBAN_SOURCE or NC_STELLAR_SOURCE (for soroban invoke)");
     eprintln!("Env: NC_STELLAR_CLI (default: stellar)");
-    eprintln!("Env: NC_SOROBAN_SIMULATE_FLAG (default: --simulate)");
+    eprintln!("Env: NC_SOROBAN_SIMULATE_FLAG (default: \"--send no\")");
 }
 
 fn allowlist_enforced() -> bool {
@@ -48,7 +48,22 @@ struct NetworkConfig {
     soroban_network: String,
     soroban_source: Option<String>,
     soroban_cli: String,
-    soroban_simulate_flag: String,
+    soroban_simulate_args: Vec<String>,
+}
+
+fn parse_simulate_args(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut parts: Vec<String> = trimmed
+        .split_whitespace()
+        .map(|part| part.to_string())
+        .collect();
+    if parts.len() == 1 && parts[0] == "--send" {
+        parts.push("no".to_string());
+    }
+    parts
 }
 
 fn load_network_config() -> NetworkConfig {
@@ -74,8 +89,9 @@ fn load_network_config() -> NetworkConfig {
         .ok();
 
     let soroban_cli = env::var("NC_STELLAR_CLI").unwrap_or_else(|_| "stellar".to_string());
-    let soroban_simulate_flag =
-        env::var("NC_SOROBAN_SIMULATE_FLAG").unwrap_or_else(|_| "--simulate".to_string());
+    let soroban_simulate_raw =
+        env::var("NC_SOROBAN_SIMULATE_FLAG").unwrap_or_else(|_| "--send no".to_string());
+    let soroban_simulate_args = parse_simulate_args(&soroban_simulate_raw);
 
     NetworkConfig {
         horizon_url,
@@ -83,7 +99,7 @@ fn load_network_config() -> NetworkConfig {
         soroban_network: network,
         soroban_source,
         soroban_cli,
-        soroban_simulate_flag,
+        soroban_simulate_args,
     }
 }
 
@@ -213,7 +229,7 @@ fn soroban_cli_invoke(
         &cfg.soroban_network,
     ]);
     if simulate {
-        cmd.arg(&cfg.soroban_simulate_flag);
+        cmd.args(&cfg.soroban_simulate_args);
     }
     cmd.arg("--");
     cmd.arg(function);

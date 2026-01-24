@@ -247,10 +247,8 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
         if line.is_empty() {
             continue;
         }
-        if let Some(stripped) = line.strip_prefix('#') {
-            line = stripped.trim_start();
-        } else if let Some(stripped) = line.strip_prefix("//") {
-            line = stripped.trim_start();
+        if line.starts_with('#') || line.starts_with("//") {
+            continue;
         }
         if let Some(stripped) = line.strip_prefix("action ") {
             line = stripped.trim_start();
