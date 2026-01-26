@@ -87,6 +87,7 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow
 
 - Preview näyttää **fee‑arvion** (Horizon `fee_stats`) ja **efektit**.
 - `--yes` ohittaa vahvistuskyselyn.
+- Submit‑tulosteet näyttävät **tx‑hashin**, jos se voidaan päätellä (muuten “submit ok”).
 
 ```powershell
 cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow --yes

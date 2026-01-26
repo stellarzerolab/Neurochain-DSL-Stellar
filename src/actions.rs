@@ -355,7 +355,7 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
                     (Some(contract_id), Some(function)) => Action::SorobanContractInvoke {
                         contract_id: contract_id.clone(),
                         function: function.clone(),
-                        args: parse_args_json(args_raw).unwrap_or_else(|| serde_json::Value::Null),
+                        args: parse_args_json(args_raw).unwrap_or(serde_json::Value::Null),
                     },
                     _ => Action::Unknown {
                         reason: format!("line {}: missing contract_id/function", idx + 1),
@@ -399,7 +399,7 @@ fn parse_args_json(raw: Option<&str>) -> Option<serde_json::Value> {
         let unquoted = unquote(raw);
         return serde_json::from_str(&unquoted)
             .ok()
-            .or_else(|| Some(serde_json::Value::String(unquoted)));
+            .or(Some(serde_json::Value::String(unquoted)));
     }
     Some(serde_json::Value::String(raw.to_string()))
 }

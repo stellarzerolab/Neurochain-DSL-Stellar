@@ -191,6 +191,86 @@ fn parse_amount_to_stroops(raw: &str) -> Result<String> {
     Ok(stroops.to_string())
 }
 
+fn normalize_cli_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stdout.is_empty() && !stderr.is_empty() {
+        return stderr;
+    }
+    stdout
+}
+
+fn extract_tx_hash(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(json) = serde_json::from_str::<Value>(trimmed) {
+        for key in ["hash", "tx_hash", "transaction_hash", "envelope_hash"] {
+            if let Some(hash) = json.get(key).and_then(|v| v.as_str()) {
+                if hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Some(hash.to_string());
+                }
+            }
+        }
+    }
+
+    let mut candidate = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_ascii_hexdigit() {
+            candidate.push(ch);
+        } else {
+            if candidate.len() == 64 {
+                return Some(candidate);
+            }
+            candidate.clear();
+        }
+    }
+    if candidate.len() == 64 {
+        return Some(candidate);
+    }
+    None
+}
+
+fn try_hash_via_cli(cfg: &NetworkConfig, xdr: &str) -> Option<String> {
+    if xdr.trim().is_empty() {
+        return None;
+    }
+    let output = Command::new(&cfg.soroban_cli)
+        .args([
+            "tx",
+            "hash",
+            "--xdr",
+            xdr,
+            "--network",
+            &cfg.soroban_network,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    extract_tx_hash(&stdout).or_else(|| {
+        if stdout.len() == 64 && stdout.chars().all(|c| c.is_ascii_hexdigit()) {
+            Some(stdout)
+        } else {
+            None
+        }
+    })
+}
+
+fn format_submit_line(label: &str, output: &str, hash: Option<String>) -> String {
+    if let Some(hash) = hash {
+        return format!("{label} -> tx-hash {hash}");
+    }
+    if output.trim().is_empty() {
+        return format!("{label} -> submit ok");
+    }
+    format!("{label} -> {output}")
+}
+
 fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
     let source = cfg
         .soroban_source
@@ -213,7 +293,7 @@ fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(normalize_cli_output(&output))
 }
 
 fn fetch_account(client: &Client, horizon_url: &str, account: &str) -> Result<Value> {
@@ -280,8 +360,6 @@ fn args_to_cli(args: &Value) -> Vec<(String, String)> {
             let value = map.get(key).unwrap();
             let val = if let Some(s) = value.as_str() {
                 s.to_string()
-            } else if value.is_number() || value.is_boolean() {
-                value.to_string()
             } else {
                 value.to_string()
             };
@@ -329,7 +407,7 @@ fn soroban_cli_invoke(
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(normalize_cli_output(&output))
 }
 
 fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
@@ -507,9 +585,14 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                 function,
                 args,
             } => match soroban_cli_invoke(cfg, contract_id, function, args, false) {
-                Ok(output) => outputs.push(format!(
-                    "soroban submit {contract_id}:{function} -> {output}"
-                )),
+                Ok(output) => {
+                    let hash = extract_tx_hash(&output);
+                    outputs.push(format_submit_line(
+                        &format!("soroban submit {contract_id}:{function}"),
+                        &output,
+                        hash,
+                    ));
+                }
                 Err(err) => outputs.push(format!(
                     "soroban submit failed for {contract_id}:{function}: {err}"
                 )),
@@ -529,7 +612,14 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     ],
                 )
             }) {
-                Ok(output) => outputs.push(format!("create-account {destination} -> {output}")),
+                Ok(output) => {
+                    let hash = extract_tx_hash(&output).or_else(|| try_hash_via_cli(cfg, &output));
+                    outputs.push(format_submit_line(
+                        &format!("create-account {destination}"),
+                        &output,
+                        hash,
+                    ));
+                }
                 Err(err) => outputs.push(format!("create-account failed for {destination}: {err}")),
             },
             neurochain::actions::Action::StellarChangeTrust {
@@ -556,7 +646,15 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     }
                 }
                 match stellar_tx_new(cfg, &args) {
-                    Ok(output) => outputs.push(format!("change-trust {line} -> {output}")),
+                    Ok(output) => {
+                        let hash =
+                            extract_tx_hash(&output).or_else(|| try_hash_via_cli(cfg, &output));
+                        outputs.push(format_submit_line(
+                            &format!("change-trust {line}"),
+                            &output,
+                            hash,
+                        ));
+                    }
                     Err(err) => outputs.push(format!("change-trust failed for {line}: {err}")),
                 }
             }
@@ -591,7 +689,13 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     )
                 }) {
                     Ok(output) => {
-                        outputs.push(format!("payment {amount} {asset} -> {to}: {output}"))
+                        let hash =
+                            extract_tx_hash(&output).or_else(|| try_hash_via_cli(cfg, &output));
+                        outputs.push(format_submit_line(
+                            &format!("payment {amount} {asset} -> {to}"),
+                            &output,
+                            hash,
+                        ));
                     }
                     Err(err) => outputs.push(format!("payment failed for {to}: {err}")),
                 }

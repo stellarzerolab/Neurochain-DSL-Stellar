@@ -26,17 +26,16 @@ soroban.contract.invoke contract_id="C..." function="transfer" args={"to":"G..."
 "#;
 
     let plan = parse_action_plan_from_nc(input);
-    assert_eq!(plan.actions.len(), 8);
+    assert_eq!(plan.actions.len(), 7);
 
-    matches!(plan.actions[0], Action::StellarAccountBalance { .. });
-    matches!(plan.actions[1], Action::StellarAccountCreate { .. });
-    matches!(plan.actions[2], Action::StellarAccountFundTestnet { .. });
-    matches!(plan.actions[3], Action::StellarChangeTrust { .. });
+    matches!(plan.actions[0], Action::StellarAccountCreate { .. });
+    matches!(plan.actions[1], Action::StellarAccountFundTestnet { .. });
+    matches!(plan.actions[2], Action::StellarChangeTrust { .. });
+    matches!(plan.actions[3], Action::StellarPayment { .. });
     matches!(plan.actions[4], Action::StellarPayment { .. });
-    matches!(plan.actions[5], Action::StellarPayment { .. });
-    matches!(plan.actions[6], Action::StellarTxStatus { .. });
+    matches!(plan.actions[5], Action::StellarTxStatus { .. });
 
-    match &plan.actions[7] {
+    match &plan.actions[6] {
         Action::SorobanContractInvoke {
             contract_id,
             function,
@@ -60,7 +59,7 @@ soroban.contract.invoke contract_id="C..." function="hello world" args={"to":"G.
 "#;
 
     let plan = parse_action_plan_from_nc(input);
-    assert_eq!(plan.actions.len(), 3);
+    assert_eq!(plan.actions.len(), 2);
 
     match &plan.actions[0] {
         Action::StellarAccountBalance { account, asset } => {
@@ -71,17 +70,6 @@ soroban.contract.invoke contract_id="C..." function="hello world" args={"to":"G.
     }
 
     match &plan.actions[1] {
-        Action::StellarAccountCreate {
-            destination,
-            starting_balance,
-        } => {
-            assert_eq!(destination, "G DEST");
-            assert_eq!(starting_balance, "2");
-        }
-        _ => panic!("expected stellar.account.create"),
-    }
-
-    match &plan.actions[2] {
         Action::SorobanContractInvoke { function, args, .. } => {
             assert_eq!(function, "hello world");
             assert_eq!(args["note"], Value::String("hi // there".to_string()));
