@@ -12,6 +12,10 @@ MVP‑vaiheessa tuettuja toimintoja:
 
 - **FundTestnet** (Friendbot)
 - **BalanceQuery** (Horizon)
+- **CreateAccount** (stellar CLI)
+- **ChangeTrust** (stellar CLI)
+- **Payment** (stellar CLI, XLM + issued assets)
+- **TxStatus** (Horizon)
 - **Soroban invoke** (stellar CLI)
 
 Muut Classic‑actionit (payment/change_trust/create_account) ovat seuraavassa vaiheessa.
@@ -57,6 +61,12 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc
 - `NC_SOROBAN_ALLOWLIST` (esim. `C1:transfer,C2`)
 - `NC_ALLOWLIST_ENFORCE=1` → hard‑fail (muuten vain varoitus)
 
+Testnet‑USDC esimerkki (Stellar Expert):
+
+```powershell
+setx NC_ASSET_ALLOWLIST "XLM,USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+```
+
 ---
 
 ## 3) Käyttö — pelkkä JSON‑ActionPlan
@@ -100,6 +110,77 @@ stellar.account.fund_testnet account="G..."
 soroban.contract.invoke contract_id="C..." function="transfer" args={"to":"G...","amount":100}
 ```
 
+**Huom:** määrät (`amount`, `starting_balance`, `limit`) tulkitaan XLM‑tyylisinä desimaaleina ja muunnetaan stroopeiksi (7 desimaalia) ennen submitia.
+
+---
+
+## 6) USDC‑flow (erillinen esimerkki)
+
+Repoon on lisätty **valmis TESTUSD‑flow** (issuer‑omistettu test‑asset):
+
+```
+examples/stellar_testasset_trustline.nc
+examples/stellar_testasset_issue.nc
+examples/stellar_testasset_payment.nc
+examples/stellar_testasset_user_trustline.nc
+examples/stellar_testasset_user_payment.nc
+```
+
+Tämä on **kahden vaiheen** ajettava:
+
+1) **Receiver** tekee trustlinen  
+   Aseta `NC_SOROBAN_SOURCE=<receiver-alias>` ja pidä **vain change_trust** rivi aktiivisena.
+
+2) **Sender** tekee USDC‑paymentin  
+   Aseta `NC_SOROBAN_SOURCE=<sender-alias>` ja pidä **vain USDC payment** rivi aktiivisena.
+
+Vaihtoehtona voit käyttää erillisiä tiedostoja (ei kommentointia):
+
+- `examples/stellar_usdc_trustline.nc` → receiver
+- `examples/stellar_usdc_payment.nc` → sender
+
+**Käyttökomennot:**
+
+```powershell
+# Receiver (trustline)
+$env:NC_SOROBAN_SOURCE="nc-new"
+cargo run --bin neurochain-soroban -- examples\stellar_usdc_trustline.nc --flow
+
+# Sender (USDC payment)
+$env:NC_SOROBAN_SOURCE="nc-testnet"
+cargo run --bin neurochain-soroban -- examples\stellar_usdc_payment.nc --flow
+```
+
+**Test‑asset (oma issuer) – 3 askelta:**
+
+```powershell
+# 1) Receiver trustline (nc-new)
+$env:NC_SOROBAN_SOURCE="nc-new"
+cargo run --bin neurochain-soroban -- examples\stellar_testasset_trustline.nc --flow
+
+# 2) Issuer issues TESTUSD to receiver (nc-testnet)
+$env:NC_SOROBAN_SOURCE="nc-testnet"
+cargo run --bin neurochain-soroban -- examples\stellar_testasset_issue.nc --flow
+
+# 3) Receiver sends TESTUSD back (nc-new)
+$env:NC_SOROBAN_SOURCE="nc-new"
+cargo run --bin neurochain-soroban -- examples\stellar_testasset_payment.nc --flow
+```
+
+**3‑tilin malli (distributor → user):**
+
+Korvaa `GUSER...` oikealla käyttäjä‑tilillä ja aja:
+
+```powershell
+# User trustline (user alias)
+$env:NC_SOROBAN_SOURCE="user-alias"
+cargo run --bin neurochain-soroban -- examples\stellar_testasset_user_trustline.nc --flow
+
+# Distributor -> user payment (nc-new)
+$env:NC_SOROBAN_SOURCE="nc-new"
+cargo run --bin neurochain-soroban -- examples\stellar_testasset_user_payment.nc --flow
+```
+
 ---
 
 ## 6) Soroban invoke vaatii CLI‑avaimen
@@ -123,10 +204,8 @@ setx NC_SOROBAN_SOURCE "quest1-new"
 
 ## 8) Seuraavaksi (roadmap)
 
-- `stellar.payment` (XLM) end‑to‑end
-- `stellar.change_trust`
-- `stellar.account.create`
 - Soroban invoke output‑parsinta (fee/preview erittely)
+- (Valinnainen) **txrep / SEP‑11** preview‑tulostus audit‑trailiin (ihmisluettava XDR)
 
 ---
 

@@ -11,7 +11,7 @@ fn print_usage() {
     eprintln!("Usage: neurochain-soroban <file.nc|plan.json> [--flow] [--yes]");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
-        "Manual .nc lines can start with 'stellar.' or 'soroban.' (optionally prefixed by '#')."
+        "Manual .nc lines can start with 'stellar.' or 'soroban.' (comment lines are ignored)."
     );
     eprintln!("Set NC_ALLOWLIST_ENFORCE=1 to hard-fail on allowlist violations.");
     eprintln!("--flow enables simulate → preview → confirm → submit.");
@@ -128,6 +128,92 @@ fn fetch_base_fee(client: &Client, horizon_url: &str) -> Option<u64> {
     json.get("last_ledger_base_fee")
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse::<u64>().ok())
+}
+
+fn fetch_tx_status(client: &Client, horizon_url: &str, hash: &str) -> Result<String> {
+    let url = format!(
+        "{}/transactions/{}",
+        horizon_url.trim_end_matches('/'),
+        hash
+    );
+    let resp = client
+        .get(url)
+        .send()
+        .context("horizon tx request failed")?;
+    if resp.status().as_u16() == 404 {
+        return Err(anyhow!("transaction not found"));
+    }
+    if !resp.status().is_success() {
+        return Err(anyhow!("horizon tx error: {}", resp.status()));
+    }
+    let json: Value = resp.json().context("failed to parse horizon tx response")?;
+    let successful = json
+        .get("successful")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let ledger = json
+        .get("ledger")
+        .and_then(|v| v.as_i64())
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    Ok(format!(
+        "tx {hash}: successful={successful} ledger={ledger}"
+    ))
+}
+
+fn parse_amount_to_stroops(raw: &str) -> Result<String> {
+    let cleaned = raw.trim().replace('_', "");
+    if cleaned.is_empty() {
+        return Err(anyhow!("amount is empty"));
+    }
+    if !cleaned.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return Err(anyhow!("amount must be numeric"));
+    }
+    let mut parts = cleaned.splitn(2, '.');
+    let whole = parts.next().unwrap_or("0");
+    let frac = parts.next().unwrap_or("");
+    if frac.len() > 7 {
+        return Err(anyhow!("amount has more than 7 decimal places"));
+    }
+    let mut frac_padded = frac.to_string();
+    while frac_padded.len() < 7 {
+        frac_padded.push('0');
+    }
+    let whole_val: u128 = whole.parse().unwrap_or(0);
+    let frac_val: u128 = if frac_padded.is_empty() {
+        0
+    } else {
+        frac_padded.parse().unwrap_or(0)
+    };
+    let stroops = whole_val
+        .saturating_mul(10_000_000u128)
+        .saturating_add(frac_val);
+    Ok(stroops.to_string())
+}
+
+fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
+    let source = cfg
+        .soroban_source
+        .as_deref()
+        .ok_or_else(|| anyhow!("NC_SOROBAN_SOURCE/NC_STELLAR_SOURCE not set"))?;
+    let mut cmd = Command::new(&cfg.soroban_cli);
+    cmd.arg("tx")
+        .arg("new")
+        .args(args)
+        .arg("--source-account")
+        .arg(source)
+        .arg("--network")
+        .arg(&cfg.soroban_network);
+    let output = cmd
+        .output()
+        .with_context(|| format!("failed to run {}", cfg.soroban_cli))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "stellar CLI error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn fetch_account(client: &Client, horizon_url: &str, account: &str) -> Result<Value> {
@@ -287,6 +373,46 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                 };
                 effects.push(msg);
             }
+            neurochain::actions::Action::StellarAccountCreate {
+                destination,
+                starting_balance,
+            } => {
+                effects.push(format!(
+                    "create account {destination} with starting_balance {starting_balance} XLM"
+                ));
+            }
+            neurochain::actions::Action::StellarChangeTrust {
+                asset_code,
+                asset_issuer,
+                limit,
+            } => {
+                let mut line = format!("change trust {}:{}", asset_code, asset_issuer);
+                if let Some(limit) = limit {
+                    line.push_str(&format!(" limit {limit}"));
+                }
+                effects.push(line);
+            }
+            neurochain::actions::Action::StellarPayment {
+                to,
+                amount,
+                asset_code,
+                asset_issuer,
+            } => {
+                let asset = if asset_code.eq_ignore_ascii_case("XLM") && asset_issuer.is_none() {
+                    "native".to_string()
+                } else if let Some(issuer) = asset_issuer {
+                    format!("{}:{}", asset_code, issuer)
+                } else {
+                    asset_code.clone()
+                };
+                effects.push(format!("payment {amount} {asset} -> {to}"));
+            }
+            neurochain::actions::Action::StellarTxStatus { hash } => {
+                match fetch_tx_status(&client, &cfg.horizon_url, hash) {
+                    Ok(status) => effects.push(status),
+                    Err(err) => warnings.push(format!("tx status simulate failed: {err}")),
+                }
+            }
             neurochain::actions::Action::SorobanContractInvoke {
                 contract_id,
                 function,
@@ -388,6 +514,94 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     "soroban submit failed for {contract_id}:{function}: {err}"
                 )),
             },
+            neurochain::actions::Action::StellarAccountCreate {
+                destination,
+                starting_balance,
+            } => match parse_amount_to_stroops(starting_balance).and_then(|amount| {
+                stellar_tx_new(
+                    cfg,
+                    &[
+                        "create-account".to_string(),
+                        "--destination".to_string(),
+                        destination.clone(),
+                        "--starting-balance".to_string(),
+                        amount,
+                    ],
+                )
+            }) {
+                Ok(output) => outputs.push(format!("create-account {destination} -> {output}")),
+                Err(err) => outputs.push(format!("create-account failed for {destination}: {err}")),
+            },
+            neurochain::actions::Action::StellarChangeTrust {
+                asset_code,
+                asset_issuer,
+                limit,
+            } => {
+                let line = format!("{asset_code}:{asset_issuer}");
+                let mut args = vec![
+                    "change-trust".to_string(),
+                    "--line".to_string(),
+                    line.clone(),
+                ];
+                if let Some(limit) = limit {
+                    match parse_amount_to_stroops(limit) {
+                        Ok(limit_stroops) => {
+                            args.push("--limit".to_string());
+                            args.push(limit_stroops);
+                        }
+                        Err(err) => {
+                            outputs.push(format!("change-trust failed for {line}: {err}"));
+                            continue;
+                        }
+                    }
+                }
+                match stellar_tx_new(cfg, &args) {
+                    Ok(output) => outputs.push(format!("change-trust {line} -> {output}")),
+                    Err(err) => outputs.push(format!("change-trust failed for {line}: {err}")),
+                }
+            }
+            neurochain::actions::Action::StellarPayment {
+                to,
+                amount,
+                asset_code,
+                asset_issuer,
+            } => {
+                let asset = if asset_code.eq_ignore_ascii_case("XLM") && asset_issuer.is_none() {
+                    "native".to_string()
+                } else if let Some(issuer) = asset_issuer {
+                    format!("{asset_code}:{issuer}")
+                } else {
+                    outputs.push(format!(
+                        "payment failed for {to}: missing asset_issuer for {asset_code}"
+                    ));
+                    continue;
+                };
+                match parse_amount_to_stroops(amount).and_then(|amount_stroops| {
+                    stellar_tx_new(
+                        cfg,
+                        &[
+                            "payment".to_string(),
+                            "--destination".to_string(),
+                            to.clone(),
+                            "--asset".to_string(),
+                            asset.clone(),
+                            "--amount".to_string(),
+                            amount_stroops,
+                        ],
+                    )
+                }) {
+                    Ok(output) => {
+                        outputs.push(format!("payment {amount} {asset} -> {to}: {output}"))
+                    }
+                    Err(err) => outputs.push(format!("payment failed for {to}: {err}")),
+                }
+            }
+            neurochain::actions::Action::StellarTxStatus { hash } => {
+                match fetch_tx_status(&client, &cfg.horizon_url, hash) {
+                    Ok(status) => outputs.push(status),
+                    Err(err) => outputs.push(format!("tx status failed for {hash}: {err}")),
+                }
+            }
             other => outputs.push(format!("submit not implemented for {}", other.kind())),
         }
     }
