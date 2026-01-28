@@ -22,6 +22,7 @@ fn print_usage() {
     eprintln!("Env: NC_SOROBAN_SOURCE or NC_STELLAR_SOURCE (for soroban invoke)");
     eprintln!("Env: NC_STELLAR_CLI (default: stellar)");
     eprintln!("Env: NC_SOROBAN_SIMULATE_FLAG (default: \"--send no\")");
+    eprintln!("Env: NC_TXREP_PREVIEW=1 (include txrep in preview output)");
 }
 
 fn allowlist_enforced() -> bool {
@@ -49,6 +50,7 @@ struct NetworkConfig {
     soroban_source: Option<String>,
     soroban_cli: String,
     soroban_simulate_args: Vec<String>,
+    txrep_preview: bool,
 }
 
 fn parse_simulate_args(raw: &str) -> Vec<String> {
@@ -92,6 +94,13 @@ fn load_network_config() -> NetworkConfig {
     let soroban_simulate_raw =
         env::var("NC_SOROBAN_SIMULATE_FLAG").unwrap_or_else(|_| "--send no".to_string());
     let soroban_simulate_args = parse_simulate_args(&soroban_simulate_raw);
+    let txrep_preview = matches!(
+        env::var("NC_TXREP_PREVIEW")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    );
 
     NetworkConfig {
         horizon_url,
@@ -100,6 +109,7 @@ fn load_network_config() -> NetworkConfig {
         soroban_source,
         soroban_cli,
         soroban_simulate_args,
+        txrep_preview,
     }
 }
 
@@ -261,8 +271,16 @@ fn try_hash_via_cli(cfg: &NetworkConfig, xdr: &str) -> Option<String> {
     })
 }
 
-fn format_submit_line(label: &str, output: &str, hash: Option<String>) -> String {
+fn format_submit_line(
+    label: &str,
+    output: &str,
+    hash: Option<String>,
+    note: Option<&str>,
+) -> String {
     if let Some(hash) = hash {
+        if let Some(note) = note {
+            return format!("{label} -> tx-hash {hash} ({note})");
+        }
         return format!("{label} -> tx-hash {hash}");
     }
     if output.trim().is_empty() {
@@ -296,6 +314,96 @@ fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
     Ok(normalize_cli_output(&output))
 }
 
+fn stellar_tx_build_only(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
+    let source = cfg
+        .soroban_source
+        .as_deref()
+        .ok_or_else(|| anyhow!("NC_SOROBAN_SOURCE/NC_STELLAR_SOURCE not set"))?;
+    let mut cmd = Command::new(&cfg.soroban_cli);
+    cmd.arg("tx")
+        .arg("new")
+        .args(args)
+        .arg("--source-account")
+        .arg(source)
+        .arg("--network")
+        .arg(&cfg.soroban_network)
+        .arg("--build-only");
+    let output = cmd
+        .output()
+        .with_context(|| format!("failed to run {}", cfg.soroban_cli))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "stellar CLI error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(normalize_cli_output(&output))
+}
+
+fn soroban_cli_build(
+    cfg: &NetworkConfig,
+    contract_id: &str,
+    function: &str,
+    args: &Value,
+) -> Result<String> {
+    let source = cfg
+        .soroban_source
+        .as_ref()
+        .ok_or_else(|| anyhow!("NC_SOROBAN_SOURCE is not set"))?;
+
+    let mut cmd = Command::new(&cfg.soroban_cli);
+    cmd.args([
+        "contract",
+        "invoke",
+        "--id",
+        contract_id,
+        "--source",
+        source,
+        "--network",
+        &cfg.soroban_network,
+        "--build-only",
+    ]);
+    cmd.arg("--");
+    cmd.arg(function);
+    for (key, value) in args_to_cli(args) {
+        cmd.arg(format!("--{key}")).arg(value);
+    }
+    let output = cmd.output().context("failed to run stellar CLI")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "stellar CLI error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(normalize_cli_output(&output))
+}
+
+fn xdr_to_txrep(cfg: &NetworkConfig, xdr: &str) -> Result<String> {
+    if xdr.trim().is_empty() {
+        return Err(anyhow!("empty xdr"));
+    }
+    let output = Command::new(&cfg.soroban_cli)
+        .args(["tx", "to-rep", "--xdr", xdr])
+        .output()
+        .with_context(|| format!("failed to run {}", cfg.soroban_cli))?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    }
+
+    // Fallback for CLI versions without `tx to-rep`.
+    let fallback = Command::new(&cfg.soroban_cli)
+        .args(["tx", "decode", "--output", "json-formatted", xdr])
+        .output()
+        .with_context(|| format!("failed to run {}", cfg.soroban_cli))?;
+    if !fallback.status.success() {
+        return Err(anyhow!(
+            "stellar CLI error: {}",
+            String::from_utf8_lossy(&fallback.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&fallback.stdout).trim().to_string())
+}
+
 fn fetch_account(client: &Client, horizon_url: &str, account: &str) -> Result<Value> {
     let url = format!("{}/accounts/{}", horizon_url.trim_end_matches('/'), account);
     let resp = client.get(url).send().context("horizon request failed")?;
@@ -306,6 +414,30 @@ fn fetch_account(client: &Client, horizon_url: &str, account: &str) -> Result<Va
         return Err(anyhow!("horizon error: {}", resp.status()));
     }
     Ok(resp.json::<Value>()?)
+}
+
+fn fetch_latest_tx_hash(client: &Client, horizon_url: &str, account: &str) -> Result<String> {
+    let url = format!(
+        "{}/accounts/{}/transactions?limit=1&order=desc",
+        horizon_url.trim_end_matches('/'),
+        account
+    );
+    let resp = client.get(url).send().context("horizon request failed")?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("horizon error: {}", resp.status()));
+    }
+    let json = resp.json::<Value>()?;
+    let record = json
+        .get("_embedded")
+        .and_then(|v| v.get("records"))
+        .and_then(|v| v.as_array())
+        .and_then(|v| v.first())
+        .ok_or_else(|| anyhow!("no transactions found"))?;
+    record
+        .get("hash")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string())
+        .ok_or_else(|| anyhow!("missing tx hash"))
 }
 
 fn fetch_balances(client: &Client, horizon_url: &str, account: &str) -> Result<Vec<String>> {
@@ -458,6 +590,29 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                 effects.push(format!(
                     "create account {destination} with starting_balance {starting_balance} XLM"
                 ));
+                if cfg.txrep_preview {
+                    match parse_amount_to_stroops(starting_balance).and_then(|amount| {
+                        stellar_tx_build_only(
+                            cfg,
+                            &[
+                                "create-account".to_string(),
+                                "--destination".to_string(),
+                                destination.clone(),
+                                "--starting-balance".to_string(),
+                                amount,
+                            ],
+                        )
+                    }) {
+                        Ok(xdr) => match xdr_to_txrep(cfg, &xdr) {
+                            Ok(txrep) => effects
+                                .push(format!("txrep create-account {destination}:\n{txrep}")),
+                            Err(err) => warnings
+                                .push(format!("txrep create-account {destination} failed: {err}")),
+                        },
+                        Err(err) => warnings
+                            .push(format!("txrep create-account {destination} failed: {err}")),
+                    }
+                }
             }
             neurochain::actions::Action::StellarChangeTrust {
                 asset_code,
@@ -469,6 +624,39 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                     line.push_str(&format!(" limit {limit}"));
                 }
                 effects.push(line);
+                if cfg.txrep_preview {
+                    let line = format!("{asset_code}:{asset_issuer}");
+                    let mut args = vec![
+                        "change-trust".to_string(),
+                        "--line".to_string(),
+                        line.clone(),
+                    ];
+                    if let Some(limit) = limit {
+                        match parse_amount_to_stroops(limit) {
+                            Ok(limit_stroops) => {
+                                args.push("--limit".to_string());
+                                args.push(limit_stroops);
+                            }
+                            Err(err) => {
+                                warnings.push(format!("txrep change-trust {line} failed: {err}"));
+                                continue;
+                            }
+                        }
+                    }
+                    match stellar_tx_build_only(cfg, &args) {
+                        Ok(xdr) => match xdr_to_txrep(cfg, &xdr) {
+                            Ok(txrep) => {
+                                effects.push(format!("txrep change-trust {line}:\n{txrep}"))
+                            }
+                            Err(err) => {
+                                warnings.push(format!("txrep change-trust {line} failed: {err}"))
+                            }
+                        },
+                        Err(err) => {
+                            warnings.push(format!("txrep change-trust {line} failed: {err}"))
+                        }
+                    }
+                }
             }
             neurochain::actions::Action::StellarPayment {
                 to,
@@ -484,6 +672,33 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                     asset_code.clone()
                 };
                 effects.push(format!("payment {amount} {asset} -> {to}"));
+                if cfg.txrep_preview {
+                    match parse_amount_to_stroops(amount).and_then(|amount_stroops| {
+                        stellar_tx_build_only(
+                            cfg,
+                            &[
+                                "payment".to_string(),
+                                "--destination".to_string(),
+                                to.clone(),
+                                "--asset".to_string(),
+                                asset.clone(),
+                                "--amount".to_string(),
+                                amount_stroops,
+                            ],
+                        )
+                    }) {
+                        Ok(xdr) => match xdr_to_txrep(cfg, &xdr) {
+                            Ok(txrep) => effects
+                                .push(format!("txrep payment {amount} {asset} -> {to}:\n{txrep}")),
+                            Err(err) => warnings.push(format!(
+                                "txrep payment {amount} {asset} -> {to} failed: {err}"
+                            )),
+                        },
+                        Err(err) => warnings.push(format!(
+                            "txrep payment {amount} {asset} -> {to} failed: {err}"
+                        )),
+                    }
+                }
             }
             neurochain::actions::Action::StellarTxStatus { hash } => {
                 match fetch_tx_status(&client, &cfg.horizon_url, hash) {
@@ -496,9 +711,30 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                 function,
                 args,
             } => match soroban_cli_invoke(cfg, contract_id, function, args, true) {
-                Ok(output) => effects.push(format!(
-                    "soroban simulate {contract_id}:{function} -> {output}"
-                )),
+                Ok(output) => {
+                    if output.trim().is_empty() {
+                        effects.push(format!("soroban simulate {contract_id}:{function} -> ok"));
+                    } else {
+                        effects.push(format!(
+                            "soroban simulate {contract_id}:{function} -> {output}"
+                        ));
+                    }
+                    if cfg.txrep_preview {
+                        match soroban_cli_build(cfg, contract_id, function, args) {
+                            Ok(xdr) => match xdr_to_txrep(cfg, &xdr) {
+                                Ok(txrep) => effects.push(format!(
+                                    "txrep soroban {contract_id}:{function}:\n{txrep}"
+                                )),
+                                Err(err) => warnings.push(format!(
+                                    "txrep soroban {contract_id}:{function} failed: {err}"
+                                )),
+                            },
+                            Err(err) => warnings.push(format!(
+                                "txrep soroban {contract_id}:{function} failed: {err}"
+                            )),
+                        }
+                    }
+                }
                 Err(err) => warnings.push(format!(
                     "soroban simulate failed for {contract_id}:{function}: {err}"
                 )),
@@ -586,11 +822,23 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                 args,
             } => match soroban_cli_invoke(cfg, contract_id, function, args, false) {
                 Ok(output) => {
-                    let hash = extract_tx_hash(&output);
+                    let mut hash = extract_tx_hash(&output);
+                    let mut note = None;
+                    if hash.is_none() {
+                        if let Some(source) = cfg.soroban_source.as_deref() {
+                            if let Ok(latest) =
+                                fetch_latest_tx_hash(&client, &cfg.horizon_url, source)
+                            {
+                                hash = Some(latest);
+                                note = Some("latest");
+                            }
+                        }
+                    }
                     outputs.push(format_submit_line(
                         &format!("soroban submit {contract_id}:{function}"),
                         &output,
                         hash,
+                        note,
                     ));
                 }
                 Err(err) => outputs.push(format!(
@@ -618,6 +866,7 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                         &format!("create-account {destination}"),
                         &output,
                         hash,
+                        None,
                     ));
                 }
                 Err(err) => outputs.push(format!("create-account failed for {destination}: {err}")),
@@ -653,6 +902,7 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                             &format!("change-trust {line}"),
                             &output,
                             hash,
+                            None,
                         ));
                     }
                     Err(err) => outputs.push(format!("change-trust failed for {line}: {err}")),
@@ -695,6 +945,7 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                             &format!("payment {amount} {asset} -> {to}"),
                             &output,
                             hash,
+                            None,
                         ));
                     }
                     Err(err) => outputs.push(format!("payment failed for {to}: {err}")),

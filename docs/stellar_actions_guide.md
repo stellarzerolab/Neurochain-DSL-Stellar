@@ -54,6 +54,9 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc
   - jos `stellar` ei ole PATHissa
 - `NC_SOROBAN_SIMULATE_FLAG`
   - oletus: `--send no` (CLI 25+), esim. `--send no` tai `--send=no`
+- `NC_TXREP_PREVIEW=1`
+  - lisää txrep/SEP‑11‑previewn (ihmisluettava XDR)
+  - jos CLI ei tue `tx to-rep`, fallback `tx decode` (json‑formatted)
 
 **Allowlist (valinnainen, mutta suositus):**
 
@@ -87,7 +90,12 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow
 
 - Preview näyttää **fee‑arvion** (Horizon `fee_stats`) ja **efektit**.
 - `--yes` ohittaa vahvistuskyselyn.
-- Submit‑tulosteet näyttävät **tx‑hashin**, jos se voidaan päätellä (muuten “submit ok”).
+- Submit‑tulosteet näyttävät **tx‑hashin**, jos se voidaan päätellä.  
+  Jos CLI‑outputista ei löydy hashia, haetaan viimeisin tx‑hash Horizonista
+  lähdetilille (`NC_SOROBAN_SOURCE`), ja merkitään `(latest)`.
+- Soroban‑simuloinnissa tyhjä output tulkitaan “ok”‑tulokseksi.
+- Jos `NC_TXREP_PREVIEW=1`, preview tulostaa txrep‑muodon jokaisesta actionista.
+  Jos `to-rep` ei ole saatavilla, tulostetaan `tx decode` ‑JSON.
 
 ```powershell
 cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow --yes
