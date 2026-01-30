@@ -381,6 +381,351 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
     plan
 }
 
+pub fn parse_action_plan_from_txrep(input: &str) -> Result<ActionPlan, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(input).map_err(|err| format!("invalid json: {err}"))?;
+    let ops = extract_tx_operations(&value).ok_or_else(|| "missing operations".to_string())?;
+
+    let mut plan = ActionPlan::default();
+    plan.source = Some("txrep".to_string());
+
+    for (idx, op) in ops.iter().enumerate() {
+        let body = op.get("body").unwrap_or(op);
+
+        if let Some(create_account) = body.get("create_account") {
+            let destination = get_string(create_account, "destination")
+                .ok_or_else(|| format!("create_account missing destination at op {idx}"))?;
+            let starting_balance = amount_from_value(create_account.get("starting_balance"))
+                .ok_or_else(|| format!("create_account missing starting_balance at op {idx}"))?;
+            plan.actions.push(Action::StellarAccountCreate {
+                destination,
+                starting_balance,
+            });
+            continue;
+        }
+
+        if let Some(change_trust) = body.get("change_trust") {
+            let line = change_trust
+                .get("line")
+                .ok_or_else(|| format!("change_trust missing line at op {idx}"))?;
+            let (asset_code, asset_issuer) = parse_asset(line)
+                .ok_or_else(|| format!("change_trust invalid asset at op {idx}"))?;
+            let asset_issuer =
+                asset_issuer.ok_or_else(|| format!("change_trust missing issuer at op {idx}"))?;
+            let limit = amount_from_value(change_trust.get("limit"))
+                .or(Some("0".to_string()))
+                .filter(|v| v != "0");
+            plan.actions.push(Action::StellarChangeTrust {
+                asset_code,
+                asset_issuer,
+                limit,
+            });
+            continue;
+        }
+
+        if let Some(payment) = body.get("payment") {
+            let destination = get_string(payment, "destination")
+                .ok_or_else(|| format!("payment missing destination at op {idx}"))?;
+            let amount = amount_from_value(payment.get("amount"))
+                .ok_or_else(|| format!("payment missing amount at op {idx}"))?;
+            let asset = payment
+                .get("asset")
+                .ok_or_else(|| format!("payment missing asset at op {idx}"))?;
+            let (asset_code, asset_issuer) =
+                parse_asset(asset).ok_or_else(|| format!("payment invalid asset at op {idx}"))?;
+            plan.actions.push(Action::StellarPayment {
+                to: destination,
+                amount,
+                asset_code,
+                asset_issuer,
+            });
+            continue;
+        }
+
+        if let Some(action) = parse_soroban_invoke(body, idx) {
+            plan.actions.push(action);
+            continue;
+        }
+
+        plan.warnings
+            .push(format!("unsupported operation at index {idx}"));
+        plan.actions.push(Action::Unknown {
+            reason: format!("unsupported operation at index {idx}"),
+        });
+    }
+
+    if plan.actions.is_empty() {
+        plan.warnings
+            .push("no actions detected in txrep input".to_string());
+    }
+
+    Ok(plan)
+}
+
+fn extract_tx_operations(value: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    if let Some(ops) = value.get("operations").and_then(|v| v.as_array()) {
+        return Some(ops);
+    }
+    if let Some(tx) = value.get("tx") {
+        if let Some(ops) = tx.get("operations").and_then(|v| v.as_array()) {
+            return Some(ops);
+        }
+        if let Some(inner) = tx.get("tx") {
+            if let Some(ops) = inner.get("operations").and_then(|v| v.as_array()) {
+                return Some(ops);
+            }
+        }
+    }
+    None
+}
+
+fn get_string(value: &serde_json::Value, field: &str) -> Option<String> {
+    value.get(field).and_then(|v| match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    })
+}
+
+fn amount_from_value(value: Option<&serde_json::Value>) -> Option<String> {
+    let raw = match value? {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+
+    if raw.contains('.') {
+        return Some(raw);
+    }
+    let parsed: i128 = raw.parse().ok()?;
+    Some(format_stroops(parsed))
+}
+
+fn format_stroops(amount: i128) -> String {
+    let negative = amount < 0;
+    let value = amount.abs();
+    let whole = value / 10_000_000;
+    let frac = value % 10_000_000;
+    let mut out = format!("{whole}.{frac:07}");
+    while out.ends_with('0') {
+        out.pop();
+    }
+    if out.ends_with('.') {
+        out.pop();
+    }
+    if out.is_empty() {
+        out = "0".to_string();
+    }
+    if negative {
+        format!("-{out}")
+    } else {
+        out
+    }
+}
+
+fn parse_asset(value: &serde_json::Value) -> Option<(String, Option<String>)> {
+    match value {
+        serde_json::Value::String(s) if s.eq_ignore_ascii_case("native") => {
+            return Some(("XLM".to_string(), None));
+        }
+        serde_json::Value::Object(obj) => {
+            if let Some(inner) = obj
+                .get("credit_alphanum4")
+                .or_else(|| obj.get("credit_alphanum12"))
+            {
+                let asset_code = inner.get("asset_code")?.as_str()?.to_string();
+                let issuer = inner.get("issuer")?.as_str()?.to_string();
+                return Some((asset_code, Some(issuer)));
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn parse_soroban_invoke(body: &serde_json::Value, idx: usize) -> Option<Action> {
+    let invoke = body
+        .get("invoke_host_function")
+        .or_else(|| body.get("invoke_host_function_op"))?;
+    let host_function = invoke
+        .get("host_function")
+        .or_else(|| invoke.get("host_function_op"))
+        .unwrap_or(invoke);
+    let invoke_contract = host_function.get("invoke_contract")?;
+
+    let contract_id = parse_contract_id(invoke_contract)?;
+    let function = invoke_contract
+        .get("function_name")
+        .or_else(|| invoke_contract.get("function"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let args = invoke_contract
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            let decoded: Vec<serde_json::Value> = items.iter().filter_map(scval_to_json).collect();
+            normalize_soroban_args(decoded)
+        })
+        .unwrap_or(serde_json::Value::Null);
+
+    Some(Action::SorobanContractInvoke {
+        contract_id,
+        function: if function.is_empty() {
+            format!("unknown_{idx}")
+        } else {
+            function
+        },
+        args,
+    })
+}
+
+fn parse_contract_id(invoke_contract: &serde_json::Value) -> Option<String> {
+    let candidate = invoke_contract
+        .get("contract_address")
+        .or_else(|| invoke_contract.get("contract_id"))?;
+
+    if let Some(id) = candidate.as_str() {
+        return Some(id.to_string());
+    }
+
+    if let Some(obj) = candidate.as_object() {
+        if let Some(id) = obj
+            .get("contract_id")
+            .or_else(|| obj.get("id"))
+            .and_then(|v| v.as_str())
+        {
+            return Some(id.to_string());
+        }
+        if let Some(inner) = obj.get("contract") {
+            if let Some(id) = inner.as_str() {
+                return Some(id.to_string());
+            }
+            if let Some(id) = inner.get("contract_id").and_then(|v| v.as_str()) {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn scval_to_json(value: &serde_json::Value) -> Option<serde_json::Value> {
+    match value {
+        serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {
+            return Some(value.clone());
+        }
+        serde_json::Value::Array(items) => {
+            let decoded: Vec<serde_json::Value> = items.iter().filter_map(scval_to_json).collect();
+            return Some(serde_json::Value::Array(decoded));
+        }
+        serde_json::Value::Object(map) => {
+            if let Some(v) = map.get("sym").and_then(|v| v.as_str()) {
+                return Some(serde_json::Value::String(v.to_string()));
+            }
+            if let Some(v) = map.get("str").and_then(|v| v.as_str()) {
+                return Some(serde_json::Value::String(v.to_string()));
+            }
+            if let Some(v) = map.get("bool").and_then(|v| v.as_bool()) {
+                return Some(serde_json::Value::Bool(v));
+            }
+            let numeric = map
+                .get("i64")
+                .or_else(|| map.get("i32"))
+                .or_else(|| map.get("u32"))
+                .or_else(|| map.get("u64"));
+            if let Some(v) = numeric {
+                if let Some(num) = v.as_i64() {
+                    return Some(serde_json::Value::Number(num.into()));
+                }
+                if let Some(num) = v.as_u64() {
+                    return Some(serde_json::Value::Number(num.into()));
+                }
+                if let Some(raw) = v.as_str() {
+                    if let Ok(num) = raw.parse::<i64>() {
+                        return Some(serde_json::Value::Number(num.into()));
+                    }
+                    return Some(serde_json::Value::String(raw.to_string()));
+                }
+            }
+            if let Some(v) = map.get("i128").or_else(|| map.get("u128")) {
+                if let Some(raw) = v.as_str() {
+                    return Some(serde_json::Value::String(raw.to_string()));
+                }
+            }
+            if let Some(v) = map.get("bytes").and_then(|v| v.as_str()) {
+                return Some(serde_json::Value::String(v.to_string()));
+            }
+            if let Some(address) = map.get("address") {
+                if let Some(account) = address
+                    .get("account")
+                    .or_else(|| address.get("account_id"))
+                    .and_then(|v| v.as_str())
+                {
+                    return Some(serde_json::Value::String(account.to_string()));
+                }
+                if let Some(contract) = address.get("contract").and_then(|v| v.as_str()) {
+                    return Some(serde_json::Value::String(contract.to_string()));
+                }
+                if let Some(contract_id) = address.get("contract_id").and_then(|v| v.as_str()) {
+                    return Some(serde_json::Value::String(contract_id.to_string()));
+                }
+            }
+            if let Some(vec_val) = map.get("vec").and_then(|v| v.as_array()) {
+                let decoded: Vec<serde_json::Value> =
+                    vec_val.iter().filter_map(scval_to_json).collect();
+                return Some(serde_json::Value::Array(decoded));
+            }
+            if let Some(map_val) = map.get("map").and_then(|v| v.as_array()) {
+                let mut obj = serde_json::Map::new();
+                let mut fallback = Vec::new();
+                for entry in map_val {
+                    let key = entry.get("key").and_then(scval_to_json);
+                    let val = entry.get("val").and_then(scval_to_json);
+                    match (key, val) {
+                        (Some(serde_json::Value::String(k)), Some(v)) => {
+                            obj.insert(k, v);
+                        }
+                        (Some(k), Some(v)) => {
+                            fallback.push(serde_json::json!({ "key": k, "val": v }));
+                        }
+                        _ => {}
+                    }
+                }
+                if !obj.is_empty() {
+                    return Some(serde_json::Value::Object(obj));
+                }
+                if !fallback.is_empty() {
+                    return Some(serde_json::Value::Array(fallback));
+                }
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn normalize_soroban_args(args: Vec<serde_json::Value>) -> serde_json::Value {
+    if args.len() >= 2 && args.len() % 2 == 0 {
+        let mut map = serde_json::Map::new();
+        for pair in args.chunks(2) {
+            let Some(key) = pair[0].as_str() else {
+                return serde_json::Value::Array(args);
+            };
+            if map.contains_key(key) {
+                return serde_json::Value::Array(args);
+            }
+            map.insert(key.to_string(), pair[1].clone());
+        }
+        if !map.is_empty() {
+            return serde_json::Value::Object(map);
+        }
+    }
+    serde_json::Value::Array(args)
+}
+
 fn split_args_tail(line: &str) -> (&str, Option<&str>) {
     if let Some(pos) = line.find(" args=") {
         let head = line[..pos].trim();

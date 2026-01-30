@@ -1,5 +1,6 @@
 use neurochain::actions::{
-    parse_action_plan_from_nc, validate_plan, Action, ActionPlan, Allowlist,
+    parse_action_plan_from_nc, parse_action_plan_from_txrep, validate_plan, Action, ActionPlan,
+    Allowlist,
 };
 use serde_json::Value;
 use std::sync::{Mutex, OnceLock};
@@ -10,6 +11,191 @@ fn with_env_lock<F: FnOnce()>(f: F) {
     let lock = ENV_MUTEX.get_or_init(|| Mutex::new(()));
     let _guard = lock.lock().unwrap();
     f();
+}
+
+#[test]
+fn parse_txrep_into_action_plan() {
+    let input = r#"
+{
+  "tx": {
+    "tx": {
+      "operations": [
+        {
+          "body": {
+            "create_account": {
+              "destination": "GDEST",
+              "starting_balance": "20000000"
+            }
+          }
+        },
+        {
+          "body": {
+            "change_trust": {
+              "line": {
+                "credit_alphanum4": {
+                  "asset_code": "USDC",
+                  "issuer": "GISSUER"
+                }
+              },
+              "limit": "10000000000"
+            }
+          }
+        },
+        {
+          "body": {
+            "payment": {
+              "destination": "GTO",
+              "asset": "native",
+              "amount": "50000000"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+"#;
+
+    let plan = parse_action_plan_from_txrep(input).expect("parse txrep");
+    assert_eq!(plan.actions.len(), 3);
+
+    match &plan.actions[0] {
+        Action::StellarAccountCreate {
+            destination,
+            starting_balance,
+        } => {
+            assert_eq!(destination, "GDEST");
+            assert_eq!(starting_balance, "2");
+        }
+        _ => panic!("expected create_account"),
+    }
+
+    match &plan.actions[1] {
+        Action::StellarChangeTrust {
+            asset_code,
+            asset_issuer,
+            limit,
+        } => {
+            assert_eq!(asset_code, "USDC");
+            assert_eq!(asset_issuer, "GISSUER");
+            assert_eq!(limit.as_deref(), Some("1000"));
+        }
+        _ => panic!("expected change_trust"),
+    }
+
+    match &plan.actions[2] {
+        Action::StellarPayment {
+            to,
+            amount,
+            asset_code,
+            asset_issuer,
+        } => {
+            assert_eq!(to, "GTO");
+            assert_eq!(amount, "5");
+            assert_eq!(asset_code, "XLM");
+            assert!(asset_issuer.is_none());
+        }
+        _ => panic!("expected payment"),
+    }
+}
+
+#[test]
+fn parse_txrep_soroban_invoke() {
+    let input = r#"
+{
+  "tx": {
+    "tx": {
+      "operations": [
+        {
+          "body": {
+            "invoke_host_function": {
+              "host_function": {
+                "invoke_contract": {
+                  "contract_address": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+                  "function_name": "hello",
+                  "args": [
+                    { "str": "World" }
+                  ]
+                }
+              },
+              "auth": []
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+"#;
+
+    let plan = parse_action_plan_from_txrep(input).expect("parse txrep");
+    assert_eq!(plan.actions.len(), 1);
+
+    match &plan.actions[0] {
+        Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } => {
+            assert_eq!(
+                contract_id,
+                "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ"
+            );
+            assert_eq!(function, "hello");
+            assert_eq!(args[0], Value::String("World".to_string()));
+        }
+        _ => panic!("expected soroban.contract.invoke"),
+    }
+}
+
+#[test]
+fn parse_txrep_soroban_named_args() {
+    let input = r#"
+{
+  "tx": {
+    "tx": {
+      "operations": [
+        {
+          "body": {
+            "invoke_host_function": {
+              "host_function": {
+                "invoke_contract": {
+                  "contract_address": "CABC123",
+                  "function_name": "transfer",
+                  "args": [
+                    { "sym": "to" },
+                    { "address": { "account": "GDEST" } },
+                    { "sym": "amount" },
+                    { "i64": "42" }
+                  ]
+                }
+              },
+              "auth": []
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+"#;
+
+    let plan = parse_action_plan_from_txrep(input).expect("parse txrep");
+    assert_eq!(plan.actions.len(), 1);
+
+    match &plan.actions[0] {
+        Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } => {
+            assert_eq!(contract_id, "CABC123");
+            assert_eq!(function, "transfer");
+            assert_eq!(args["to"], Value::String("GDEST".to_string()));
+            assert_eq!(args["amount"], Value::Number(42.into()));
+        }
+        _ => panic!("expected soroban.contract.invoke"),
+    }
 }
 
 #[test]

@@ -192,7 +192,7 @@ cargo run --bin neurochain-soroban -- examples\stellar_testasset_user_payment.nc
 
 ---
 
-## 6) Soroban invoke vaatii CLI‑avaimen
+## 7) Soroban invoke vaatii CLI‑avaimen
 
 Soroban invoke käyttää `stellar contract invoke`‑komentoa. Aseta **alias**:
 
@@ -203,7 +203,31 @@ setx NC_SOROBAN_SOURCE "quest1-new"
 
 ---
 
-## 7) Yleisimmät virheet
+## 8) Txrep‑muunnokset (ActionPlan + JSONL)
+
+NeuroChainissa on kaksi **txrep‑muunnostyökalua**:
+
+- `txrep-to-action` → muuntaa `stellar tx decode --output json-formatted` ‑datan **ActionPlan**‑muotoon.
+- `txrep-to-jsonl` → muuntaa saman txrep‑datan **JSONL**‑rivimuotoon (dataset‑pipelinea varten).
+
+**Esimerkki:**
+
+```powershell
+# 1) Dekoodaa XDR → txrep (json-formatted)
+stellar tx decode --input <TX_XDR_BASE64> --output json-formatted > txrep.json
+
+# 2) Txrep → ActionPlan
+cargo run --bin txrep-to-action -- txrep.json > action_plan.json
+
+# 3) Txrep → JSONL (dataset‑pipeline)
+cargo run --bin txrep-to-jsonl -- txrep.json > dataset.jsonl
+```
+
+> Huom: nämä eivät tee on‑chain‑kutsuja — ne ovat puhtaita **muunnostyökaluja**.
+
+---
+
+## 9) Yleisimmät virheet
 
 - **Friendbot error** → varmista testnet + public key
 - **Horizon 404** → tili ei ole vielä luotu/rahoitettu
@@ -211,14 +235,14 @@ setx NC_SOROBAN_SOURCE "quest1-new"
 
 ---
 
-## 8) Seuraavaksi (roadmap)
+## 10) Seuraavaksi (roadmap)
 
 - Soroban invoke output‑parsinta (fee/preview erittely)
 - (Valinnainen) **txrep / SEP‑11** preview‑tulostus audit‑trailiin (ihmisluettava XDR)
 
 ---
 
-## 9) Päivitysperiaate
+## 11) Päivitysperiaate
 
 Tätä ohjetta päivitetään aina, kun:
 
