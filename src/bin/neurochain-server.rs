@@ -12,7 +12,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use neurochain::{engine, interpreter};
+use neurochain::{banner, engine, interpreter};
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::Semaphore,
@@ -124,6 +124,7 @@ fn normalize(s: &str) -> String {
 
 #[tokio::main]
 async fn main() {
+    banner::print_banner();
     std::panic::set_hook(Box::new(|info| {
         eprintln!("PANIC: {info}");
         if std::env::var("RUST_BACKTRACE").as_deref() != Ok("0") {

@@ -6,7 +6,7 @@ stellar.account.balance account="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTU
 # stellar.account.create destination="GCU2P57LBRHW2ZHWDRAB7MXOQRTB2B5XBOR3YNZX6LWDWWT2GJ2UE3QS" starting_balance="2"
 # stellar.account.fund_testnet account="GCU2P57LBRHW2ZHWDRAB7MXOQRTB2B5XBOR3YNZX6LWDWWT2GJ2UE3QS"
 
-stellar.change_trust asset_code="USDC" asset_issuer="GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5" limit="1000"
+#stellar.change_trust asset_code="USDC" asset_issuer="GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5" limit="1000"
 
 stellar.payment to="GCU2P57LBRHW2ZHWDRAB7MXOQRTB2B5XBOR3YNZX6LWDWWT2GJ2UE3QS" amount="5" asset_code="XLM"
 # (enable after you actually hold USDC)

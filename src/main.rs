@@ -2,16 +2,13 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 
+use neurochain::banner;
 use neurochain::engine::{analyze, analyze_blocks};
 use neurochain::interpreter::Interpreter;
 
 const NEUROCHAIN_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NEUROCHAIN_ABOUT: &str =
     "NeuroChain CLI – built for AI, logic and elegance. StellarZeroLab © 2026.";
-
-fn print_banner() {
-    println!("\n🌐 Welcome to NeuroChain CLI – built for AI, logic and elegance\n");
-}
 
 fn print_version() {
     println!("🧬 NeuroChain version {}", NEUROCHAIN_VERSION);
@@ -132,7 +129,7 @@ Docs & examples: https://github.com/stellarzerolab/Neurochain-DSL
 }
 
 fn main() {
-    print_banner();
+    banner::print_banner();
     let mut interpreter = Interpreter::new();
 
     let args: Vec<String> = env::args().collect();

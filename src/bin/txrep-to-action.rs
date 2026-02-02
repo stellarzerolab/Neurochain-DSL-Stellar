@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read};
 
 use neurochain::actions::parse_action_plan_from_txrep;
+use neurochain::banner;
 
 fn print_usage() {
     eprintln!("Usage: txrep-to-action <txrep.json|->");
@@ -21,6 +22,7 @@ fn read_input(path: &str) -> Result<String, String> {
 }
 
 fn main() {
+    banner::print_banner_stderr();
     let mut args = env::args().skip(1);
     let Some(path) = args.next() else {
         print_usage();

@@ -4,6 +4,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 use neurochain::actions::{parse_action_plan_from_nc, validate_plan, ActionPlan, Allowlist};
+use neurochain::banner;
 use reqwest::blocking::Client;
 use serde_json::Value;
 
@@ -965,6 +966,7 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
 }
 
 fn main() {
+    banner::print_banner_stderr();
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         print_usage();
