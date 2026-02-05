@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::process::Command;
@@ -6,6 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use neurochain::actions::{parse_action_plan_from_nc, validate_plan, ActionPlan, Allowlist};
 use neurochain::banner;
 use reqwest::blocking::Client;
+use serde::Deserialize;
 use serde_json::Value;
 
 fn print_usage() {
@@ -24,6 +26,9 @@ fn print_usage() {
     eprintln!("Env: NC_STELLAR_CLI (default: stellar)");
     eprintln!("Env: NC_SOROBAN_SIMULATE_FLAG (default: \"--send no\")");
     eprintln!("Env: NC_TXREP_PREVIEW=1 (include txrep in preview output)");
+    eprintln!("Env: NC_CONTRACT_POLICY=path/to/policy.json");
+    eprintln!("Env: NC_CONTRACT_POLICY_DIR=contracts");
+    eprintln!("Env: NC_CONTRACT_POLICY_ENFORCE=1 (hard-fail on policy violations)");
 }
 
 fn allowlist_enforced() -> bool {
@@ -34,6 +39,37 @@ fn allowlist_enforced() -> bool {
             .as_str(),
         "1" | "true" | "yes" | "on"
     )
+}
+
+fn policy_enforced() -> bool {
+    matches!(
+        std::env::var("NC_CONTRACT_POLICY_ENFORCE")
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ArgSchema {
+    #[serde(default)]
+    required: HashMap<String, String>,
+    #[serde(default)]
+    optional: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ContractPolicy {
+    contract_id: String,
+    #[serde(default)]
+    allowed_functions: Vec<String>,
+    #[serde(default)]
+    args_schema: HashMap<String, ArgSchema>,
+    #[serde(default)]
+    max_fee_stroops: Option<u64>,
+    #[serde(default)]
+    resource_limits: Option<Value>,
 }
 
 #[derive(Debug)]
@@ -112,6 +148,181 @@ fn load_network_config() -> NetworkConfig {
         soroban_simulate_args,
         txrep_preview,
     }
+}
+
+fn load_contract_policies() -> Vec<ContractPolicy> {
+    let mut policies = Vec::new();
+
+    if let Ok(path) = env::var("NC_CONTRACT_POLICY") {
+        if let Ok(data) = fs::read_to_string(&path) {
+            match serde_json::from_str::<ContractPolicy>(&data) {
+                Ok(policy) => policies.push(policy),
+                Err(err) => eprintln!("Policy parse failed for {path}: {err}"),
+            }
+        } else {
+            eprintln!("Policy file not found: {path}");
+        }
+    }
+
+    let policy_dir = env::var("NC_CONTRACT_POLICY_DIR").unwrap_or_else(|_| "contracts".to_string());
+    if let Ok(entries) = fs::read_dir(&policy_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let policy_path = path.join("policy.json");
+                if let Ok(data) = fs::read_to_string(&policy_path) {
+                    match serde_json::from_str::<ContractPolicy>(&data) {
+                        Ok(policy) => policies.push(policy),
+                        Err(err) => {
+                            eprintln!("Policy parse failed for {}: {err}", policy_path.display())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    policies
+}
+
+fn is_base32_char(c: char) -> bool {
+    matches!(c, 'A'..='Z' | '2'..='7')
+}
+
+fn is_strkey(value: &str) -> bool {
+    if value.len() != 56 {
+        return false;
+    }
+    let first = value.chars().next().unwrap_or('\0');
+    if first != 'G' && first != 'C' {
+        return false;
+    }
+    value.chars().all(is_base32_char)
+}
+
+fn is_symbol(value: &str) -> bool {
+    let len = value.len();
+    if len == 0 || len > 32 {
+        return false;
+    }
+    value
+        .chars()
+        .all(|c| c.is_ascii() && !c.is_control() && !c.is_whitespace())
+}
+
+fn is_hex_bytes(value: &str) -> bool {
+    if !value.starts_with("0x") {
+        return false;
+    }
+    let hex = &value[2..];
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return false;
+    }
+    hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn validate_arg_type(value: &Value, ty: &str) -> bool {
+    match ty {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "bool" => value.is_boolean(),
+        "address" => value.as_str().map(is_strkey).unwrap_or(false),
+        "symbol" => value.as_str().map(is_symbol).unwrap_or(false),
+        "bytes" => value.as_str().map(is_hex_bytes).unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn validate_contract_policies(
+    plan: &ActionPlan,
+    policies: &[ContractPolicy],
+) -> (Vec<String>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    if policies.is_empty() {
+        return (warnings, errors);
+    }
+
+    let mut map: HashMap<String, ContractPolicy> = HashMap::new();
+    for policy in policies {
+        map.insert(policy.contract_id.clone(), policy.clone());
+    }
+
+    for action in &plan.actions {
+        if let neurochain::actions::Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } = action
+        {
+            let Some(policy) = map.get(contract_id) else {
+                errors.push(format!(
+                    "policy_missing: no policy for contract_id {contract_id}"
+                ));
+                continue;
+            };
+            if !policy.allowed_functions.is_empty()
+                && !policy.allowed_functions.iter().any(|f| f == function)
+            {
+                errors.push(format!(
+                    "policy_function_denied: {contract_id}:{function} not allowed"
+                ));
+                continue;
+            }
+
+            if let Some(schema) = policy.args_schema.get(function) {
+                let args_obj = args.as_object();
+                if args_obj.is_none() {
+                    errors.push(format!(
+                        "policy_args_invalid: {contract_id}:{function} args must be object"
+                    ));
+                    continue;
+                }
+                let args_obj = args_obj.unwrap();
+
+                for (key, ty) in &schema.required {
+                    match args_obj.get(key) {
+                        Some(val) => {
+                            if !validate_arg_type(val, ty) {
+                                errors.push(format!(
+                                    "policy_args_type: {contract_id}:{function} {key} expected {ty}"
+                                ));
+                            }
+                        }
+                        None => errors.push(format!(
+                            "policy_args_missing: {contract_id}:{function} missing {key}"
+                        )),
+                    }
+                }
+
+                for (key, ty) in &schema.optional {
+                    if let Some(val) = args_obj.get(key) {
+                        if !validate_arg_type(val, ty) {
+                            errors.push(format!(
+                                "policy_args_type: {contract_id}:{function} {key} expected {ty}"
+                            ));
+                        }
+                    }
+                }
+
+                for key in args_obj.keys() {
+                    if !schema.required.contains_key(key) && !schema.optional.contains_key(key) {
+                        warnings.push(format!(
+                            "policy_args_unknown: {contract_id}:{function} unexpected arg {key}"
+                        ));
+                    }
+                }
+            }
+
+            if let Some(max_fee) = policy.max_fee_stroops {
+                warnings.push(format!(
+                    "policy_hint: {contract_id}:{function} max_fee_stroops={max_fee}"
+                ));
+            }
+        }
+    }
+
+    (warnings, errors)
 }
 
 fn estimate_op_count(plan: &ActionPlan) -> usize {
@@ -1067,6 +1278,27 @@ fn main() {
                 "- #{} {}: {}",
                 violation.index, violation.action, violation.reason
             );
+        }
+    }
+
+    let policies = load_contract_policies();
+    let (policy_warnings, policy_errors) = validate_contract_policies(&plan, &policies);
+    for warning in &policy_warnings {
+        plan.warnings.push(format!("policy warning: {warning}"));
+    }
+    if !policy_errors.is_empty() {
+        if policy_enforced() {
+            eprintln!("Contract policy violations (enforced):");
+            for err in &policy_errors {
+                eprintln!("- {err}");
+            }
+            eprintln!("Set NC_CONTRACT_POLICY_ENFORCE=0 (or unset) to allow warnings only.");
+            std::process::exit(4);
+        }
+        eprintln!("Contract policy warnings (not enforced):");
+        for err in &policy_errors {
+            eprintln!("- {err}");
+            plan.warnings.push(format!("policy error: {err}"));
         }
     }
 

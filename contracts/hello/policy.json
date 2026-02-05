@@ -1,0 +1,13 @@
+{
+  "contract_id": "C...",
+  "allowed_functions": ["hello"],
+  "args_schema": {
+    "hello": {
+      "required": {
+        "to": "symbol"
+      },
+      "optional": {}
+    }
+  },
+  "max_fee_stroops": 1000
+}

@@ -98,6 +98,34 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow
 - Jos `NC_TXREP_PREVIEW=1`, preview tulostaa txrep‑muodon jokaisesta actionista.
   Jos `to-rep` ei ole saatavilla, tulostetaan `tx decode` ‑JSON.
 
+## 4.5) Contract‑policy (schema‑guardrail)
+
+Soroban‑invoke voidaan validoida contract‑kohtaisella policyllä ennen simulate‑polkua.
+
+- Policy‑tiedosto: `contracts/<name>/policy.json` (tai suora polku `NC_CONTRACT_POLICY`)
+- Enforce: `NC_CONTRACT_POLICY_ENFORCE=1` → hard‑fail
+
+Tuetut arg‑tyypit:
+- `string | number | bool | address | symbol | bytes`  
+  - `address`: strkey (G… / C…, 56 merkkiä)  
+  - `symbol`: 1–32 ASCII, ei whitespace  
+  - `bytes`: hex muodossa `0x...`
+
+**Esimerkki (hello‑contract):**
+```json
+{
+  "contract_id": "C...",
+  "allowed_functions": ["hello"],
+  "args_schema": {
+    "hello": {
+      "required": { "to": "symbol" },
+      "optional": {}
+    }
+  },
+  "max_fee_stroops": 1000
+}
+```
+
 ```powershell
 cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow --yes
 ```
