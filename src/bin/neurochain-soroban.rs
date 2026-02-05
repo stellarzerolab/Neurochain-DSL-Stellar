@@ -272,22 +272,27 @@ fn try_hash_via_cli(cfg: &NetworkConfig, xdr: &str) -> Option<String> {
     })
 }
 
-fn format_submit_line(
-    label: &str,
-    output: &str,
-    hash: Option<String>,
-    note: Option<&str>,
-) -> String {
-    if let Some(hash) = hash {
-        if let Some(note) = note {
-            return format!("{label} -> tx-hash {hash} ({note})");
-        }
-        return format!("{label} -> tx-hash {hash}");
+fn normalize_return(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return None;
     }
-    if output.trim().is_empty() {
-        return format!("{label} -> submit ok");
+    let single_line = trimmed.replace('\n', "\\n");
+    Some(single_line)
+}
+
+fn format_submit_ok(label: &str, hash: Option<String>, output: &str, note: Option<&str>) -> String {
+    let hash_text = hash.unwrap_or_else(|| "-".to_string());
+    let mut return_text = normalize_return(output).unwrap_or_else(|| "-".to_string());
+    if let Some(note) = note {
+        return_text = format!("{return_text} ({note})");
     }
-    format!("{label} -> {output}")
+    format!("{label} | status=ok | tx_hash={hash_text} | return={return_text}")
+}
+
+fn format_submit_error(label: &str, stage: &str, err: &str) -> String {
+    let err_text = err.trim().replace('\n', "\\n");
+    format!("{label} | status=error | stage={stage} | error={err_text}")
 }
 
 fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
@@ -571,7 +576,7 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                         }
                     }
                     Err(err) => {
-                        warnings.push(format!("balance simulate failed for {account}: {err}"))
+                        warnings.push(format!("simulate_error: balance {account} failed: {err}"))
                     }
                 }
             }
@@ -607,11 +612,13 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                         Ok(xdr) => match xdr_to_txrep(cfg, &xdr) {
                             Ok(txrep) => effects
                                 .push(format!("txrep create-account {destination}:\n{txrep}")),
-                            Err(err) => warnings
-                                .push(format!("txrep create-account {destination} failed: {err}")),
+                            Err(err) => warnings.push(format!(
+                                "preview_error: txrep create-account {destination} failed: {err}"
+                            )),
                         },
-                        Err(err) => warnings
-                            .push(format!("txrep create-account {destination} failed: {err}")),
+                        Err(err) => warnings.push(format!(
+                            "preview_error: txrep create-account {destination} failed: {err}"
+                        )),
                     }
                 }
             }
@@ -639,7 +646,9 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                                 args.push(limit_stroops);
                             }
                             Err(err) => {
-                                warnings.push(format!("txrep change-trust {line} failed: {err}"));
+                                warnings.push(format!(
+                                    "preview_error: txrep change-trust {line} failed: {err}"
+                                ));
                                 continue;
                             }
                         }
@@ -649,13 +658,13 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                             Ok(txrep) => {
                                 effects.push(format!("txrep change-trust {line}:\n{txrep}"))
                             }
-                            Err(err) => {
-                                warnings.push(format!("txrep change-trust {line} failed: {err}"))
-                            }
+                            Err(err) => warnings.push(format!(
+                                "preview_error: txrep change-trust {line} failed: {err}"
+                            )),
                         },
-                        Err(err) => {
-                            warnings.push(format!("txrep change-trust {line} failed: {err}"))
-                        }
+                        Err(err) => warnings.push(format!(
+                            "preview_error: txrep change-trust {line} failed: {err}"
+                        )),
                     }
                 }
             }
@@ -692,11 +701,11 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                             Ok(txrep) => effects
                                 .push(format!("txrep payment {amount} {asset} -> {to}:\n{txrep}")),
                             Err(err) => warnings.push(format!(
-                                "txrep payment {amount} {asset} -> {to} failed: {err}"
+                                "preview_error: txrep payment {amount} {asset} -> {to} failed: {err}"
                             )),
                         },
                         Err(err) => warnings.push(format!(
-                            "txrep payment {amount} {asset} -> {to} failed: {err}"
+                            "preview_error: txrep payment {amount} {asset} -> {to} failed: {err}"
                         )),
                     }
                 }
@@ -704,7 +713,7 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
             neurochain::actions::Action::StellarTxStatus { hash } => {
                 match fetch_tx_status(&client, &cfg.horizon_url, hash) {
                     Ok(status) => effects.push(status),
-                    Err(err) => warnings.push(format!("tx status simulate failed: {err}")),
+                    Err(err) => warnings.push(format!("simulate_error: tx status failed: {err}")),
                 }
             }
             neurochain::actions::Action::SorobanContractInvoke {
@@ -727,20 +736,23 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                                     "txrep soroban {contract_id}:{function}:\n{txrep}"
                                 )),
                                 Err(err) => warnings.push(format!(
-                                    "txrep soroban {contract_id}:{function} failed: {err}"
+                                    "preview_error: txrep soroban {contract_id}:{function} failed: {err}"
                                 )),
                             },
                             Err(err) => warnings.push(format!(
-                                "txrep soroban {contract_id}:{function} failed: {err}"
+                                "preview_error: txrep soroban {contract_id}:{function} failed: {err}"
                             )),
                         }
                     }
                 }
                 Err(err) => warnings.push(format!(
-                    "soroban simulate failed for {contract_id}:{function}: {err}"
+                    "simulate_error: soroban {contract_id}:{function} failed: {err}"
                 )),
             },
-            other => warnings.push(format!("simulate not implemented for {}", other.kind())),
+            other => warnings.push(format!(
+                "simulate_skip: not implemented for {}",
+                other.kind()
+            )),
         }
     }
 
@@ -835,15 +847,17 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                             }
                         }
                     }
-                    outputs.push(format_submit_line(
+                    outputs.push(format_submit_ok(
                         &format!("soroban submit {contract_id}:{function}"),
-                        &output,
                         hash,
+                        &output,
                         note,
                     ));
                 }
-                Err(err) => outputs.push(format!(
-                    "soroban submit failed for {contract_id}:{function}: {err}"
+                Err(err) => outputs.push(format_submit_error(
+                    &format!("soroban submit {contract_id}:{function}"),
+                    "submit",
+                    &err.to_string(),
                 )),
             },
             neurochain::actions::Action::StellarAccountCreate {
@@ -863,14 +877,18 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
             }) {
                 Ok(output) => {
                     let hash = extract_tx_hash(&output).or_else(|| try_hash_via_cli(cfg, &output));
-                    outputs.push(format_submit_line(
+                    outputs.push(format_submit_ok(
                         &format!("create-account {destination}"),
-                        &output,
                         hash,
+                        &output,
                         None,
                     ));
                 }
-                Err(err) => outputs.push(format!("create-account failed for {destination}: {err}")),
+                Err(err) => outputs.push(format_submit_error(
+                    &format!("create-account {destination}"),
+                    "submit",
+                    &err.to_string(),
+                )),
             },
             neurochain::actions::Action::StellarChangeTrust {
                 asset_code,
@@ -890,7 +908,11 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                             args.push(limit_stroops);
                         }
                         Err(err) => {
-                            outputs.push(format!("change-trust failed for {line}: {err}"));
+                            outputs.push(format_submit_error(
+                                &format!("change-trust {line}"),
+                                "submit",
+                                &err.to_string(),
+                            ));
                             continue;
                         }
                     }
@@ -899,14 +921,18 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     Ok(output) => {
                         let hash =
                             extract_tx_hash(&output).or_else(|| try_hash_via_cli(cfg, &output));
-                        outputs.push(format_submit_line(
+                        outputs.push(format_submit_ok(
                             &format!("change-trust {line}"),
-                            &output,
                             hash,
+                            &output,
                             None,
                         ));
                     }
-                    Err(err) => outputs.push(format!("change-trust failed for {line}: {err}")),
+                    Err(err) => outputs.push(format_submit_error(
+                        &format!("change-trust {line}"),
+                        "submit",
+                        &err.to_string(),
+                    )),
                 }
             }
             neurochain::actions::Action::StellarPayment {
@@ -920,8 +946,10 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                 } else if let Some(issuer) = asset_issuer {
                     format!("{asset_code}:{issuer}")
                 } else {
-                    outputs.push(format!(
-                        "payment failed for {to}: missing asset_issuer for {asset_code}"
+                    outputs.push(format_submit_error(
+                        &format!("payment {amount} {asset_code} -> {to}"),
+                        "submit",
+                        &format!("missing asset_issuer for {asset_code}"),
                     ));
                     continue;
                 };
@@ -942,14 +970,18 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     Ok(output) => {
                         let hash =
                             extract_tx_hash(&output).or_else(|| try_hash_via_cli(cfg, &output));
-                        outputs.push(format_submit_line(
+                        outputs.push(format_submit_ok(
                             &format!("payment {amount} {asset} -> {to}"),
-                            &output,
                             hash,
+                            &output,
                             None,
                         ));
                     }
-                    Err(err) => outputs.push(format!("payment failed for {to}: {err}")),
+                    Err(err) => outputs.push(format_submit_error(
+                        &format!("payment {amount} {asset} -> {to}"),
+                        "submit",
+                        &err.to_string(),
+                    )),
                 }
             }
             neurochain::actions::Action::StellarTxStatus { hash } => {

@@ -92,7 +92,8 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow
 - `--yes` ohittaa vahvistuskyselyn.
 - Submit‑tulosteet näyttävät **tx‑hashin**, jos se voidaan päätellä.  
   Jos CLI‑outputista ei löydy hashia, haetaan viimeisin tx‑hash Horizonista
-  lähdetilille (`NC_SOROBAN_SOURCE`), ja merkitään `(latest)`.
+  ja merkitään `(latest)`.
+- Submit‑rivit ovat nyt yhtenäisessä muodossa: `status=ok|error`, `tx_hash`, `return`.
 - Soroban‑simuloinnissa tyhjä output tulkitaan “ok”‑tulokseksi.
 - Jos `NC_TXREP_PREVIEW=1`, preview tulostaa txrep‑muodon jokaisesta actionista.
   Jos `to-rep` ei ole saatavilla, tulostetaan `tx decode` ‑JSON.
