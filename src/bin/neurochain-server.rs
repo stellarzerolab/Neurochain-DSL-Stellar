@@ -102,6 +102,7 @@ fn resolve_model_path(id: &str) -> Option<String> {
         "sst2" => format!("{base}/distilbert-sst2/model.onnx"),
         "factcheck" => format!("{base}/factcheck/model.onnx"),
         "intent" => format!("{base}/intent/model.onnx"),
+        "intent_stellar" | "stellar_intent" => format!("{base}/intent_stellar/model.onnx"),
         "toxic" => format!("{base}/toxic_quantized/model.onnx"),
         "macro" | "intent_macro" | "macro_intent" | "gpt2" | "generator" => {
             format!("{base}/intent_macro/model.onnx")

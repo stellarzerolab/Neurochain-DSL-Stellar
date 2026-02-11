@@ -78,6 +78,26 @@ if cmd == "StopCommand":
     neuro "Stopping process"
 ```
 
+### IntentStellar (Stellar/Soroban intent)
+- Path: `models/intent_stellar/model.onnx`
+- Labels: `BalanceQuery`, `CreateAccount`, `ChangeTrust`, `TransferXLM`, `TransferAsset`, `FundTestnet`, `TxStatus`, `ContractInvoke`, `Unknown`
+- Training data: in-house dataset created for NeuroChain (not distributed)
+
+```nc
+AI: "models/intent_stellar/model.onnx"
+set intent from AI: "Send 5 XLM to G..."
+if intent == "TransferXLM":
+    neuro "Create payment action"
+```
+
+Quick smoke test:
+
+```bash
+cargo run --bin neurochain -- examples/intent_stellar_smoke.nc
+# or (faster runtime)
+cargo run --release --bin neurochain -- examples/intent_stellar_smoke.nc
+```
+
 ### MacroIntent (macro intent classification)
 - Path: `models/intent_macro/model.onnx`
 - Labels: `Loop`, `Branch`, `Arith`, `Concat`, `RoleFlag`, `AIBridge`, `DocPrint`, `SetVar`, `Unknown`
@@ -102,7 +122,7 @@ Macro intent stays usable as long as the macro model is loaded (see `examples/ma
 Server endpoint:
 - `POST /api/analyze`
 
-The `model` field can be e.g. `sst2`, `toxic`, `factcheck`, `intent`, `macro` (aliases: `intent_macro`, `macro_intent`).
+The `model` field can be e.g. `sst2`, `toxic`, `factcheck`, `intent`, `intent_stellar`, `macro` (aliases: `stellar_intent`, `intent_macro`, `macro_intent`).
 
 If the request `content` does not include an `AI:` line, the server injects the model path automatically.
 

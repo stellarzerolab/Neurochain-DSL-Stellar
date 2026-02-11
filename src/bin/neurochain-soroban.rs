@@ -314,6 +314,14 @@ fn validate_contract_policies(
                 }
             }
 
+            if let Some(limits) = &policy.resource_limits {
+                if !limits.is_object() {
+                    warnings.push(format!(
+                        "policy_resource_limits_invalid: {contract_id} resource_limits must be object"
+                    ));
+                }
+            }
+
             if let Some(max_fee) = policy.max_fee_stroops {
                 warnings.push(format!(
                     "policy_hint: {contract_id}:{function} max_fee_stroops={max_fee}"

@@ -103,6 +103,12 @@ Intent: e.g. "GoCommand", "StopCommand", "LeftCommand"
    if cmd == "StopCommand":
        neuro "Stopping process"
 
+IntentStellar: BalanceQuery/CreateAccount/ChangeTrust/TransferXLM/TransferAsset/FundTestnet/TxStatus/ContractInvoke/Unknown
+   AI: "models/intent_stellar/model.onnx"
+   set intent from AI: "Send 5 XLM to G..."
+   if intent == "TransferXLM":
+       neuro "Create payment action"
+
 MacroIntent: Loop/Branch/Arith/Concat/RoleFlag/AIBridge/DocPrint/SetVar/Unknown
    AI: "models/intent_macro/model.onnx"
    macro from AI: Show Ping 3 times
