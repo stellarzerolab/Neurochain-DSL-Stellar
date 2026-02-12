@@ -191,6 +191,11 @@ Deterministic slot parsing:
 **Definition of Done**
 - `macro from AI: ...` produces the same action plan as the manual authoring path.
 
+Model quality gate (before locking baseline):
+- Run a blind holdout set with unseen prompts and unseen tx hashes.
+- If blind metrics drop materially vs normal test split, retrain and re-check.
+- Keep product coding moving in parallel; do not block execution-path work on model tuning.
+
 ---
 
 ## Example scripts (.nc)

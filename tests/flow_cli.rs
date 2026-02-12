@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 
@@ -83,5 +84,41 @@ stellar.tx.status hash="ABC123"
     assert!(combined.contains("Estimated fee: 100 stroops x 0 ops = 0 stroops"));
     assert!(combined.contains("balance GTEST: XLM = 10000.0000000"));
     assert!(combined.contains("friendbot failed"));
-    assert!(combined.contains("tx status simulate failed"));
+    assert!(combined.contains("simulate_error: tx status failed"));
+}
+
+#[test]
+fn intent_mode_low_confidence_blocks_flow_and_returns_exit_5() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg("Tell me a joke about stars")
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.99")
+        .arg("--flow")
+        .arg("--yes")
+        .output()
+        .expect("run neurochain-soroban in intent mode");
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Intent safety guard blocked flow"));
+    assert!(combined.contains("\"kind\": \"unknown\""));
+    assert!(!combined.contains("=== Preview ==="));
 }

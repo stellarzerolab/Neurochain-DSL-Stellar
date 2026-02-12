@@ -1,24 +1,40 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
-use neurochain::actions::{parse_action_plan_from_nc, validate_plan, ActionPlan, Allowlist};
+use neurochain::actions::{
+    parse_action_plan_from_nc, validate_plan, Action, ActionPlan, Allowlist,
+};
 use neurochain::banner;
+use neurochain::intent_stellar::{
+    build_action_plan as build_intent_action_plan, classify as classify_intent_stellar,
+    has_intent_blocking_issue, resolve_model_path as resolve_intent_model_path,
+    threshold_from_env as intent_threshold_from_env, DEFAULT_INTENT_STELLAR_THRESHOLD,
+};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
 fn print_usage() {
-    eprintln!("Usage: neurochain-soroban <file.nc|plan.json> [--flow] [--yes]");
+    eprintln!(
+        "Usage: neurochain-soroban [<file.nc|plan.json>] [--flow] [--yes] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
+    );
+    eprintln!("Usage: neurochain-soroban --repl");
+    eprintln!("If no args are provided, REPL mode is started.");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
         "Manual .nc lines can start with 'stellar.' or 'soroban.' (comment lines are ignored)."
     );
+    eprintln!("--intent-text enables IntentStellar -> ActionPlan mode.");
+    eprintln!("--intent-model overrides the intent_stellar model path.");
+    eprintln!("--intent-threshold overrides confidence threshold (default: 0.55).");
     eprintln!("Set NC_ALLOWLIST_ENFORCE=1 to hard-fail on allowlist violations.");
     eprintln!("--flow enables simulate → preview → confirm → submit.");
     eprintln!("--yes auto-confirms submit in --flow mode.");
+    eprintln!("Flow in intent mode is blocked when plan has Unknown/intent_error (exit code 5).");
     eprintln!("Env: NC_STELLAR_NETWORK / NC_SOROBAN_NETWORK (default: testnet)");
     eprintln!("Env: NC_STELLAR_HORIZON_URL (default: testnet Horizon)");
     eprintln!("Env: NC_FRIENDBOT_URL (default: testnet Friendbot)");
@@ -26,9 +42,96 @@ fn print_usage() {
     eprintln!("Env: NC_STELLAR_CLI (default: stellar)");
     eprintln!("Env: NC_SOROBAN_SIMULATE_FLAG (default: \"--send no\")");
     eprintln!("Env: NC_TXREP_PREVIEW=1 (include txrep in preview output)");
+    eprintln!("Env: NC_INTENT_STELLAR_MODEL (default: models/intent_stellar/model.onnx)");
+    eprintln!("Env: NC_INTENT_STELLAR_THRESHOLD (default: 0.55)");
     eprintln!("Env: NC_CONTRACT_POLICY=path/to/policy.json");
     eprintln!("Env: NC_CONTRACT_POLICY_DIR=contracts");
     eprintln!("Env: NC_CONTRACT_POLICY_ENFORCE=1 (hard-fail on policy violations)");
+}
+
+#[derive(Debug, Default)]
+struct CliArgs {
+    repl: bool,
+    path: Option<String>,
+    flow: bool,
+    auto_yes: bool,
+    intent_text: Option<String>,
+    intent_model: Option<String>,
+    intent_threshold: Option<f32>,
+}
+
+fn parse_cli_args(args: &[String]) -> Result<CliArgs> {
+    let mut out = CliArgs::default();
+    if args.len() <= 1 {
+        out.repl = true;
+        return Ok(out);
+    }
+
+    let mut i = 1usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--repl" => out.repl = true,
+            "--flow" => out.flow = true,
+            "--yes" | "-y" => out.auto_yes = true,
+            "--intent-text" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| anyhow!("missing value for --intent-text"))?;
+                out.intent_text = Some(value.clone());
+            }
+            "--intent-model" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| anyhow!("missing value for --intent-model"))?;
+                out.intent_model = Some(value.clone());
+            }
+            "--intent-threshold" => {
+                i += 1;
+                let raw = args
+                    .get(i)
+                    .ok_or_else(|| anyhow!("missing value for --intent-threshold"))?;
+                let value = raw
+                    .parse::<f32>()
+                    .with_context(|| format!("invalid --intent-threshold value: {raw}"))?;
+                out.intent_threshold = Some(value);
+            }
+            "--help" | "-h" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            other if other.starts_with('-') => {
+                return Err(anyhow!("unknown flag: {other}"));
+            }
+            other => {
+                if out.path.is_none() {
+                    out.path = Some(other.to_string());
+                } else {
+                    return Err(anyhow!("multiple input paths are not supported"));
+                }
+            }
+        }
+        i += 1;
+    }
+
+    if out.repl {
+        if out.path.is_some() || out.intent_text.is_some() {
+            return Err(anyhow!(
+                "--repl cannot be combined with <file> or --intent-text"
+            ));
+        }
+        return Ok(out);
+    }
+
+    if out.path.is_some() && out.intent_text.is_some() {
+        return Err(anyhow!("use either <file> or --intent-text, not both"));
+    }
+    if out.path.is_none() && out.intent_text.is_none() {
+        return Err(anyhow!("missing input path or --intent-text"));
+    }
+
+    Ok(out)
 }
 
 fn allowlist_enforced() -> bool {
@@ -215,7 +318,7 @@ fn is_hex_bytes(value: &str) -> bool {
         return false;
     }
     let hex = &value[2..];
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return false;
     }
     hex.chars().all(|c| c.is_ascii_hexdigit())
@@ -1216,50 +1319,95 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
     outputs
 }
 
-fn main() {
-    banner::print_banner_stderr();
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        print_usage();
-        std::process::exit(2);
-    }
-
-    let mut path: Option<String> = None;
-    let mut flow = false;
-    let mut auto_yes = false;
-    for arg in args.iter().skip(1) {
-        match arg.as_str() {
-            "--flow" => flow = true,
-            "--yes" | "-y" => auto_yes = true,
-            _ => {
-                if path.is_none() {
-                    path = Some(arg.clone());
-                }
-            }
+fn print_intent_block_reasons(plan: &ActionPlan) {
+    for warning in &plan.warnings {
+        if warning.starts_with("intent_error:") || warning.starts_with("intent_warning:") {
+            eprintln!("- {warning}");
         }
     }
-
-    let Some(path) = path else {
-        print_usage();
-        std::process::exit(2);
-    };
-
-    let input = match fs::read_to_string(path.clone()) {
-        Ok(contents) => contents,
-        Err(err) => {
-            eprintln!("Error reading {path}: {err}");
-            std::process::exit(1);
+    for action in &plan.actions {
+        if let Action::Unknown { reason } = action {
+            eprintln!("- intent_block: {reason}");
         }
-    };
-
-    let mut plan: ActionPlan = match serde_json::from_str(&input) {
-        Ok(plan) => plan,
-        Err(_) => parse_action_plan_from_nc(&input),
-    };
-    if plan.source.is_none() {
-        plan.source = Some(path.to_string());
     }
+}
 
+fn strip_wrapping_quotes(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+    {
+        return trimmed[1..trimmed.len() - 1].to_string();
+    }
+    trimmed.to_string()
+}
+
+fn parse_ai_model_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let (left, right) = trimmed.split_once(':')?;
+    if !left.trim().eq_ignore_ascii_case("AI") {
+        return None;
+    }
+    let model_path = strip_wrapping_quotes(right);
+    if model_path.is_empty() {
+        None
+    } else {
+        Some(model_path)
+    }
+}
+
+fn extract_prompt_from_set_from_ai(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("set ") {
+        return None;
+    }
+    let marker = " from ai:";
+    let idx = lower.find(marker)?;
+    let prompt = strip_wrapping_quotes(&trimmed[idx + marker.len()..]);
+    if prompt.is_empty() {
+        None
+    } else {
+        Some(prompt)
+    }
+}
+
+fn extract_prompt_from_macro_from_ai(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("macro from ai:") {
+        return None;
+    }
+    let idx = trimmed.find(':')?;
+    let prompt = strip_wrapping_quotes(&trimmed[idx + 1..]);
+    if prompt.is_empty() {
+        None
+    } else {
+        Some(prompt)
+    }
+}
+
+fn build_plan_from_intent_prompt(
+    prompt: &str,
+    model_path: &str,
+    threshold: f32,
+) -> Result<ActionPlan> {
+    let decision = classify_intent_stellar(prompt, model_path, threshold)?;
+    let mut plan = build_intent_action_plan(prompt, &decision);
+    plan.warnings
+        .push(format!("intent_model: path={model_path}"));
+    Ok(plan)
+}
+
+fn resolve_threshold(override_value: Option<f32>) -> Result<f32> {
+    if let Some(value) = override_value {
+        return Ok(value);
+    }
+    Ok(intent_threshold_from_env()?.unwrap_or(DEFAULT_INTENT_STELLAR_THRESHOLD))
+}
+
+fn execute_plan(mut plan: ActionPlan, flow: bool, auto_yes: bool, intent_mode: bool) -> i32 {
     let allowlist = Allowlist::from_env();
     let violations = validate_plan(&plan, &allowlist);
     if !violations.is_empty() {
@@ -1278,7 +1426,7 @@ fn main() {
                 );
             }
             eprintln!("Set NC_ALLOWLIST_ENFORCE=0 (or unset) to allow warnings only.");
-            std::process::exit(3);
+            return 3;
         }
         eprintln!("Allowlist warnings (stub, not enforced):");
         for violation in &violations {
@@ -1301,7 +1449,7 @@ fn main() {
                 eprintln!("- {err}");
             }
             eprintln!("Set NC_CONTRACT_POLICY_ENFORCE=0 (or unset) to allow warnings only.");
-            std::process::exit(4);
+            return 4;
         }
         eprintln!("Contract policy warnings (not enforced):");
         for err in &policy_errors {
@@ -1314,11 +1462,16 @@ fn main() {
         Ok(json) => println!("{json}"),
         Err(err) => {
             eprintln!("Error serializing action plan: {err}");
-            std::process::exit(1);
+            return 1;
         }
     }
 
     if flow {
+        if intent_mode && has_intent_blocking_issue(&plan) {
+            eprintln!("Intent safety guard blocked flow. simulate/submit skipped.");
+            print_intent_block_reasons(&plan);
+            return 5;
+        }
         let cfg = load_network_config();
         let preview = simulate_plan(&plan, &cfg);
         print_preview(&preview);
@@ -1335,5 +1488,212 @@ fn main() {
         } else {
             eprintln!("Submit aborted by user.");
         }
+    }
+
+    0
+}
+
+fn line_is_manual_action(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("stellar.")
+        || trimmed.starts_with("soroban.")
+        || trimmed.starts_with("action stellar.")
+        || trimmed.starts_with("action soroban.")
+}
+
+fn line_is_comment_or_empty(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//")
+}
+
+fn print_repl_help() {
+    println!(
+        "Soroban REPL commands:
+- AI: \"models/intent_stellar/model.onnx\"   set intent model path
+- set intent from AI: \"Transfer 5 XLM to G...\"   classify prompt -> ActionPlan
+- macro from AI: \"Transfer 5 XLM to G...\"        alias to intent prompt
+- plain text prompt                              classify prompt -> ActionPlan
+- stellar.* / soroban.* lines                    manual action-plan mode
+- help, exit"
+    );
+}
+
+fn run_repl(
+    flow: bool,
+    auto_yes: bool,
+    initial_model: Option<String>,
+    initial_threshold: Option<f32>,
+) -> i32 {
+    let mut model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
+    let threshold = match resolve_threshold(initial_threshold) {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            return 2;
+        }
+    };
+
+    println!("NeuroChain Soroban REPL (intent -> action).");
+    println!("Current model: {model_path}");
+    println!("Current threshold: {threshold:.2}");
+    println!("Type `help` for commands, `exit` to quit.");
+
+    loop {
+        println!("Enter Soroban prompt/code (finish with an empty line):");
+        let mut block = String::new();
+        loop {
+            print!("... ");
+            let _ = io::stdout().flush();
+            let mut line = String::new();
+            if io::stdin().read_line(&mut line).is_err() {
+                eprintln!("stdin read failed");
+                return 1;
+            }
+            if line.trim().is_empty() {
+                break;
+            }
+            block.push_str(&line);
+        }
+
+        let trimmed = block.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match trimmed {
+            "exit" | "quit" => {
+                println!("Exiting...");
+                return 0;
+            }
+            "help" => {
+                print_repl_help();
+                continue;
+            }
+            _ => {}
+        }
+
+        let lines: Vec<&str> = trimmed
+            .lines()
+            .filter(|l| !line_is_comment_or_empty(l))
+            .collect();
+        let all_manual_actions =
+            !lines.is_empty() && lines.iter().all(|l| line_is_manual_action(l));
+        if all_manual_actions {
+            let mut plan = parse_action_plan_from_nc(trimmed);
+            if plan.source.is_none() {
+                plan.source = Some("repl.manual".to_string());
+            }
+            let code = execute_plan(plan, flow, auto_yes, false);
+            if code != 0 {
+                eprintln!("repl step returned code {code}");
+            }
+            continue;
+        }
+
+        for line in lines {
+            if let Some(new_model_path) = parse_ai_model_line(line) {
+                model_path = new_model_path;
+                println!("Intent model path set to: {model_path}");
+                continue;
+            }
+
+            if let Some(prompt) = extract_prompt_from_set_from_ai(line)
+                .or_else(|| extract_prompt_from_macro_from_ai(line))
+            {
+                match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+                    Ok(plan) => {
+                        let code = execute_plan(plan, flow, auto_yes, true);
+                        if code != 0 {
+                            eprintln!("repl step returned code {code}");
+                        }
+                    }
+                    Err(err) => eprintln!("intent error: {err}"),
+                }
+                continue;
+            }
+
+            if let Some(msg) = line.trim().strip_prefix("neuro ") {
+                println!("{}", strip_wrapping_quotes(msg));
+                continue;
+            }
+
+            let prompt = strip_wrapping_quotes(line);
+            match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+                Ok(plan) => {
+                    let code = execute_plan(plan, flow, auto_yes, true);
+                    if code != 0 {
+                        eprintln!("repl step returned code {code}");
+                    }
+                }
+                Err(err) => eprintln!("intent error: {err}"),
+            }
+        }
+    }
+}
+
+fn main() {
+    banner::print_banner_stderr();
+    let args: Vec<String> = env::args().collect();
+    let cli = match parse_cli_args(&args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            print_usage();
+            std::process::exit(2);
+        }
+    };
+
+    if cli.repl {
+        let code = run_repl(
+            cli.flow,
+            cli.auto_yes,
+            cli.intent_model,
+            cli.intent_threshold,
+        );
+        if code != 0 {
+            std::process::exit(code);
+        }
+        return;
+    }
+
+    let intent_mode = cli.intent_text.is_some();
+    let plan: ActionPlan = if let Some(prompt) = cli.intent_text {
+        let threshold = match resolve_threshold(cli.intent_threshold) {
+            Ok(v) => v,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                std::process::exit(2);
+            }
+        };
+        let model_path = cli.intent_model.unwrap_or_else(resolve_intent_model_path);
+        match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+            Ok(plan) => plan,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let path = cli.path.expect("path must exist when not in intent mode");
+        let input = match fs::read_to_string(path.clone()) {
+            Ok(contents) => contents,
+            Err(err) => {
+                eprintln!("Error reading {path}: {err}");
+                std::process::exit(1);
+            }
+        };
+
+        let mut plan: ActionPlan = match serde_json::from_str(&input) {
+            Ok(plan) => plan,
+            Err(_) => parse_action_plan_from_nc(&input),
+        };
+        if plan.source.is_none() {
+            plan.source = Some(path.to_string());
+        }
+        plan
+    };
+
+    let code = execute_plan(plan, cli.flow, cli.auto_yes, intent_mode);
+    if code != 0 {
+        std::process::exit(code);
     }
 }

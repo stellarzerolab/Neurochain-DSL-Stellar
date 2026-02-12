@@ -78,19 +78,17 @@ fn test_intent_stellar_model_loading() -> Result<()> {
     let model = AIModel::new(model_path)?;
     let result = model.predict("Send 5 XLM to GABC...")?;
     println!("IntentStellar-tulos: {}", result);
-    assert!(
-        [
-            "BalanceQuery",
-            "CreateAccount",
-            "ChangeTrust",
-            "TransferXLM",
-            "TransferAsset",
-            "FundTestnet",
-            "TxStatus",
-            "ContractInvoke",
-            "Unknown",
-        ]
-        .contains(&result.as_str())
-    );
+    assert!([
+        "BalanceQuery",
+        "CreateAccount",
+        "ChangeTrust",
+        "TransferXLM",
+        "TransferAsset",
+        "FundTestnet",
+        "TxStatus",
+        "ContractInvoke",
+        "Unknown",
+    ]
+    .contains(&result.as_str()));
     Ok(())
 }

@@ -58,6 +58,13 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc
   - lisää txrep/SEP‑11‑previewn (ihmisluettava XDR)
   - jos CLI ei tue `tx to-rep`, fallback `tx decode` (json‑formatted)
 
+**IntentStellar mode:**
+
+- `NC_INTENT_STELLAR_MODEL`
+  - intent_stellar ONNX-polku (oletus: `models/intent_stellar/model.onnx`)
+- `NC_INTENT_STELLAR_THRESHOLD`
+  - confidence-kynnys (oletus: `0.55`)
+
 **Allowlist (valinnainen, mutta suositus):**
 
 - `NC_ASSET_ALLOWLIST` (esim. `XLM,USDC:GISSUER`)
@@ -79,6 +86,35 @@ cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc
 ```
 
 Tulos on ActionPlan JSON, joka kertoo mitä **aikoisi** tehdä.
+
+## 3.5) Käyttö — `--intent-text` (IntentStellar -> ActionPlan)
+
+```powershell
+cargo run --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..."
+```
+
+Mallin polku/kynnys voidaan overrideata:
+
+```powershell
+cargo run --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..." --intent-model models\intent_stellar\model.onnx --intent-threshold 0.60
+```
+
+Turvablockki:
+- jos intent on low-confidence tai slotit puuttuvat, ActionPlaniin tulee `unknown` + `intent_error`/`intent_warning`
+- `--flow`-tilassa submit skipataan turvallisesti ja prosessi palauttaa exit-koodin `5`
+
+## 3.6) Käyttö — interactive REPL (`AI:` + promptit)
+
+```powershell
+cargo run --bin neurochain-soroban
+```
+
+REPL-komennot:
+- `AI: "models/intent_stellar/model.onnx"` vaihtaa intent-mallin
+- `set intent from AI: "Transfer 5 XLM to G..."` ajaa intent -> ActionPlan
+- `macro from AI: "Transfer 5 XLM to G..."` toimii aliasina prompt-ajolle
+- `stellar.*` / `soroban.*` rivit toimivat manuaalisena action-plan syötteenä
+- `help`, `exit`
 
 ---
 

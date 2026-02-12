@@ -386,8 +386,10 @@ pub fn parse_action_plan_from_txrep(input: &str) -> Result<ActionPlan, String> {
         serde_json::from_str(input).map_err(|err| format!("invalid json: {err}"))?;
     let ops = extract_tx_operations(&value).ok_or_else(|| "missing operations".to_string())?;
 
-    let mut plan = ActionPlan::default();
-    plan.source = Some("txrep".to_string());
+    let mut plan = ActionPlan {
+        source: Some("txrep".to_string()),
+        ..ActionPlan::default()
+    };
 
     for (idx, op) in ops.iter().enumerate() {
         let body = op.get("body").unwrap_or(op);
@@ -708,7 +710,7 @@ fn scval_to_json(value: &serde_json::Value) -> Option<serde_json::Value> {
 }
 
 fn normalize_soroban_args(args: Vec<serde_json::Value>) -> serde_json::Value {
-    if args.len() >= 2 && args.len() % 2 == 0 {
+    if args.len() >= 2 && args.len().is_multiple_of(2) {
         let mut map = serde_json::Map::new();
         for pair in args.chunks(2) {
             let Some(key) = pair[0].as_str() else {
