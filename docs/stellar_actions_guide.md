@@ -133,6 +133,20 @@ set intent from AI: "Transfer 5 XLM to G..."
 cargo run --bin neurochain-soroban -- examples\intent_stellar_smoke.nc --flow
 ```
 
+### 3.7.1) Monimallinen `if`-putki samassa `.nc`-ajossa
+
+Scriptissä voi käyttää useita malleja yhdessä ajossa:
+
+```nc
+AI: "models/distilbert-sst2/model.onnx"
+set mood from AI: "This is wonderful!"
+if mood == "Positive":
+    AI: "models/intent_stellar/model.onnx"
+    set intent from AI: "Transfer 5 XLM to G..."
+```
+
+Valmis esimerkki: `examples/multi_model_if_payment.nc`
+
 ---
 
 ## 4) Käyttö — simulate → preview → confirm → submit

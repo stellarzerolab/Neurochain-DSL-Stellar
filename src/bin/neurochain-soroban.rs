@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use neurochain::actions::{
     parse_action_plan_from_nc, validate_plan, Action, ActionPlan, Allowlist,
 };
+use neurochain::ai::model::AIModel;
 use neurochain::banner;
 use neurochain::intent_stellar::{
     build_action_plan as build_intent_action_plan, classify as classify_intent_stellar,
@@ -1448,6 +1449,502 @@ fn parse_source_line(line: &str) -> Option<String> {
     parse_named_value(line, &["wallet", "source", "lompakko"])
 }
 
+fn parse_set_from_ai_assignment(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("set ") {
+        return None;
+    }
+    let marker = " from ai:";
+    let idx = lower.find(marker)?;
+    let name = trimmed[4..idx].trim();
+    if name.is_empty() {
+        return None;
+    }
+    let prompt = strip_wrapping_quotes(&trimmed[idx + marker.len()..]);
+    if prompt.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), prompt))
+}
+
+fn parse_set_literal_assignment(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("set ") || lower.contains(" from ai:") {
+        return None;
+    }
+    let rest = trimmed[4..].trim_start();
+    let (name, value_raw) = rest.split_once('=')?;
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let value = strip_wrapping_quotes(value_raw);
+    Some((name.to_string(), value))
+}
+
+fn parse_conditional_header(line: &str, keyword: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let prefix = format!("{keyword} ");
+    if !lower.starts_with(&prefix) || !trimmed.ends_with(':') {
+        return None;
+    }
+    let content = trimmed[prefix.len()..trimmed.len() - 1].trim();
+    if content.is_empty() {
+        return None;
+    }
+    Some(content.to_string())
+}
+
+fn parse_if_header(line: &str) -> Option<String> {
+    parse_conditional_header(line, "if")
+}
+
+fn parse_elif_header(line: &str) -> Option<String> {
+    parse_conditional_header(line, "elif")
+}
+
+fn is_else_header(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case("else:")
+}
+
+fn strip_inline_comment_outside_quotes(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    let mut quote: Option<char> = None;
+
+    while let Some(ch) = chars.next() {
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            }
+            out.push(ch);
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            out.push(ch);
+            continue;
+        }
+
+        if ch == '#' {
+            break;
+        }
+        if ch == '/' && chars.peek() == Some(&'/') {
+            break;
+        }
+
+        out.push(ch);
+    }
+
+    out.trim_end().to_string()
+}
+
+#[derive(Debug, Clone)]
+struct ScriptLine {
+    indent: usize,
+    line_no: usize,
+    text: String,
+}
+
+fn collect_script_lines(script: &str) -> Vec<ScriptLine> {
+    let mut out = Vec::new();
+    for (idx, raw_line) in script.lines().enumerate() {
+        let sanitized = strip_inline_comment_outside_quotes(raw_line);
+        if sanitized.trim().is_empty() {
+            continue;
+        }
+        let indent = sanitized
+            .chars()
+            .take_while(|ch| *ch == ' ' || *ch == '\t')
+            .map(|ch| if ch == '\t' { 4 } else { 1 })
+            .sum();
+        let text = sanitized.trim().to_string();
+        out.push(ScriptLine {
+            indent,
+            line_no: idx + 1,
+            text,
+        });
+    }
+    out
+}
+
+fn tokenize_condition(expr: &str) -> Vec<String> {
+    let chars: Vec<char> = expr.chars().collect();
+    let mut tokens = Vec::new();
+    let mut buf = String::new();
+    let mut i = 0usize;
+    let mut quote: Option<char> = None;
+
+    let flush = |tokens: &mut Vec<String>, buf: &mut String| {
+        let trimmed = buf.trim();
+        if !trimmed.is_empty() {
+            tokens.push(trimmed.to_string());
+        }
+        buf.clear();
+    };
+
+    while i < chars.len() {
+        let ch = chars[i];
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            } else {
+                buf.push(ch);
+            }
+            i += 1;
+            continue;
+        }
+
+        match ch {
+            '"' | '\'' => {
+                quote = Some(ch);
+                i += 1;
+            }
+            ' ' | '\t' => {
+                flush(&mut tokens, &mut buf);
+                i += 1;
+            }
+            '=' | '!' | '>' | '<' => {
+                flush(&mut tokens, &mut buf);
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(format!("{ch}="));
+                    i += 2;
+                } else {
+                    tokens.push(ch.to_string());
+                    i += 1;
+                }
+            }
+            _ => {
+                buf.push(ch);
+                i += 1;
+            }
+        }
+    }
+    flush(&mut tokens, &mut buf);
+    tokens
+}
+
+fn resolve_value(token: &str, vars: &HashMap<String, String>) -> String {
+    let stripped = strip_wrapping_quotes(token);
+    if let Some(val) = vars.get(&stripped) {
+        val.clone()
+    } else {
+        stripped
+    }
+}
+
+fn compare_values(lhs: &str, rhs: &str) -> std::cmp::Ordering {
+    let l = lhs.trim();
+    let r = rhs.trim();
+    match (l.parse::<f64>(), r.parse::<f64>()) {
+        (Ok(ln), Ok(rn)) => ln.partial_cmp(&rn).unwrap_or(std::cmp::Ordering::Equal),
+        _ => l.to_ascii_lowercase().cmp(&r.to_ascii_lowercase()),
+    }
+}
+
+fn eval_condition_atom(
+    tokens: &[String],
+    idx: &mut usize,
+    vars: &HashMap<String, String>,
+) -> Option<bool> {
+    if *idx >= tokens.len() {
+        return None;
+    }
+
+    if *idx + 2 < tokens.len() {
+        let op = tokens[*idx + 1].as_str();
+        if matches!(op, "==" | "!=" | ">" | "<" | ">=" | "<=") {
+            let lhs = resolve_value(&tokens[*idx], vars);
+            let rhs = resolve_value(&tokens[*idx + 2], vars);
+            *idx += 3;
+            let cmp = compare_values(&lhs, &rhs);
+            return Some(match op {
+                "==" => lhs.trim().eq_ignore_ascii_case(rhs.trim()),
+                "!=" => !lhs.trim().eq_ignore_ascii_case(rhs.trim()),
+                ">" => cmp == std::cmp::Ordering::Greater,
+                "<" => cmp == std::cmp::Ordering::Less,
+                ">=" => cmp == std::cmp::Ordering::Greater || cmp == std::cmp::Ordering::Equal,
+                "<=" => cmp == std::cmp::Ordering::Less || cmp == std::cmp::Ordering::Equal,
+                _ => false,
+            });
+        }
+    }
+
+    let value = resolve_value(&tokens[*idx], vars);
+    *idx += 1;
+    let low = value.trim().to_ascii_lowercase();
+    Some(!matches!(
+        low.as_str(),
+        "" | "0" | "false" | "none" | "null"
+    ))
+}
+
+fn eval_condition(expr: &str, vars: &HashMap<String, String>) -> bool {
+    let tokens = tokenize_condition(expr);
+    if tokens.is_empty() {
+        return false;
+    }
+    let mut idx = 0usize;
+    let mut result = match eval_condition_atom(&tokens, &mut idx, vars) {
+        Some(v) => v,
+        None => return false,
+    };
+    while idx < tokens.len() {
+        let op = tokens[idx].to_ascii_lowercase();
+        idx += 1;
+        let rhs = match eval_condition_atom(&tokens, &mut idx, vars) {
+            Some(v) => v,
+            None => return false,
+        };
+        match op.as_str() {
+            "and" => result = result && rhs,
+            "or" => result = result || rhs,
+            _ => return false,
+        }
+    }
+    result
+}
+
+struct ScriptBuildContext {
+    model_path: String,
+    threshold: f32,
+    flow_cfg: NetworkConfig,
+    horizon_from_env: bool,
+    friendbot_from_env: bool,
+    models: HashMap<String, AIModel>,
+    variables: HashMap<String, String>,
+    plan: ActionPlan,
+    intent_mode: bool,
+}
+
+impl ScriptBuildContext {
+    fn new(
+        model_path: String,
+        threshold: f32,
+        flow_cfg: NetworkConfig,
+        horizon_from_env: bool,
+        friendbot_from_env: bool,
+    ) -> Self {
+        Self {
+            model_path,
+            threshold,
+            flow_cfg,
+            horizon_from_env,
+            friendbot_from_env,
+            models: HashMap::new(),
+            variables: HashMap::new(),
+            plan: ActionPlan::default(),
+            intent_mode: false,
+        }
+    }
+
+    fn apply_network(&mut self, network: &str) {
+        self.flow_cfg.soroban_network = network.to_string();
+        if !self.horizon_from_env {
+            self.flow_cfg.horizon_url = default_horizon_url(network);
+        }
+        if !self.friendbot_from_env {
+            self.flow_cfg.friendbot_url = default_friendbot_url(network);
+        }
+    }
+
+    fn predict_current_model(&mut self, prompt: &str) -> Result<String> {
+        let model = if let Some(model) = self.models.get(&self.model_path) {
+            model.clone()
+        } else {
+            let loaded = AIModel::new(&self.model_path).with_context(|| {
+                format!(
+                    "failed to load model for set ... from AI: {}",
+                    self.model_path
+                )
+            })?;
+            self.models.insert(self.model_path.clone(), loaded.clone());
+            loaded
+        };
+        model
+            .predict(prompt)
+            .context("set ... from AI prediction failed")
+    }
+
+    fn append_intent_prompt(&mut self, prompt: &str) -> Result<()> {
+        self.intent_mode = true;
+        let prompt_plan = build_plan_from_intent_prompt(prompt, &self.model_path, self.threshold)?;
+        merge_action_plans(&mut self.plan, prompt_plan);
+        Ok(())
+    }
+
+    fn execute_statement(&mut self, line: &str) -> Result<()> {
+        if let Some(new_model_path) = parse_ai_model_line(line) {
+            self.model_path = new_model_path;
+            return Ok(());
+        }
+
+        if let Some(network) = parse_network_line(line) {
+            self.apply_network(&network);
+            return Ok(());
+        }
+
+        if let Some(source) = parse_source_line(line) {
+            self.flow_cfg.soroban_source = Some(source);
+            return Ok(());
+        }
+
+        if let Some((name, prompt)) = parse_set_from_ai_assignment(line) {
+            if name.eq_ignore_ascii_case("intent") {
+                self.append_intent_prompt(&prompt)?;
+            } else {
+                let prediction = match self.predict_current_model(&prompt) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        self.plan.warnings.push(format!(
+                            "script_warning: set_from_ai_fallback {name}: {err}"
+                        ));
+                        prompt.clone()
+                    }
+                };
+                self.variables.insert(name, prediction);
+            }
+            return Ok(());
+        }
+
+        if let Some((name, value)) = parse_set_literal_assignment(line) {
+            let resolved = self.variables.get(&value).cloned().unwrap_or(value);
+            self.variables.insert(name, resolved);
+            return Ok(());
+        }
+
+        if let Some(prompt) = extract_prompt_from_macro_from_ai(line) {
+            self.append_intent_prompt(&prompt)?;
+            return Ok(());
+        }
+
+        if line_is_manual_action(line) {
+            let manual_plan = parse_action_plan_from_nc(line);
+            merge_action_plans(&mut self.plan, manual_plan);
+            return Ok(());
+        }
+
+        if line.trim_start().starts_with("neuro ") {
+            return Ok(());
+        }
+
+        let prompt = strip_wrapping_quotes(line);
+        if !prompt.is_empty() {
+            self.append_intent_prompt(&prompt)?;
+        }
+        Ok(())
+    }
+}
+
+fn execute_script_block(
+    lines: &[ScriptLine],
+    idx: &mut usize,
+    indent: usize,
+    ctx: &mut ScriptBuildContext,
+    execute: bool,
+) -> Result<()> {
+    while *idx < lines.len() {
+        let line = &lines[*idx];
+        if line.indent < indent {
+            break;
+        }
+        if line.indent > indent {
+            return Err(anyhow!(
+                "unexpected indentation at line {}: {}",
+                line.line_no,
+                line.text
+            ));
+        }
+
+        if parse_if_header(&line.text).is_some() {
+            execute_if_chain(lines, idx, indent, ctx, execute)?;
+            continue;
+        }
+
+        if parse_elif_header(&line.text).is_some() || is_else_header(&line.text) {
+            return Err(anyhow!(
+                "unexpected {} at line {}",
+                line.text.split_whitespace().next().unwrap_or("branch"),
+                line.line_no
+            ));
+        }
+
+        if execute {
+            ctx.execute_statement(&line.text)
+                .with_context(|| format!("script execution failed at line {}", line.line_no))?;
+        }
+        *idx += 1;
+    }
+    Ok(())
+}
+
+fn execute_if_chain(
+    lines: &[ScriptLine],
+    idx: &mut usize,
+    indent: usize,
+    ctx: &mut ScriptBuildContext,
+    execute: bool,
+) -> Result<()> {
+    let mut branch_taken = false;
+    let mut first = true;
+
+    loop {
+        if *idx >= lines.len() {
+            break;
+        }
+        let header = &lines[*idx];
+        if header.indent != indent {
+            break;
+        }
+
+        let (condition, is_else) = if first {
+            let Some(cond) = parse_if_header(&header.text) else {
+                return Err(anyhow!("expected if at line {}", header.line_no));
+            };
+            (cond, false)
+        } else if let Some(cond) = parse_elif_header(&header.text) {
+            (cond, false)
+        } else if is_else_header(&header.text) {
+            (String::new(), true)
+        } else {
+            break;
+        };
+
+        let should_execute_branch = if !execute || branch_taken {
+            false
+        } else if is_else {
+            true
+        } else {
+            eval_condition(&condition, &ctx.variables)
+        };
+
+        *idx += 1;
+        if *idx < lines.len() && lines[*idx].indent > indent {
+            let body_indent = lines[*idx].indent;
+            execute_script_block(lines, idx, body_indent, ctx, should_execute_branch)?;
+        }
+
+        if should_execute_branch {
+            branch_taken = true;
+        }
+
+        if *idx >= lines.len() || lines[*idx].indent != indent {
+            break;
+        }
+
+        if !(parse_elif_header(&lines[*idx].text).is_some() || is_else_header(&lines[*idx].text)) {
+            break;
+        }
+        first = false;
+    }
+
+    Ok(())
+}
+
 fn build_plan_from_intent_prompt(
     prompt: &str,
     model_path: &str,
@@ -1478,7 +1975,7 @@ fn build_plan_from_script(
     initial_model: Option<String>,
     initial_threshold: Option<f32>,
 ) -> Result<(ActionPlan, NetworkConfig, bool)> {
-    let mut model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
+    let model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
     let threshold = resolve_threshold(initial_threshold)?;
     let horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
         .ok()
@@ -1488,72 +1985,30 @@ fn build_plan_from_script(
         .ok()
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false);
-    let mut flow_cfg = load_network_config();
-    let mut intent_mode = false;
-    let mut plan = ActionPlan::default();
-    let mut manual_lines = Vec::new();
+    let flow_cfg = load_network_config();
+    let mut ctx = ScriptBuildContext::new(
+        model_path,
+        threshold,
+        flow_cfg,
+        horizon_from_env,
+        friendbot_from_env,
+    );
+    let lines = collect_script_lines(script);
+    let mut idx = 0usize;
+    execute_script_block(&lines, &mut idx, 0, &mut ctx, true)?;
 
-    for raw in script.lines() {
-        let line = raw.trim();
-        if line_is_comment_or_empty(line) {
-            continue;
-        }
-
-        if let Some(new_model_path) = parse_ai_model_line(line) {
-            model_path = new_model_path;
-            continue;
-        }
-
-        if let Some(network) = parse_network_line(line) {
-            flow_cfg.soroban_network = network.to_string();
-            if !horizon_from_env {
-                flow_cfg.horizon_url = default_horizon_url(&network);
-            }
-            if !friendbot_from_env {
-                flow_cfg.friendbot_url = default_friendbot_url(&network);
-            }
-            continue;
-        }
-
-        if let Some(source) = parse_source_line(line) {
-            flow_cfg.soroban_source = Some(source);
-            continue;
-        }
-
-        if line_is_manual_action(line) {
-            manual_lines.push(line.to_string());
-            continue;
-        }
-
-        if let Some(_msg) = line.strip_prefix("neuro ") {
-            continue;
-        }
-
-        let prompt = extract_prompt_from_set_from_ai(line)
-            .or_else(|| extract_prompt_from_macro_from_ai(line))
-            .unwrap_or_else(|| strip_wrapping_quotes(line));
-
-        intent_mode = true;
-        let prompt_plan = build_plan_from_intent_prompt(&prompt, &model_path, threshold)?;
-        merge_action_plans(&mut plan, prompt_plan);
+    if idx < lines.len() {
+        return Err(anyhow!(
+            "unparsed script content at line {}",
+            lines[idx].line_no
+        ));
     }
 
-    if !manual_lines.is_empty() {
-        let manual_block = manual_lines.join("\n");
-        let manual_plan = parse_action_plan_from_nc(&manual_block);
-        merge_action_plans(&mut plan, manual_plan);
+    if ctx.plan.source.is_none() {
+        ctx.plan.source = Some(source_path.to_string());
     }
 
-    if plan.actions.is_empty() {
-        let fallback = parse_action_plan_from_nc(script);
-        merge_action_plans(&mut plan, fallback);
-    }
-
-    if plan.source.is_none() {
-        plan.source = Some(source_path.to_string());
-    }
-
-    Ok((plan, flow_cfg, intent_mode))
+    Ok((ctx.plan, ctx.flow_cfg, ctx.intent_mode))
 }
 
 fn execute_plan(

@@ -97,7 +97,7 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0119
+            --ignore RUSTSEC-2025-0134
 ```
 
 If disk usage grows due to many builds (debug/release, multiple binaries, tests), run:

@@ -18,7 +18,6 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0119 \
             --ignore RUSTSEC-2025-0134
 ```
 
@@ -60,7 +59,7 @@ jobs:
           # Known unmaintained warnings via transitive deps.
           cargo audit --deny warnings \
             --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0119
+            --ignore RUSTSEC-2025-0134
 ```
 
 ## 4. Supply Chain Hardening (Later)
@@ -84,5 +83,5 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0119
+            --ignore RUSTSEC-2025-0134
 ```
