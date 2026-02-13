@@ -25,3 +25,15 @@ fn soroban_repl_accepts_ai_model_line() {
         ))
         .stdout(contains("Exiting"));
 }
+
+#[test]
+fn soroban_repl_accepts_network_and_wallet_commands() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    cmd.write_stdin("set network = \"testnet\"\n\nset wallet = \"nc-testnet\"\n\nexit\n\n")
+        .assert()
+        .success()
+        .stdout(contains("Network set to: testnet"))
+        .stdout(contains("Wallet/source set to: nc-testnet"))
+        .stdout(contains("Exiting"));
+}

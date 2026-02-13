@@ -111,10 +111,27 @@ cargo run --bin neurochain-soroban
 
 REPL-komennot:
 - `AI: "models/intent_stellar/model.onnx"` vaihtaa intent-mallin
+- `network: testnet` (tai `set network = "testnet"`) vaihtaa aktiivisen verkon
+- `wallet: nc-testnet` (tai `set wallet = "nc-testnet"`) vaihtaa lähdelompakon (source alias)
 - `set intent from AI: "Transfer 5 XLM to G..."` ajaa intent -> ActionPlan
 - `macro from AI: "Transfer 5 XLM to G..."` toimii aliasina prompt-ajolle
 - `stellar.*` / `soroban.*` rivit toimivat manuaalisena action-plan syötteenä
 - `help`, `exit`
+
+## 3.7) Käyttö — `.nc` scripti samoilla komennoilla
+
+Samat meta-rivit toimivat nyt myös tiedostossa (`neurochain-soroban script.nc`):
+
+```nc
+AI: "models/intent_stellar/model.onnx"
+network: testnet
+wallet: nc-testnet
+set intent from AI: "Transfer 5 XLM to G..."
+```
+
+```powershell
+cargo run --bin neurochain-soroban -- examples\intent_stellar_smoke.nc --flow
+```
 
 ---
 

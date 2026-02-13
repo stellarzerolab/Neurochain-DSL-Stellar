@@ -28,6 +28,9 @@ fn print_usage() {
     eprintln!(
         "Manual .nc lines can start with 'stellar.' or 'soroban.' (comment lines are ignored)."
     );
+    eprintln!(
+        ".nc files also support: AI: \"...\", network: testnet|mainnet|public, wallet/source: <alias>."
+    );
     eprintln!("--intent-text enables IntentStellar -> ActionPlan mode.");
     eprintln!("--intent-model overrides the intent_stellar model path.");
     eprintln!("--intent-threshold overrides confidence threshold (default: 0.55).");
@@ -208,23 +211,31 @@ fn parse_simulate_args(raw: &str) -> Vec<String> {
     parts
 }
 
+fn default_horizon_url(network: &str) -> String {
+    match network {
+        "public" | "pubnet" | "mainnet" => "https://horizon.stellar.org".to_string(),
+        _ => "https://horizon-testnet.stellar.org".to_string(),
+    }
+}
+
+fn default_friendbot_url(network: &str) -> Option<String> {
+    match network {
+        "testnet" => Some("https://friendbot.stellar.org".to_string()),
+        _ => None,
+    }
+}
+
 fn load_network_config() -> NetworkConfig {
     let network = env::var("NC_STELLAR_NETWORK")
         .or_else(|_| env::var("NC_SOROBAN_NETWORK"))
         .unwrap_or_else(|_| "testnet".to_string());
 
     let horizon_url =
-        env::var("NC_STELLAR_HORIZON_URL").unwrap_or_else(|_| match network.as_str() {
-            "public" | "pubnet" | "mainnet" => "https://horizon.stellar.org".to_string(),
-            _ => "https://horizon-testnet.stellar.org".to_string(),
-        });
+        env::var("NC_STELLAR_HORIZON_URL").unwrap_or_else(|_| default_horizon_url(&network));
 
     let friendbot_url = env::var("NC_FRIENDBOT_URL")
         .ok()
-        .or_else(|| match network.as_str() {
-            "testnet" => Some("https://friendbot.stellar.org".to_string()),
-            _ => None,
-        });
+        .or_else(|| default_friendbot_url(&network));
 
     let soroban_source = env::var("NC_SOROBAN_SOURCE")
         .or_else(|_| env::var("NC_STELLAR_SOURCE"))
@@ -1388,6 +1399,55 @@ fn extract_prompt_from_macro_from_ai(line: &str) -> Option<String> {
     }
 }
 
+fn parse_named_value(line: &str, names: &[&str]) -> Option<String> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for name in names {
+        let name_l = name.to_ascii_lowercase();
+
+        let prefix = format!("{name_l}:");
+        if lower.starts_with(&prefix) {
+            let value = strip_wrapping_quotes(trimmed[prefix.len()..].trim_start());
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+
+        let prefix = format!("{name_l}=");
+        if lower.starts_with(&prefix) {
+            let value = strip_wrapping_quotes(trimmed[prefix.len()..].trim_start());
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+
+        let prefix = format!("{name_l} ");
+        if lower.starts_with(&prefix) {
+            let value = strip_wrapping_quotes(trimmed[prefix.len()..].trim_start());
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+
+        let prefix = format!("set {name_l} =");
+        if lower.starts_with(&prefix) {
+            let value = strip_wrapping_quotes(trimmed[prefix.len()..].trim_start());
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn parse_network_line(line: &str) -> Option<String> {
+    parse_named_value(line, &["network"])
+}
+
+fn parse_source_line(line: &str) -> Option<String> {
+    parse_named_value(line, &["wallet", "source", "lompakko"])
+}
+
 fn build_plan_from_intent_prompt(
     prompt: &str,
     model_path: &str,
@@ -1407,7 +1467,102 @@ fn resolve_threshold(override_value: Option<f32>) -> Result<f32> {
     Ok(intent_threshold_from_env()?.unwrap_or(DEFAULT_INTENT_STELLAR_THRESHOLD))
 }
 
-fn execute_plan(mut plan: ActionPlan, flow: bool, auto_yes: bool, intent_mode: bool) -> i32 {
+fn merge_action_plans(target: &mut ActionPlan, mut other: ActionPlan) {
+    target.actions.append(&mut other.actions);
+    target.warnings.append(&mut other.warnings);
+}
+
+fn build_plan_from_script(
+    script: &str,
+    source_path: &str,
+    initial_model: Option<String>,
+    initial_threshold: Option<f32>,
+) -> Result<(ActionPlan, NetworkConfig, bool)> {
+    let mut model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
+    let threshold = resolve_threshold(initial_threshold)?;
+    let horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    let friendbot_from_env = env::var("NC_FRIENDBOT_URL")
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    let mut flow_cfg = load_network_config();
+    let mut intent_mode = false;
+    let mut plan = ActionPlan::default();
+    let mut manual_lines = Vec::new();
+
+    for raw in script.lines() {
+        let line = raw.trim();
+        if line_is_comment_or_empty(line) {
+            continue;
+        }
+
+        if let Some(new_model_path) = parse_ai_model_line(line) {
+            model_path = new_model_path;
+            continue;
+        }
+
+        if let Some(network) = parse_network_line(line) {
+            flow_cfg.soroban_network = network.to_string();
+            if !horizon_from_env {
+                flow_cfg.horizon_url = default_horizon_url(&network);
+            }
+            if !friendbot_from_env {
+                flow_cfg.friendbot_url = default_friendbot_url(&network);
+            }
+            continue;
+        }
+
+        if let Some(source) = parse_source_line(line) {
+            flow_cfg.soroban_source = Some(source);
+            continue;
+        }
+
+        if line_is_manual_action(line) {
+            manual_lines.push(line.to_string());
+            continue;
+        }
+
+        if let Some(_msg) = line.strip_prefix("neuro ") {
+            continue;
+        }
+
+        let prompt = extract_prompt_from_set_from_ai(line)
+            .or_else(|| extract_prompt_from_macro_from_ai(line))
+            .unwrap_or_else(|| strip_wrapping_quotes(line));
+
+        intent_mode = true;
+        let prompt_plan = build_plan_from_intent_prompt(&prompt, &model_path, threshold)?;
+        merge_action_plans(&mut plan, prompt_plan);
+    }
+
+    if !manual_lines.is_empty() {
+        let manual_block = manual_lines.join("\n");
+        let manual_plan = parse_action_plan_from_nc(&manual_block);
+        merge_action_plans(&mut plan, manual_plan);
+    }
+
+    if plan.actions.is_empty() {
+        let fallback = parse_action_plan_from_nc(script);
+        merge_action_plans(&mut plan, fallback);
+    }
+
+    if plan.source.is_none() {
+        plan.source = Some(source_path.to_string());
+    }
+
+    Ok((plan, flow_cfg, intent_mode))
+}
+
+fn execute_plan(
+    mut plan: ActionPlan,
+    flow: bool,
+    auto_yes: bool,
+    intent_mode: bool,
+    cfg_override: Option<&NetworkConfig>,
+) -> i32 {
     let allowlist = Allowlist::from_env();
     let violations = validate_plan(&plan, &allowlist);
     if !violations.is_empty() {
@@ -1472,7 +1627,7 @@ fn execute_plan(mut plan: ActionPlan, flow: bool, auto_yes: bool, intent_mode: b
             print_intent_block_reasons(&plan);
             return 5;
         }
-        let cfg = load_network_config();
+        let cfg = cfg_override.cloned().unwrap_or_else(load_network_config);
         let preview = simulate_plan(&plan, &cfg);
         print_preview(&preview);
         if confirm_submit(auto_yes) {
@@ -1510,6 +1665,8 @@ fn print_repl_help() {
     println!(
         "Soroban REPL commands:
 - AI: \"models/intent_stellar/model.onnx\"   set intent model path
+- network: testnet|mainnet|public           set active network for flow
+- wallet: <stellar-key-alias>               set active source wallet alias
 - set intent from AI: \"Transfer 5 XLM to G...\"   classify prompt -> ActionPlan
 - macro from AI: \"Transfer 5 XLM to G...\"        alias to intent prompt
 - plain text prompt                              classify prompt -> ActionPlan
@@ -1532,10 +1689,24 @@ fn run_repl(
             return 2;
         }
     };
+    let horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    let friendbot_from_env = env::var("NC_FRIENDBOT_URL")
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    let mut flow_cfg = load_network_config();
 
     println!("NeuroChain Soroban REPL (intent -> action).");
     println!("Current model: {model_path}");
     println!("Current threshold: {threshold:.2}");
+    println!("Current network: {}", flow_cfg.soroban_network);
+    println!(
+        "Current wallet/source: {}",
+        flow_cfg.soroban_source.as_deref().unwrap_or("(not set)")
+    );
     println!("Type `help` for commands, `exit` to quit.");
 
     loop {
@@ -1582,7 +1753,7 @@ fn run_repl(
             if plan.source.is_none() {
                 plan.source = Some("repl.manual".to_string());
             }
-            let code = execute_plan(plan, flow, auto_yes, false);
+            let code = execute_plan(plan, flow, auto_yes, false, Some(&flow_cfg));
             if code != 0 {
                 eprintln!("repl step returned code {code}");
             }
@@ -1596,12 +1767,38 @@ fn run_repl(
                 continue;
             }
 
+            if let Some(network) = parse_network_line(line) {
+                flow_cfg.soroban_network = network.to_string();
+                if !horizon_from_env {
+                    flow_cfg.horizon_url = default_horizon_url(&network);
+                }
+                if !friendbot_from_env {
+                    flow_cfg.friendbot_url = default_friendbot_url(&network);
+                }
+                println!("Network set to: {}", flow_cfg.soroban_network);
+                println!("Horizon URL: {}", flow_cfg.horizon_url);
+                println!(
+                    "Friendbot: {}",
+                    flow_cfg.friendbot_url.as_deref().unwrap_or("(disabled)")
+                );
+                continue;
+            }
+
+            if let Some(source) = parse_source_line(line) {
+                flow_cfg.soroban_source = Some(source.to_string());
+                println!(
+                    "Wallet/source set to: {}",
+                    flow_cfg.soroban_source.as_deref().unwrap_or("")
+                );
+                continue;
+            }
+
             if let Some(prompt) = extract_prompt_from_set_from_ai(line)
                 .or_else(|| extract_prompt_from_macro_from_ai(line))
             {
                 match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
                     Ok(plan) => {
-                        let code = execute_plan(plan, flow, auto_yes, true);
+                        let code = execute_plan(plan, flow, auto_yes, true, Some(&flow_cfg));
                         if code != 0 {
                             eprintln!("repl step returned code {code}");
                         }
@@ -1619,7 +1816,7 @@ fn run_repl(
             let prompt = strip_wrapping_quotes(line);
             match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
                 Ok(plan) => {
-                    let code = execute_plan(plan, flow, auto_yes, true);
+                    let code = execute_plan(plan, flow, auto_yes, true, Some(&flow_cfg));
                     if code != 0 {
                         eprintln!("repl step returned code {code}");
                     }
@@ -1655,8 +1852,10 @@ fn main() {
         return;
     }
 
-    let intent_mode = cli.intent_text.is_some();
+    let mut cfg_override: Option<NetworkConfig> = None;
+    let mut intent_mode = false;
     let plan: ActionPlan = if let Some(prompt) = cli.intent_text {
+        intent_mode = true;
         let threshold = match resolve_threshold(cli.intent_threshold) {
             Ok(v) => v,
             Err(err) => {
@@ -1684,7 +1883,22 @@ fn main() {
 
         let mut plan: ActionPlan = match serde_json::from_str(&input) {
             Ok(plan) => plan,
-            Err(_) => parse_action_plan_from_nc(&input),
+            Err(_) => match build_plan_from_script(
+                &input,
+                &path,
+                cli.intent_model.clone(),
+                cli.intent_threshold,
+            ) {
+                Ok((script_plan, script_cfg, script_intent_mode)) => {
+                    cfg_override = Some(script_cfg);
+                    intent_mode = script_intent_mode;
+                    script_plan
+                }
+                Err(err) => {
+                    eprintln!("Error: {err}");
+                    std::process::exit(1);
+                }
+            },
         };
         if plan.source.is_none() {
             plan.source = Some(path.to_string());
@@ -1692,7 +1906,13 @@ fn main() {
         plan
     };
 
-    let code = execute_plan(plan, cli.flow, cli.auto_yes, intent_mode);
+    let code = execute_plan(
+        plan,
+        cli.flow,
+        cli.auto_yes,
+        intent_mode,
+        cfg_override.as_ref(),
+    );
     if code != 0 {
         std::process::exit(code);
     }

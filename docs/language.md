@@ -48,6 +48,13 @@ IntentStellar to ActionPlan (Soroban CLI path):
 - `cargo run --bin neurochain-soroban` (interactive REPL mode)
 
 In `--intent-text` mode, low-confidence or slot-missing plans are blocked before submit for safety.
+In Soroban REPL mode you can also set runtime context inside CLI:
+- `network: testnet`
+- `wallet: nc-testnet`
+The same context/meta lines are supported inside Soroban `.nc` files:
+- `AI: "models/intent_stellar/model.onnx"`
+- `network: testnet`
+- `wallet: nc-testnet`
 
 Interactive commands:
 `help`, `about`, `version`, `exit`.
