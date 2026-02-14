@@ -37,6 +37,10 @@ set intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    assert!(combined.contains("Script execution setup:"));
+    assert!(combined.contains("- source:"));
+    assert!(combined.contains("- network: testnet"));
+    assert!(combined.contains("- flow_mode: off"));
     assert!(combined.contains("\"kind\": \"stellar_payment\""));
     assert!(combined.contains("\"asset_code\": \"XLM\""));
     assert!(combined.contains("intent_model: path=models/intent_stellar/model.onnx"));
@@ -93,6 +97,34 @@ else:
     assert!(combined.contains("\"kind\": \"stellar_payment\""));
     assert!(combined.contains("\"asset_code\": \"XLM\""));
     assert!(combined.contains("intent_model: path=models/intent_stellar/model.onnx"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_allowlist_settings_can_enforce_without_env() {
+    let tmp = std::env::temp_dir().join("nc_script_allowlist_enforce.nc");
+    let script = r#"
+asset_allowlist: USDC:GISSUER
+allowlist_enforce
+stellar.payment to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" amount="5" asset_code="XLM"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-soroban script mode");
+
+    assert_eq!(output.status.code(), Some(3));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Allowlist violations (enforced)"));
 
     let _ = fs::remove_file(tmp);
 }

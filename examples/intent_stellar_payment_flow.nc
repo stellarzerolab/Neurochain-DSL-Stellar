@@ -5,4 +5,5 @@
 AI: "models/intent_stellar/model.onnx"
 network: testnet
 wallet: nc-testnet
+txrep
 set intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"

@@ -98,6 +98,12 @@ impl Allowlist {
         Self { assets, contracts }
     }
 
+    pub fn from_raw(asset_allowlist: &str, contract_allowlist: &str) -> Self {
+        let assets = parse_allowlist(asset_allowlist.to_string());
+        let contracts = parse_allowlist(contract_allowlist.to_string());
+        Self { assets, contracts }
+    }
+
     fn is_asset_allowed(&self, code: &str, issuer: Option<&str>) -> bool {
         if self.assets.is_empty() {
             return true;

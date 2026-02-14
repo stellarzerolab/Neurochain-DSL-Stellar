@@ -10,6 +10,7 @@ use neurochain::actions::{
 };
 use neurochain::ai::model::AIModel;
 use neurochain::banner;
+use neurochain::help_text::neurochain_language_help;
 use neurochain::intent_stellar::{
     build_action_plan as build_intent_action_plan, classify as classify_intent_stellar,
     has_intent_blocking_issue, resolve_model_path as resolve_intent_model_path,
@@ -21,22 +22,23 @@ use serde_json::Value;
 
 fn print_usage() {
     eprintln!(
-        "Usage: neurochain-soroban [<file.nc|plan.json>] [--flow] [--yes] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
+        "Usage: neurochain-soroban [<file.nc|plan.json>] [--flow|--no-flow] [--yes] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
     );
-    eprintln!("Usage: neurochain-soroban --repl");
-    eprintln!("If no args are provided, REPL mode is started.");
+    eprintln!("Usage: neurochain-soroban --repl [--flow|--no-flow]");
+    eprintln!("If no args are provided, REPL mode is started (flow enabled by default).");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
         "Manual .nc lines can start with 'stellar.' or 'soroban.' (comment lines are ignored)."
     );
     eprintln!(
-        ".nc files also support: AI: \"...\", network: testnet|mainnet|public, wallet/source: <alias>."
+        ".nc files also support: AI/network/wallet + txrep/horizon/friendbot/stellar_cli/simulate_flag/intent_threshold."
     );
+    eprintln!("Run `help` in REPL to see all in-CLI/.nc config commands (env equivalents).");
     eprintln!("--intent-text enables IntentStellar -> ActionPlan mode.");
     eprintln!("--intent-model overrides the intent_stellar model path.");
     eprintln!("--intent-threshold overrides confidence threshold (default: 0.55).");
-    eprintln!("Set NC_ALLOWLIST_ENFORCE=1 to hard-fail on allowlist violations.");
     eprintln!("--flow enables simulate → preview → confirm → submit.");
+    eprintln!("--no-flow forces plan-only mode (no preview/submit).");
     eprintln!("--yes auto-confirms submit in --flow mode.");
     eprintln!("Flow in intent mode is blocked when plan has Unknown/intent_error (exit code 5).");
     eprintln!("Env: NC_STELLAR_NETWORK / NC_SOROBAN_NETWORK (default: testnet)");
@@ -48,9 +50,13 @@ fn print_usage() {
     eprintln!("Env: NC_TXREP_PREVIEW=1 (include txrep in preview output)");
     eprintln!("Env: NC_INTENT_STELLAR_MODEL (default: models/intent_stellar/model.onnx)");
     eprintln!("Env: NC_INTENT_STELLAR_THRESHOLD (default: 0.55)");
+    eprintln!("Env: NC_ASSET_ALLOWLIST (e.g. XLM,USDC:GISSUER)");
+    eprintln!("Env: NC_SOROBAN_ALLOWLIST (e.g. C1:transfer,C2)");
+    eprintln!("Env: NC_ALLOWLIST_ENFORCE=1 (hard-fail on allowlist violations)");
     eprintln!("Env: NC_CONTRACT_POLICY=path/to/policy.json");
     eprintln!("Env: NC_CONTRACT_POLICY_DIR=contracts");
     eprintln!("Env: NC_CONTRACT_POLICY_ENFORCE=1 (hard-fail on policy violations)");
+    eprintln!("Docs: docs/stellar_actions_guide.md (see section 2.1 Env-matrix)");
 }
 
 #[derive(Debug, Default)]
@@ -68,14 +74,23 @@ fn parse_cli_args(args: &[String]) -> Result<CliArgs> {
     let mut out = CliArgs::default();
     if args.len() <= 1 {
         out.repl = true;
+        out.flow = true;
         return Ok(out);
     }
 
+    let mut flow_explicit = false;
     let mut i = 1usize;
     while i < args.len() {
         match args[i].as_str() {
             "--repl" => out.repl = true,
-            "--flow" => out.flow = true,
+            "--flow" => {
+                out.flow = true;
+                flow_explicit = true;
+            }
+            "--no-flow" => {
+                out.flow = false;
+                flow_explicit = true;
+            }
             "--yes" | "-y" => out.auto_yes = true,
             "--intent-text" => {
                 i += 1;
@@ -119,33 +134,41 @@ fn parse_cli_args(args: &[String]) -> Result<CliArgs> {
         i += 1;
     }
 
+    if out.path.is_some() && out.intent_text.is_some() {
+        return Err(anyhow!("use either <file> or --intent-text, not both"));
+    }
+    if out.path.is_none() && out.intent_text.is_none() {
+        out.repl = true;
+    }
+
     if out.repl {
         if out.path.is_some() || out.intent_text.is_some() {
             return Err(anyhow!(
                 "--repl cannot be combined with <file> or --intent-text"
             ));
         }
+        if !flow_explicit {
+            out.flow = true;
+        }
         return Ok(out);
-    }
-
-    if out.path.is_some() && out.intent_text.is_some() {
-        return Err(anyhow!("use either <file> or --intent-text, not both"));
-    }
-    if out.path.is_none() && out.intent_text.is_none() {
-        return Err(anyhow!("missing input path or --intent-text"));
     }
 
     Ok(out)
 }
 
-fn allowlist_enforced() -> bool {
-    matches!(
-        std::env::var("NC_ALLOWLIST_ENFORCE")
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes" | "on"
-    )
+fn parse_bool_value(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn allowlist_enforced(override_value: Option<bool>) -> bool {
+    if let Some(value) = override_value {
+        return value;
+    }
+    parse_bool_value(&std::env::var("NC_ALLOWLIST_ENFORCE").unwrap_or_default()).unwrap_or(false)
 }
 
 fn policy_enforced() -> bool {
@@ -195,6 +218,39 @@ struct NetworkConfig {
     soroban_cli: String,
     soroban_simulate_args: Vec<String>,
     txrep_preview: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RuntimeSettings {
+    allowlist_assets: Option<String>,
+    allowlist_contracts: Option<String>,
+    allowlist_enforce: Option<bool>,
+}
+
+impl RuntimeSettings {
+    fn allowlist(&self) -> Allowlist {
+        let assets = self
+            .allowlist_assets
+            .clone()
+            .unwrap_or_else(|| env::var("NC_ASSET_ALLOWLIST").unwrap_or_default());
+        let contracts = self
+            .allowlist_contracts
+            .clone()
+            .unwrap_or_else(|| env::var("NC_SOROBAN_ALLOWLIST").unwrap_or_default());
+        Allowlist::from_raw(&assets, &contracts)
+    }
+}
+
+fn runtime_settings_from_env() -> RuntimeSettings {
+    RuntimeSettings {
+        allowlist_assets: env::var("NC_ASSET_ALLOWLIST")
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
+        allowlist_contracts: env::var("NC_SOROBAN_ALLOWLIST")
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
+        allowlist_enforce: parse_bool_value(&env::var("NC_ALLOWLIST_ENFORCE").unwrap_or_default()),
+    }
 }
 
 fn parse_simulate_args(raw: &str) -> Vec<String> {
@@ -1449,6 +1505,77 @@ fn parse_source_line(line: &str) -> Option<String> {
     parse_named_value(line, &["wallet", "source", "lompakko"])
 }
 
+fn parse_horizon_line(line: &str) -> Option<String> {
+    parse_named_value(line, &["horizon", "horizon_url"])
+}
+
+fn parse_friendbot_line(line: &str) -> Option<Option<String>> {
+    let value = parse_named_value(line, &["friendbot", "friendbot_url"])?;
+    let lowered = value.trim().to_ascii_lowercase();
+    if matches!(lowered.as_str(), "off" | "none" | "null" | "disabled") {
+        return Some(None);
+    }
+    Some(Some(value))
+}
+
+fn parse_stellar_cli_line(line: &str) -> Option<String> {
+    parse_named_value(line, &["stellar_cli", "cli"])
+}
+
+fn parse_simulate_flag_line(line: &str) -> Option<String> {
+    parse_named_value(line, &["simulate_flag", "soroban_simulate_flag"])
+}
+
+fn parse_txrep_line(line: &str) -> Result<Option<bool>> {
+    let trimmed = line.trim();
+    if trimmed.eq_ignore_ascii_case("txrep") {
+        return Ok(Some(true));
+    }
+    let Some(value) = parse_named_value(line, &["txrep", "txrep_preview"]) else {
+        return Ok(None);
+    };
+    parse_bool_value(&value)
+        .map(Some)
+        .ok_or_else(|| anyhow!("invalid txrep value `{value}` (use txrep, txrep on, txrep off)"))
+}
+
+fn parse_intent_threshold_line(line: &str) -> Result<Option<f32>> {
+    let Some(value) = parse_named_value(line, &["intent_threshold"]) else {
+        return Ok(None);
+    };
+    let parsed = value
+        .parse::<f32>()
+        .with_context(|| format!("invalid intent_threshold value: {value}"))?;
+    Ok(Some(parsed))
+}
+
+fn parse_asset_allowlist_line(line: &str) -> Option<String> {
+    parse_named_value(line, &["asset_allowlist", "allowlist_assets"])
+}
+
+fn parse_contract_allowlist_line(line: &str) -> Option<String> {
+    parse_named_value(
+        line,
+        &[
+            "soroban_allowlist",
+            "contract_allowlist",
+            "allowlist_contracts",
+        ],
+    )
+}
+
+fn parse_allowlist_enforce_line(line: &str) -> Result<Option<bool>> {
+    if line.trim().eq_ignore_ascii_case("allowlist_enforce") {
+        return Ok(Some(true));
+    }
+    let Some(value) = parse_named_value(line, &["allowlist_enforce"]) else {
+        return Ok(None);
+    };
+    parse_bool_value(&value)
+        .map(Some)
+        .ok_or_else(|| anyhow!("invalid allowlist_enforce value `{value}` (use on/off/true/false)"))
+}
+
 fn parse_set_from_ai_assignment(line: &str) -> Option<(String, String)> {
     let trimmed = line.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -1533,7 +1660,8 @@ fn strip_inline_comment_outside_quotes(line: &str) -> String {
         if ch == '#' {
             break;
         }
-        if ch == '/' && chars.peek() == Some(&'/') {
+        // Keep URL schemes like https:// intact; treat // as comment otherwise.
+        if ch == '/' && chars.peek() == Some(&'/') && !out.ends_with(':') {
             break;
         }
 
@@ -1715,6 +1843,7 @@ struct ScriptBuildContext {
     flow_cfg: NetworkConfig,
     horizon_from_env: bool,
     friendbot_from_env: bool,
+    runtime_settings: RuntimeSettings,
     models: HashMap<String, AIModel>,
     variables: HashMap<String, String>,
     plan: ActionPlan,
@@ -1735,6 +1864,7 @@ impl ScriptBuildContext {
             flow_cfg,
             horizon_from_env,
             friendbot_from_env,
+            runtime_settings: RuntimeSettings::default(),
             models: HashMap::new(),
             variables: HashMap::new(),
             plan: ActionPlan::default(),
@@ -1790,6 +1920,53 @@ impl ScriptBuildContext {
 
         if let Some(source) = parse_source_line(line) {
             self.flow_cfg.soroban_source = Some(source);
+            return Ok(());
+        }
+
+        if let Some(horizon_url) = parse_horizon_line(line) {
+            self.flow_cfg.horizon_url = horizon_url;
+            self.horizon_from_env = true;
+            return Ok(());
+        }
+
+        if let Some(friendbot_url) = parse_friendbot_line(line) {
+            self.flow_cfg.friendbot_url = friendbot_url;
+            self.friendbot_from_env = true;
+            return Ok(());
+        }
+
+        if let Some(cli_bin) = parse_stellar_cli_line(line) {
+            self.flow_cfg.soroban_cli = cli_bin;
+            return Ok(());
+        }
+
+        if let Some(simulate_flag) = parse_simulate_flag_line(line) {
+            self.flow_cfg.soroban_simulate_args = parse_simulate_args(&simulate_flag);
+            return Ok(());
+        }
+
+        if let Some(txrep_preview) = parse_txrep_line(line)? {
+            self.flow_cfg.txrep_preview = txrep_preview;
+            return Ok(());
+        }
+
+        if let Some(threshold) = parse_intent_threshold_line(line)? {
+            self.threshold = threshold;
+            return Ok(());
+        }
+
+        if let Some(assets) = parse_asset_allowlist_line(line) {
+            self.runtime_settings.allowlist_assets = Some(assets);
+            return Ok(());
+        }
+
+        if let Some(contracts) = parse_contract_allowlist_line(line) {
+            self.runtime_settings.allowlist_contracts = Some(contracts);
+            return Ok(());
+        }
+
+        if let Some(enforce) = parse_allowlist_enforce_line(line)? {
+            self.runtime_settings.allowlist_enforce = Some(enforce);
             return Ok(());
         }
 
@@ -1974,7 +2151,7 @@ fn build_plan_from_script(
     source_path: &str,
     initial_model: Option<String>,
     initial_threshold: Option<f32>,
-) -> Result<(ActionPlan, NetworkConfig, bool)> {
+) -> Result<(ActionPlan, NetworkConfig, bool, RuntimeSettings)> {
     let model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
     let threshold = resolve_threshold(initial_threshold)?;
     let horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
@@ -2008,7 +2185,12 @@ fn build_plan_from_script(
         ctx.plan.source = Some(source_path.to_string());
     }
 
-    Ok((ctx.plan, ctx.flow_cfg, ctx.intent_mode))
+    Ok((
+        ctx.plan,
+        ctx.flow_cfg,
+        ctx.intent_mode,
+        ctx.runtime_settings,
+    ))
 }
 
 fn execute_plan(
@@ -2017,8 +2199,10 @@ fn execute_plan(
     auto_yes: bool,
     intent_mode: bool,
     cfg_override: Option<&NetworkConfig>,
+    runtime_settings: Option<&RuntimeSettings>,
 ) -> i32 {
-    let allowlist = Allowlist::from_env();
+    let runtime_settings = runtime_settings.cloned().unwrap_or_default();
+    let allowlist = runtime_settings.allowlist();
     let violations = validate_plan(&plan, &allowlist);
     if !violations.is_empty() {
         for violation in &violations {
@@ -2027,7 +2211,7 @@ fn execute_plan(
                 violation.index, violation.action, violation.reason
             ));
         }
-        if allowlist_enforced() {
+        if allowlist_enforced(runtime_settings.allowlist_enforce) {
             eprintln!("Allowlist violations (enforced):");
             for violation in &violations {
                 eprintln!(
@@ -2035,7 +2219,9 @@ fn execute_plan(
                     violation.index, violation.action, violation.reason
                 );
             }
-            eprintln!("Set NC_ALLOWLIST_ENFORCE=0 (or unset) to allow warnings only.");
+            eprintln!(
+                "Set NC_ALLOWLIST_ENFORCE=0 (or unset), or use allowlist_enforce: off in REPL/.nc."
+            );
             return 3;
         }
         eprintln!("Allowlist warnings (stub, not enforced):");
@@ -2113,21 +2299,284 @@ fn line_is_manual_action(line: &str) -> bool {
 
 fn line_is_comment_or_empty(line: &str) -> bool {
     let trimmed = line.trim();
-    trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//")
+    trimmed.is_empty()
+        || trimmed.starts_with('#')
+        || trimmed.starts_with("//")
+        || trimmed.starts_with("- ")
 }
 
-fn print_repl_help() {
+fn print_repl_config(
+    model_path: &str,
+    threshold: f32,
+    cfg: &NetworkConfig,
+    runtime: &RuntimeSettings,
+) {
+    println!("Current REPL config:");
+    println!("- model: {model_path}");
+    println!("- intent_threshold: {threshold:.2}");
+    println!("- network: {}", cfg.soroban_network);
     println!(
-        "Soroban REPL commands:
-- AI: \"models/intent_stellar/model.onnx\"   set intent model path
-- network: testnet|mainnet|public           set active network for flow
-- wallet: <stellar-key-alias>               set active source wallet alias
-- set intent from AI: \"Transfer 5 XLM to G...\"   classify prompt -> ActionPlan
-- macro from AI: \"Transfer 5 XLM to G...\"        alias to intent prompt
-- plain text prompt                              classify prompt -> ActionPlan
-- stellar.* / soroban.* lines                    manual action-plan mode
-- help, exit"
+        "- wallet/source: {}",
+        cfg.soroban_source.as_deref().unwrap_or("(not set)")
     );
+    println!("- horizon: {}", cfg.horizon_url);
+    println!(
+        "- friendbot: {}",
+        cfg.friendbot_url.as_deref().unwrap_or("(disabled)")
+    );
+    println!("- stellar_cli: {}", cfg.soroban_cli);
+    println!(
+        "- simulate_flag: {}",
+        if cfg.soroban_simulate_args.is_empty() {
+            "(empty)".to_string()
+        } else {
+            cfg.soroban_simulate_args.join(" ")
+        }
+    );
+    println!(
+        "- txrep_preview: {}",
+        if cfg.txrep_preview { "on" } else { "off" }
+    );
+    println!(
+        "- asset_allowlist: {}",
+        runtime
+            .allowlist_assets
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or("(env/default)")
+    );
+    println!(
+        "- soroban_allowlist: {}",
+        runtime
+            .allowlist_contracts
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or("(env/default)")
+    );
+    println!(
+        "- allowlist_enforce: {}",
+        if allowlist_enforced(runtime.allowlist_enforce) {
+            "on"
+        } else {
+            "off"
+        }
+    );
+}
+
+fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings) -> bool {
+    let mut any = false;
+    if let Some(assets) = runtime
+        .allowlist_assets
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+    {
+        println!("asset_allowlist: {assets}");
+        any = true;
+    }
+    if let Some(contracts) = runtime
+        .allowlist_contracts
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+    {
+        println!("soroban_allowlist: {contracts}");
+        any = true;
+    }
+    if cfg.txrep_preview {
+        println!("txrep");
+        any = true;
+    }
+    if allowlist_enforced(runtime.allowlist_enforce) {
+        println!("allowlist_enforce");
+        any = true;
+    }
+    any
+}
+
+fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings) {
+    println!(
+        "Soroban REPL quick start:
+- AI: \"models/intent_stellar/model.onnx\"
+- network: testnet
+- wallet: nc-testnet
+- txrep               (optional preview on)
+- allowlist_enforce   (optional hard-fail on allowlist)
+- set intent from AI: \"Transfer 5 XLM to G...\"
+- help all            (show every command)
+- help dsl            (show normal NeuroChain DSL help)
+- Toggle commands are listed in `help all` under Toggles (on/off).
+- show setup          (print active setup)
+- show config         (print active config)
+- setup testnet       (set network+horizon+friendbot baseline)
+- restart with --no-flow if you want plan-only REPL
+- exit"
+    );
+    println!();
+    println!("Enabled optional settings:");
+    if !print_repl_active_settings(cfg, runtime) {
+        println!("- (none)");
+    }
+}
+
+fn print_repl_help_section(title: &str, rows: &[(&str, &str)]) {
+    println!("{title}:");
+    for (command, description) in rows {
+        println!("- {:<42} {}", command, description);
+    }
+    println!();
+}
+
+fn divider_line() -> String {
+    let columns = env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(96)
+        .clamp(48, 160);
+    "_".repeat(columns.saturating_sub(18))
+}
+
+fn print_repl_divider() {
+    // Keep a small right margin so the divider does not feel edge-to-edge.
+    let line = divider_line();
+    if env::var("NO_COLOR").is_ok() {
+        println!("{line}");
+    } else {
+        println!("\x1b[94m{line}\x1b[0m");
+    }
+}
+
+fn print_script_divider_stderr() {
+    let line = divider_line();
+    if env::var("NO_COLOR").is_ok() {
+        eprintln!("{line}");
+    } else {
+        eprintln!("\x1b[94m{line}\x1b[0m");
+    }
+}
+
+fn print_script_setup(
+    path: &str,
+    cfg: &NetworkConfig,
+    runtime: Option<&RuntimeSettings>,
+    flow: bool,
+) {
+    eprintln!("Script execution setup:");
+    print_script_divider_stderr();
+    eprintln!("- source: {path}");
+    eprintln!("- network: {}", cfg.soroban_network);
+    eprintln!(
+        "- wallet/source: {}",
+        cfg.soroban_source.as_deref().unwrap_or("(not set)")
+    );
+    eprintln!("- flow_mode: {}", if flow { "on" } else { "off" });
+    eprintln!(
+        "- txrep_preview: {}",
+        if cfg.txrep_preview { "on" } else { "off" }
+    );
+    if let Some(runtime) = runtime {
+        if let Some(assets) = runtime
+            .allowlist_assets
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+        {
+            eprintln!("- asset_allowlist: {assets}");
+        }
+        if let Some(contracts) = runtime
+            .allowlist_contracts
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+        {
+            eprintln!("- soroban_allowlist: {contracts}");
+        }
+        eprintln!(
+            "- allowlist_enforce: {}",
+            if allowlist_enforced(runtime.allowlist_enforce) {
+                "on"
+            } else {
+                "off"
+            }
+        );
+    }
+    print_script_divider_stderr();
+}
+
+fn print_repl_hint_line() {
+    if env::var("NO_COLOR").is_ok() {
+        println!("Type `help` for quick start, `help all` for full command list, `exit` to quit.");
+    } else {
+        let green = "\x1b[92m";
+        let red = "\x1b[91m";
+        let reset = "\x1b[0m";
+        println!(
+            "Type {green}help{reset} for quick start, {green}help all{reset} for full command list, {red}exit{reset} to quit."
+        );
+    }
+}
+
+fn print_repl_help_all() {
+    println!("Soroban REPL commands (all):");
+    println!();
+
+    let core_setup = [
+        ("AI: \"path\"", "set intent model path"),
+        ("intent_threshold: <f32>", "set intent confidence threshold"),
+        (
+            "network: testnet|mainnet|public",
+            "set active network for flow",
+        ),
+        (
+            "wallet: <stellar-key-alias>",
+            "set active source wallet alias",
+        ),
+        ("horizon: https://...", "set Horizon URL override"),
+        (
+            "friendbot: https://...|off",
+            "set Friendbot URL or disable it",
+        ),
+        ("stellar_cli: <bin>", "set stellar CLI binary path/name"),
+        ("simulate_flag: \"--send no\"", "set soroban simulate flag"),
+        (
+            "asset_allowlist: XLM,USDC:G...",
+            "set NC_ASSET_ALLOWLIST equivalent",
+        ),
+        (
+            "soroban_allowlist: C1:transfer,C2",
+            "set NC_SOROBAN_ALLOWLIST equivalent",
+        ),
+    ];
+    print_repl_help_section("Core setup (value required)", &core_setup);
+
+    let toggles = [
+        ("txrep", "enable txrep preview in flow"),
+        ("txrep off", "disable txrep preview in flow"),
+        ("allowlist_enforce", "enable allowlist enforce"),
+        ("allowlist_enforce off", "disable allowlist enforce"),
+    ];
+    print_repl_help_section("Toggles (on/off)", &toggles);
+
+    let prompt_actions = [
+        (
+            "set intent from AI: \"Transfer 5 XLM to G...\"",
+            "classify prompt -> ActionPlan",
+        ),
+        (
+            "macro from AI: \"Transfer 5 XLM to G...\"",
+            "alias to intent prompt",
+        ),
+        ("plain text prompt", "classify prompt -> ActionPlan"),
+        ("stellar.* / soroban.* lines", "manual action-plan mode"),
+    ];
+    print_repl_help_section("Prompt/Action commands", &prompt_actions);
+
+    let utility = [
+        ("help", "show quick start"),
+        ("help all", "show every command"),
+        ("help dsl", "show normal NeuroChain DSL language help"),
+        ("show setup", "print active setup"),
+        ("show config", "print active config"),
+        ("setup testnet", "set network+horizon+friendbot baseline"),
+        ("exit", "leave REPL"),
+    ];
+    print_repl_help_section("Utility commands", &utility);
 }
 
 fn run_repl(
@@ -2137,24 +2586,28 @@ fn run_repl(
     initial_threshold: Option<f32>,
 ) -> i32 {
     let mut model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
-    let threshold = match resolve_threshold(initial_threshold) {
+    let mut threshold = match resolve_threshold(initial_threshold) {
         Ok(v) => v,
         Err(err) => {
             eprintln!("Error: {err}");
             return 2;
         }
     };
-    let horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
+    let mut horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
         .ok()
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false);
-    let friendbot_from_env = env::var("NC_FRIENDBOT_URL")
+    let mut friendbot_from_env = env::var("NC_FRIENDBOT_URL")
         .ok()
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false);
     let mut flow_cfg = load_network_config();
+    // REPL is wallet-explicit: do not preload wallet/source from env on startup.
+    flow_cfg.soroban_source = None;
+    let mut runtime_settings = runtime_settings_from_env();
 
     println!("NeuroChain Soroban REPL (intent -> action).");
+    print_repl_divider();
     println!("Current model: {model_path}");
     println!("Current threshold: {threshold:.2}");
     println!("Current network: {}", flow_cfg.soroban_network);
@@ -2162,7 +2615,20 @@ fn run_repl(
         "Current wallet/source: {}",
         flow_cfg.soroban_source.as_deref().unwrap_or("(not set)")
     );
-    println!("Type `help` for commands, `exit` to quit.");
+    println!(
+        "Flow mode: {}",
+        if flow {
+            "enabled (default REPL)"
+        } else {
+            "disabled"
+        }
+    );
+    if print_repl_active_settings(&flow_cfg, &runtime_settings) {
+        println!();
+    }
+    print_repl_divider();
+    print_repl_hint_line();
+    print_repl_divider();
 
     loop {
         println!("Enter Soroban prompt/code (finish with an empty line):");
@@ -2185,30 +2651,78 @@ fn run_repl(
         if trimmed.is_empty() {
             continue;
         }
-        match trimmed {
+        let lowered = trimmed.to_ascii_lowercase();
+        match lowered.as_str() {
             "exit" | "quit" => {
                 println!("Exiting...");
                 return 0;
             }
             "help" => {
-                print_repl_help();
+                print_repl_help_quick(&flow_cfg, &runtime_settings);
+                continue;
+            }
+            "help all" => {
+                print_repl_help_all();
+                continue;
+            }
+            "help dsl" => {
+                println!("{}", neurochain_language_help());
+                continue;
+            }
+            "show setup" => {
+                println!("Current REPL setup:");
+                println!("- model: {model_path}");
+                println!("- intent_threshold: {threshold:.2}");
+                println!("- network: {}", flow_cfg.soroban_network);
+                println!(
+                    "- wallet/source: {}",
+                    flow_cfg.soroban_source.as_deref().unwrap_or("(not set)")
+                );
+                println!("- flow_mode: {}", if flow { "on" } else { "off" });
+                println!("- enabled optional settings:");
+                if !print_repl_active_settings(&flow_cfg, &runtime_settings) {
+                    println!("- (none)");
+                }
+                continue;
+            }
+            "show config" => {
+                print_repl_config(&model_path, threshold, &flow_cfg, &runtime_settings);
+                continue;
+            }
+            "setup testnet" => {
+                flow_cfg.soroban_network = "testnet".to_string();
+                flow_cfg.horizon_url = default_horizon_url("testnet");
+                flow_cfg.friendbot_url = default_friendbot_url("testnet");
+                horizon_from_env = false;
+                friendbot_from_env = false;
+                println!("Applied testnet baseline (network+horizon+friendbot).");
+                print_repl_config(&model_path, threshold, &flow_cfg, &runtime_settings);
                 continue;
             }
             _ => {}
         }
 
-        let lines: Vec<&str> = trimmed
+        let lines: Vec<String> = trimmed
             .lines()
+            .map(strip_inline_comment_outside_quotes)
             .filter(|l| !line_is_comment_or_empty(l))
             .collect();
         let all_manual_actions =
             !lines.is_empty() && lines.iter().all(|l| line_is_manual_action(l));
         if all_manual_actions {
-            let mut plan = parse_action_plan_from_nc(trimmed);
+            let manual_src = lines.join("\n");
+            let mut plan = parse_action_plan_from_nc(&manual_src);
             if plan.source.is_none() {
                 plan.source = Some("repl.manual".to_string());
             }
-            let code = execute_plan(plan, flow, auto_yes, false, Some(&flow_cfg));
+            let code = execute_plan(
+                plan,
+                flow,
+                auto_yes,
+                false,
+                Some(&flow_cfg),
+                Some(&runtime_settings),
+            );
             if code != 0 {
                 eprintln!("repl step returned code {code}");
             }
@@ -2216,13 +2730,13 @@ fn run_repl(
         }
 
         for line in lines {
-            if let Some(new_model_path) = parse_ai_model_line(line) {
+            if let Some(new_model_path) = parse_ai_model_line(&line) {
                 model_path = new_model_path;
                 println!("Intent model path set to: {model_path}");
                 continue;
             }
 
-            if let Some(network) = parse_network_line(line) {
+            if let Some(network) = parse_network_line(&line) {
                 flow_cfg.soroban_network = network.to_string();
                 if !horizon_from_env {
                     flow_cfg.horizon_url = default_horizon_url(&network);
@@ -2239,7 +2753,7 @@ fn run_repl(
                 continue;
             }
 
-            if let Some(source) = parse_source_line(line) {
+            if let Some(source) = parse_source_line(&line) {
                 flow_cfg.soroban_source = Some(source.to_string());
                 println!(
                     "Wallet/source set to: {}",
@@ -2248,12 +2762,112 @@ fn run_repl(
                 continue;
             }
 
-            if let Some(prompt) = extract_prompt_from_set_from_ai(line)
-                .or_else(|| extract_prompt_from_macro_from_ai(line))
+            if let Some(horizon_url) = parse_horizon_line(&line) {
+                flow_cfg.horizon_url = horizon_url;
+                horizon_from_env = true;
+                println!("Horizon URL set to: {}", flow_cfg.horizon_url);
+                continue;
+            }
+
+            if let Some(friendbot_url) = parse_friendbot_line(&line) {
+                flow_cfg.friendbot_url = friendbot_url;
+                friendbot_from_env = true;
+                println!(
+                    "Friendbot set to: {}",
+                    flow_cfg.friendbot_url.as_deref().unwrap_or("(disabled)")
+                );
+                continue;
+            }
+
+            if let Some(cli_bin) = parse_stellar_cli_line(&line) {
+                flow_cfg.soroban_cli = cli_bin;
+                println!("Stellar CLI binary set to: {}", flow_cfg.soroban_cli);
+                continue;
+            }
+
+            if let Some(simulate_flag) = parse_simulate_flag_line(&line) {
+                flow_cfg.soroban_simulate_args = parse_simulate_args(&simulate_flag);
+                println!(
+                    "Soroban simulate flag set to: {}",
+                    if simulate_flag.trim().is_empty() {
+                        "(empty)"
+                    } else {
+                        simulate_flag.trim()
+                    }
+                );
+                continue;
+            }
+
+            match parse_txrep_line(&line) {
+                Ok(Some(enabled)) => {
+                    flow_cfg.txrep_preview = enabled;
+                    println!(
+                        "Txrep preview: {}",
+                        if enabled { "enabled" } else { "disabled" }
+                    );
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            match parse_intent_threshold_line(&line) {
+                Ok(Some(value)) => {
+                    threshold = value;
+                    println!("Intent threshold set to: {threshold:.2}");
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            if let Some(assets) = parse_asset_allowlist_line(&line) {
+                runtime_settings.allowlist_assets = Some(assets.clone());
+                println!("Asset allowlist set to: {assets}");
+                continue;
+            }
+
+            if let Some(contracts) = parse_contract_allowlist_line(&line) {
+                runtime_settings.allowlist_contracts = Some(contracts.clone());
+                println!("Soroban allowlist set to: {contracts}");
+                continue;
+            }
+
+            match parse_allowlist_enforce_line(&line) {
+                Ok(Some(enabled)) => {
+                    runtime_settings.allowlist_enforce = Some(enabled);
+                    println!(
+                        "Allowlist enforce: {}",
+                        if enabled { "enabled" } else { "disabled" }
+                    );
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            if let Some(prompt) = extract_prompt_from_set_from_ai(&line)
+                .or_else(|| extract_prompt_from_macro_from_ai(&line))
             {
                 match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
                     Ok(plan) => {
-                        let code = execute_plan(plan, flow, auto_yes, true, Some(&flow_cfg));
+                        let code = execute_plan(
+                            plan,
+                            flow,
+                            auto_yes,
+                            true,
+                            Some(&flow_cfg),
+                            Some(&runtime_settings),
+                        );
                         if code != 0 {
                             eprintln!("repl step returned code {code}");
                         }
@@ -2268,10 +2882,17 @@ fn run_repl(
                 continue;
             }
 
-            let prompt = strip_wrapping_quotes(line);
+            let prompt = strip_wrapping_quotes(&line);
             match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
                 Ok(plan) => {
-                    let code = execute_plan(plan, flow, auto_yes, true, Some(&flow_cfg));
+                    let code = execute_plan(
+                        plan,
+                        flow,
+                        auto_yes,
+                        true,
+                        Some(&flow_cfg),
+                        Some(&runtime_settings),
+                    );
                     if code != 0 {
                         eprintln!("repl step returned code {code}");
                     }
@@ -2308,7 +2929,9 @@ fn main() {
     }
 
     let mut cfg_override: Option<NetworkConfig> = None;
+    let mut runtime_override: Option<RuntimeSettings> = None;
     let mut intent_mode = false;
+    let mut script_setup_path: Option<String> = None;
     let plan: ActionPlan = if let Some(prompt) = cli.intent_text {
         intent_mode = true;
         let threshold = match resolve_threshold(cli.intent_threshold) {
@@ -2344,9 +2967,11 @@ fn main() {
                 cli.intent_model.clone(),
                 cli.intent_threshold,
             ) {
-                Ok((script_plan, script_cfg, script_intent_mode)) => {
+                Ok((script_plan, script_cfg, script_intent_mode, script_runtime)) => {
                     cfg_override = Some(script_cfg);
+                    runtime_override = Some(script_runtime);
                     intent_mode = script_intent_mode;
+                    script_setup_path = Some(path.clone());
                     script_plan
                 }
                 Err(err) => {
@@ -2361,12 +2986,17 @@ fn main() {
         plan
     };
 
+    if let (Some(path), Some(cfg)) = (script_setup_path.as_deref(), cfg_override.as_ref()) {
+        print_script_setup(path, cfg, runtime_override.as_ref(), cli.flow);
+    }
+
     let code = execute_plan(
         plan,
         cli.flow,
         cli.auto_yes,
         intent_mode,
         cfg_override.as_ref(),
+        runtime_override.as_ref(),
     );
     if code != 0 {
         std::process::exit(code);
