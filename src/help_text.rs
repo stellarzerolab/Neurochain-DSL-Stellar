@@ -108,6 +108,6 @@ Optional logging:
 NEUROCHAIN_OUTPUT_LOG=1       → write `neuro:` output to a file (logs/run_latest.log)
 NEUROCHAIN_RAW_LOG=1          → write intent/DSL debug to a file (logs/macro_raw_latest.log)
 
-Docs & examples: https://github.com/stellarzerolab/Neurochain-DSL
+Docs & examples: https://github.com/stellarzerolab/Neurochain-DSL-Stellar
 "#
 }
