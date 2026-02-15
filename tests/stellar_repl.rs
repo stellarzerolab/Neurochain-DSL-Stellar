@@ -77,7 +77,7 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin(
-        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\nallowlist_enforce\n\nallowlist_enforce off\n\nallowlist_enforce\n\nexit\n\n",
+        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\nallowlist_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\nallowlist_enforce\n\nexit\n\n",
     )
     .assert()
     .success()
@@ -91,6 +91,8 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     .stdout(contains("Asset allowlist set to: XLM"))
     .stdout(contains("Soroban allowlist set to: CTEST:transfer"))
     .stdout(contains("Allowlist enforce: enabled"))
+    .stdout(contains("Intent debug trace: enabled"))
+    .stdout(contains("Intent debug trace: disabled"))
     .stdout(contains("Allowlist enforce: disabled"))
     .stdout(contains("Exiting"));
 }
@@ -144,6 +146,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     );
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
     let enforce_row = help_row("allowlist_enforce", "enable allowlist enforce");
+    let debug_row = help_row("debug", "enable intent pipeline trace");
     let intent_row = help_row(
         "set stellar intent from AI: \"Transfer 5 XLM to G...\"",
         "classify prompt -> ActionPlan",
@@ -160,6 +163,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&network_row));
     assert!(stdout.contains(&txrep_row));
     assert!(stdout.contains(&enforce_row));
+    assert!(stdout.contains(&debug_row));
     assert!(stdout.contains(&set_var_row));
     assert!(stdout.contains(&intent_row));
     assert!(stdout.contains(&help_dsl_row));
@@ -183,6 +187,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
 
     assert!(toggle_section.contains("txrep"));
     assert!(toggle_section.contains("allowlist_enforce"));
+    assert!(toggle_section.contains("debug"));
     assert!(!toggle_section.contains("intent_threshold: <f32>"));
 
     assert!(prompt_section.contains("set stellar intent from AI: \"Transfer 5 XLM to G...\""));

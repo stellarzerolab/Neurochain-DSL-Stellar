@@ -82,6 +82,9 @@ cargo run --bin neurochain-stellar -- --no-flow
 # Intent prompt suoraan CLI-flagilla
 cargo run --release --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..."
 
+# Sama debug-tracen kanssa
+cargo run --release --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..." --debug
+
 # .nc tiedosto
 cargo run --release --bin neurochain-stellar -- examples\intent_stellar_payment_flow.nc
 
@@ -119,6 +122,8 @@ Tarvittaessa samat komennot debugilla: poista `--release`.
   - intent_stellar ONNX-polku (oletus: `models/intent_stellar/model.onnx`)
 - `NC_INTENT_STELLAR_THRESHOLD`
   - confidence-kynnys (oletus: `0.55`)
+- `NC_INTENT_DEBUG=1`
+  - intent-putken debug-trace (classify -> slot-parse -> guardrails -> flow)
 
 **Allowlist (valinnainen, mutta suositus):**
 
@@ -148,6 +153,7 @@ REPLissä samat asiat voi asettaa envin sijaan myös riveillä (`network: ...`, 
 | `NC_TXREP_PREVIEW` | Kytkee txrep-previewn päälle | CLI + REPL + `.nc` | off |
 | `NC_INTENT_STELLAR_MODEL` | Asettaa intent_stellar-mallipolun | CLI + REPL + `.nc` | `models/intent_stellar/model.onnx` |
 | `NC_INTENT_STELLAR_THRESHOLD` | Asettaa intent confidence-kynnyksen | CLI + REPL + `.nc` | `0.55` |
+| `NC_INTENT_DEBUG` | Kytkee intent debug-tracen päälle | CLI + REPL + `.nc` | off |
 | `NC_ASSET_ALLOWLIST` | Asettaa asset-allowlistin | CLI + REPL + `.nc` | tyhjä |
 | `NC_SOROBAN_ALLOWLIST` | Asettaa contract/function-allowlistin | CLI + REPL + `.nc` | tyhjä |
 | `NC_ALLOWLIST_ENFORCE` | Kytkee allowlistin hard-failiksi | CLI + REPL + `.nc` | off (warning-only) |
@@ -169,6 +175,7 @@ Suositus: laita nämä **heti alkuun** (AI -> network -> wallet -> muut asetukse
 - `NC_TXREP_PREVIEW=1` -> `txrep` / `txrep on` (`txrep off` pois päältä)
 - `NC_INTENT_STELLAR_MODEL` -> `AI: "models/intent_stellar/model.onnx"`
 - `NC_INTENT_STELLAR_THRESHOLD` -> `intent_threshold: 0.55`
+- `NC_INTENT_DEBUG=1` -> `debug` (paalle) / `debug off` (pois)
 - `NC_ASSET_ALLOWLIST` -> `asset_allowlist: XLM,USDC:GISSUER`
 - `NC_SOROBAN_ALLOWLIST` -> `soroban_allowlist: C1:transfer,C2`
 - `NC_ALLOWLIST_ENFORCE` -> `allowlist_enforce` (päälle) / `allowlist_enforce off` (pois)
@@ -258,6 +265,8 @@ Toggles (on/off):
 - `txrep off` -> disable txrep preview in flow
 - `allowlist_enforce` -> enable allowlist enforce
 - `allowlist_enforce off` -> disable allowlist enforce
+- `debug` -> enable intent pipeline trace
+- `debug off` -> disable intent pipeline trace
 
 Prompt/Action commands:
 - `set <var> from AI: "..."` -> predict with active model and store variable
@@ -277,8 +286,8 @@ Utility commands:
 - `exit` -> leave REPL
 
 Yhtenäinen toggle-sääntö:
-- Pelkkä asetusrivi kytkee päälle (`txrep`, `allowlist_enforce`)
-- `off` samassa rivissä kytkee pois (`txrep off`, `allowlist_enforce off`)
+- Pelkkä asetusrivi kytkee päälle (`txrep`, `allowlist_enforce`, `debug`)
+- `off` samassa rivissä kytkee pois (`txrep off`, `allowlist_enforce off`, `debug off`)
 
 ## 3.7) Käyttö — `.nc` scripti samoilla komennoilla
 

@@ -22,9 +22,9 @@ use serde_json::Value;
 
 fn print_usage() {
     eprintln!(
-        "Usage: neurochain-stellar [<file.nc|plan.json>] [--flow|--no-flow] [--yes] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
+        "Usage: neurochain-stellar [<file.nc|plan.json>] [--flow|--no-flow] [--yes] [--debug] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
     );
-    eprintln!("Usage: neurochain-stellar --repl [--flow|--no-flow]");
+    eprintln!("Usage: neurochain-stellar --repl [--flow|--no-flow] [--debug]");
     eprintln!("If no args are provided, REPL mode is started (flow enabled by default).");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
@@ -37,9 +37,12 @@ fn print_usage() {
     eprintln!("--intent-text enables IntentStellar -> ActionPlan mode.");
     eprintln!("--intent-model overrides the intent_stellar model path.");
     eprintln!("--intent-threshold overrides confidence threshold (default: 0.55).");
-    eprintln!("--flow enables simulate → preview → confirm → submit.");
+    eprintln!("--flow enables simulate -> preview -> confirm -> submit.");
     eprintln!("--no-flow forces plan-only mode (no preview/submit).");
     eprintln!("--yes auto-confirms submit in --flow mode.");
+    eprintln!(
+        "--debug enables intent pipeline trace (classify -> slot-parse -> guardrails -> flow)."
+    );
     eprintln!("Flow in intent mode is blocked when plan has Unknown/intent_error (exit code 5).");
     eprintln!("Env: NC_STELLAR_NETWORK / NC_SOROBAN_NETWORK (default: testnet)");
     eprintln!("Env: NC_STELLAR_HORIZON_URL (default: testnet Horizon)");
@@ -50,6 +53,7 @@ fn print_usage() {
     eprintln!("Env: NC_TXREP_PREVIEW=1 (include txrep in preview output)");
     eprintln!("Env: NC_INTENT_STELLAR_MODEL (default: models/intent_stellar/model.onnx)");
     eprintln!("Env: NC_INTENT_STELLAR_THRESHOLD (default: 0.55)");
+    eprintln!("Env: NC_INTENT_DEBUG=1 (enable intent pipeline trace)");
     eprintln!("Env: NC_ASSET_ALLOWLIST (e.g. XLM,USDC:GISSUER)");
     eprintln!("Env: NC_SOROBAN_ALLOWLIST (e.g. C1:transfer,C2)");
     eprintln!("Env: NC_ALLOWLIST_ENFORCE=1 (hard-fail on allowlist violations)");
@@ -64,6 +68,7 @@ struct CliArgs {
     repl: bool,
     path: Option<String>,
     flow: bool,
+    debug: bool,
     auto_yes: bool,
     intent_text: Option<String>,
     intent_model: Option<String>,
@@ -91,6 +96,7 @@ fn parse_cli_args(args: &[String]) -> Result<CliArgs> {
                 out.flow = false;
                 flow_explicit = true;
             }
+            "--debug" => out.debug = true,
             "--yes" | "-y" => out.auto_yes = true,
             "--intent-text" => {
                 i += 1;
@@ -161,6 +167,20 @@ fn parse_bool_value(raw: &str) -> Option<bool> {
         "1" | "true" | "yes" | "on" => Some(true),
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
+    }
+}
+
+fn intent_debug_from_env() -> bool {
+    parse_bool_value(&env::var("NC_INTENT_DEBUG").unwrap_or_default()).unwrap_or(false)
+}
+
+fn resolve_intent_debug(cli_debug: bool) -> bool {
+    cli_debug || intent_debug_from_env()
+}
+
+fn intent_debug_log(enabled: bool, stage: &str, message: impl AsRef<str>) {
+    if enabled {
+        eprintln!("[intent-debug] {stage}: {}", message.as_ref());
     }
 }
 
@@ -1564,6 +1584,18 @@ fn parse_allowlist_enforce_line(line: &str) -> Result<Option<bool>> {
         .ok_or_else(|| anyhow!("invalid allowlist_enforce value `{value}` (use on/off/true/false)"))
 }
 
+fn parse_debug_line(line: &str) -> Result<Option<bool>> {
+    if line.trim().eq_ignore_ascii_case("debug") {
+        return Ok(Some(true));
+    }
+    let Some(value) = parse_named_value(line, &["debug", "intent_debug"]) else {
+        return Ok(None);
+    };
+    parse_bool_value(&value)
+        .map(Some)
+        .ok_or_else(|| anyhow!("invalid debug value `{value}` (use on/off/true/false)"))
+}
+
 fn parse_set_from_ai_assignment(line: &str) -> Option<(String, String)> {
     let trimmed = line.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -1851,6 +1883,7 @@ struct ScriptBuildContext {
     variables: HashMap<String, String>,
     plan: ActionPlan,
     intent_mode: bool,
+    debug: bool,
 }
 
 impl ScriptBuildContext {
@@ -1860,6 +1893,7 @@ impl ScriptBuildContext {
         flow_cfg: NetworkConfig,
         horizon_from_env: bool,
         friendbot_from_env: bool,
+        debug: bool,
     ) -> Self {
         Self {
             model_path,
@@ -1872,6 +1906,7 @@ impl ScriptBuildContext {
             variables: HashMap::new(),
             plan: ActionPlan::default(),
             intent_mode: false,
+            debug,
         }
     }
 
@@ -1905,7 +1940,8 @@ impl ScriptBuildContext {
 
     fn append_intent_prompt(&mut self, prompt: &str) -> Result<()> {
         self.intent_mode = true;
-        let prompt_plan = build_plan_from_intent_prompt(prompt, &self.model_path, self.threshold)?;
+        let prompt_plan =
+            build_plan_from_intent_prompt(prompt, &self.model_path, self.threshold, self.debug)?;
         merge_action_plans(&mut self.plan, prompt_plan);
         Ok(())
     }
@@ -1970,6 +2006,11 @@ impl ScriptBuildContext {
 
         if let Some(enforce) = parse_allowlist_enforce_line(line)? {
             self.runtime_settings.allowlist_enforce = Some(enforce);
+            return Ok(());
+        }
+
+        if let Some(debug) = parse_debug_line(line)? {
+            self.debug = debug;
             return Ok(());
         }
 
@@ -2130,11 +2171,53 @@ fn build_plan_from_intent_prompt(
     prompt: &str,
     model_path: &str,
     threshold: f32,
+    debug: bool,
 ) -> Result<ActionPlan> {
     let decision = classify_intent_stellar(prompt, model_path, threshold)?;
+    intent_debug_log(
+        debug,
+        "classify",
+        format!(
+            "label={} score={:.4} threshold={:.2} downgraded_to_unknown={} model={} prompt=\"{}\"",
+            decision.label.as_str(),
+            decision.score,
+            decision.threshold,
+            decision.downgraded_to_unknown,
+            model_path,
+            prompt
+        ),
+    );
+
     let mut plan = build_intent_action_plan(prompt, &decision);
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
+
+    let action_kinds = if plan.actions.is_empty() {
+        "(none)".to_string()
+    } else {
+        plan.actions
+            .iter()
+            .map(|a| a.kind())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let slot_errors = plan
+        .warnings
+        .iter()
+        .filter(|w| w.starts_with("intent_error:"))
+        .count();
+    intent_debug_log(
+        debug,
+        "slot-parse",
+        format!(
+            "actions={} kinds={} intent_errors={} warnings={}",
+            plan.actions.len(),
+            action_kinds,
+            slot_errors,
+            plan.warnings.len()
+        ),
+    );
+
     Ok(plan)
 }
 
@@ -2173,6 +2256,7 @@ fn build_plan_from_script(
     source_path: &str,
     initial_model: Option<String>,
     initial_threshold: Option<f32>,
+    debug: bool,
 ) -> Result<(ActionPlan, NetworkConfig, bool, RuntimeSettings)> {
     let model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
     let threshold = resolve_threshold(initial_threshold)?;
@@ -2191,6 +2275,7 @@ fn build_plan_from_script(
         flow_cfg,
         horizon_from_env,
         friendbot_from_env,
+        debug,
     );
     let lines = collect_script_lines(script);
     let mut idx = 0usize;
@@ -2222,10 +2307,21 @@ fn execute_plan(
     intent_mode: bool,
     cfg_override: Option<&NetworkConfig>,
     runtime_settings: Option<&RuntimeSettings>,
+    debug: bool,
 ) -> i32 {
     let runtime_settings = runtime_settings.cloned().unwrap_or_default();
     let allowlist = runtime_settings.allowlist();
     let violations = validate_plan(&plan, &allowlist);
+    let allowlist_is_enforced = allowlist_enforced(runtime_settings.allowlist_enforce);
+    intent_debug_log(
+        debug,
+        "guardrails",
+        format!(
+            "allowlist_violations={} enforce={}",
+            violations.len(),
+            allowlist_is_enforced
+        ),
+    );
     if !violations.is_empty() {
         for violation in &violations {
             plan.warnings.push(format!(
@@ -2233,7 +2329,7 @@ fn execute_plan(
                 violation.index, violation.action, violation.reason
             ));
         }
-        if allowlist_enforced(runtime_settings.allowlist_enforce) {
+        if allowlist_is_enforced {
             eprintln!("Allowlist violations (enforced):");
             for violation in &violations {
                 eprintln!(
@@ -2244,6 +2340,7 @@ fn execute_plan(
             eprintln!(
                 "Set NC_ALLOWLIST_ENFORCE=0 (or unset), or use allowlist_enforce: off in REPL/.nc."
             );
+            intent_debug_log(debug, "guardrails", "allowlist blocked execution (exit=3)");
             return 3;
         }
         eprintln!("Allowlist warnings (stub, not enforced):");
@@ -2257,16 +2354,32 @@ fn execute_plan(
 
     let policies = load_contract_policies();
     let (policy_warnings, policy_errors) = validate_contract_policies(&plan, &policies);
+    let policy_is_enforced = policy_enforced();
+    intent_debug_log(
+        debug,
+        "guardrails",
+        format!(
+            "policy_warnings={} policy_errors={} enforce={}",
+            policy_warnings.len(),
+            policy_errors.len(),
+            policy_is_enforced
+        ),
+    );
     for warning in &policy_warnings {
         plan.warnings.push(format!("policy warning: {warning}"));
     }
     if !policy_errors.is_empty() {
-        if policy_enforced() {
+        if policy_is_enforced {
             eprintln!("Contract policy violations (enforced):");
             for err in &policy_errors {
                 eprintln!("- {err}");
             }
             eprintln!("Set NC_CONTRACT_POLICY_ENFORCE=0 (or unset) to allow warnings only.");
+            intent_debug_log(
+                debug,
+                "guardrails",
+                "contract policy blocked execution (exit=4)",
+            );
             return 4;
         }
         eprintln!("Contract policy warnings (not enforced):");
@@ -2275,6 +2388,16 @@ fn execute_plan(
             plan.warnings.push(format!("policy error: {err}"));
         }
     }
+
+    intent_debug_log(
+        debug,
+        "plan",
+        format!(
+            "actions={} warnings={}",
+            plan.actions.len(),
+            plan.warnings.len()
+        ),
+    );
 
     match serde_json::to_string_pretty(&plan) {
         Ok(json) => println!("{json}"),
@@ -2285,27 +2408,52 @@ fn execute_plan(
     }
 
     if flow {
+        intent_debug_log(debug, "flow", "enabled");
         if intent_mode && has_intent_blocking_issue(&plan) {
             eprintln!("Intent safety guard blocked flow. simulate/submit skipped.");
             print_intent_block_reasons(&plan);
+            intent_debug_log(
+                debug,
+                "flow",
+                "intent safety guard blocked execution (exit=5)",
+            );
             return 5;
         }
         let cfg = cfg_override.cloned().unwrap_or_else(load_network_config);
         let preview = simulate_plan(&plan, &cfg);
+        intent_debug_log(
+            debug,
+            "flow",
+            format!(
+                "simulate effects={} warnings={}",
+                preview.effects.len(),
+                preview.warnings.len()
+            ),
+        );
         print_preview(&preview);
         if confirm_submit(auto_yes) {
+            intent_debug_log(debug, "flow", "submit confirmed");
             let outputs = submit_plan(&plan, &cfg);
             if outputs.is_empty() {
                 eprintln!("Submit: no actions executed.");
+                intent_debug_log(debug, "flow", "submit produced no output lines");
             } else {
                 eprintln!("Submit results:");
+                intent_debug_log(
+                    debug,
+                    "flow",
+                    format!("submit output_lines={}", outputs.len()),
+                );
                 for line in outputs {
                     eprintln!("  - {line}");
                 }
             }
         } else {
             eprintln!("Submit aborted by user.");
+            intent_debug_log(debug, "flow", "submit aborted by user");
         }
+    } else {
+        intent_debug_log(debug, "flow", "disabled (plan-only)");
     }
 
     0
@@ -2330,12 +2478,14 @@ fn line_is_comment_or_empty(line: &str) -> bool {
 fn print_repl_config(
     model_path: &str,
     threshold: f32,
+    debug: bool,
     cfg: &NetworkConfig,
     runtime: &RuntimeSettings,
 ) {
     println!("Current REPL config:");
     println!("- model: {model_path}");
     println!("- intent_threshold: {threshold:.2}");
+    println!("- intent_debug: {}", if debug { "on" } else { "off" });
     println!("- network: {}", cfg.soroban_network);
     println!(
         "- wallet/source: {}",
@@ -2385,7 +2535,7 @@ fn print_repl_config(
     );
 }
 
-fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings) -> bool {
+fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) -> bool {
     let mut any = false;
     if let Some(assets) = runtime
         .allowlist_assets
@@ -2411,10 +2561,14 @@ fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings) ->
         println!("allowlist_enforce");
         any = true;
     }
+    if debug {
+        println!("debug");
+        any = true;
+    }
     any
 }
 
-fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings) {
+fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) {
     println!(
         "Soroban REPL quick start:
 - AI: \"models/intent_stellar/model.onnx\"
@@ -2422,6 +2576,7 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings) {
 - wallet: nc-testnet
 - txrep               (optional preview on)
 - allowlist_enforce   (optional hard-fail on allowlist)
+- debug               (optional intent trace on)
 - set mood from AI: \"This is great\"   (store model prediction to variable)
 - set stellar intent from AI: \"Transfer 5 XLM to G...\"
 - help all            (show every command)
@@ -2435,7 +2590,7 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings) {
     );
     println!();
     println!("Enabled optional settings:");
-    if !print_repl_active_settings(cfg, runtime) {
+    if !print_repl_active_settings(cfg, runtime, debug) {
         println!("- (none)");
     }
 }
@@ -2481,6 +2636,7 @@ fn print_script_setup(
     cfg: &NetworkConfig,
     runtime: Option<&RuntimeSettings>,
     flow: bool,
+    debug: bool,
 ) {
     eprintln!("Script execution setup:");
     print_script_divider_stderr();
@@ -2491,6 +2647,7 @@ fn print_script_setup(
         cfg.soroban_source.as_deref().unwrap_or("(not set)")
     );
     eprintln!("- flow_mode: {}", if flow { "on" } else { "off" });
+    eprintln!("- intent_debug: {}", if debug { "on" } else { "off" });
     eprintln!(
         "- txrep_preview: {}",
         if cfg.txrep_preview { "on" } else { "off" }
@@ -2573,6 +2730,8 @@ fn print_repl_help_all() {
         ("txrep off", "disable txrep preview in flow"),
         ("allowlist_enforce", "enable allowlist enforce"),
         ("allowlist_enforce off", "disable allowlist enforce"),
+        ("debug", "enable intent pipeline trace"),
+        ("debug off", "disable intent pipeline trace"),
     ];
     print_repl_help_section("Toggles (on/off)", &toggles);
 
@@ -2611,6 +2770,7 @@ fn run_repl(
     auto_yes: bool,
     initial_model: Option<String>,
     initial_threshold: Option<f32>,
+    initial_debug: bool,
 ) -> i32 {
     let mut model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
     let mut models: HashMap<String, AIModel> = HashMap::new();
@@ -2622,6 +2782,7 @@ fn run_repl(
             return 2;
         }
     };
+    let mut debug = resolve_intent_debug(initial_debug);
     let mut horizon_from_env = env::var("NC_STELLAR_HORIZON_URL")
         .ok()
         .map(|v| !v.trim().is_empty())
@@ -2639,6 +2800,7 @@ fn run_repl(
     print_repl_divider();
     println!("Current model: {model_path}");
     println!("Current threshold: {threshold:.2}");
+    println!("Current intent debug: {}", if debug { "on" } else { "off" });
     println!("Current network: {}", flow_cfg.soroban_network);
     println!(
         "Current wallet/source: {}",
@@ -2652,7 +2814,7 @@ fn run_repl(
             "disabled"
         }
     );
-    if print_repl_active_settings(&flow_cfg, &runtime_settings) {
+    if print_repl_active_settings(&flow_cfg, &runtime_settings, debug) {
         println!();
     }
     print_repl_divider();
@@ -2687,7 +2849,7 @@ fn run_repl(
                 return 0;
             }
             "help" => {
-                print_repl_help_quick(&flow_cfg, &runtime_settings);
+                print_repl_help_quick(&flow_cfg, &runtime_settings, debug);
                 continue;
             }
             "help all" => {
@@ -2702,6 +2864,7 @@ fn run_repl(
                 println!("Current REPL setup:");
                 println!("- model: {model_path}");
                 println!("- intent_threshold: {threshold:.2}");
+                println!("- intent_debug: {}", if debug { "on" } else { "off" });
                 println!("- network: {}", flow_cfg.soroban_network);
                 println!(
                     "- wallet/source: {}",
@@ -2709,13 +2872,13 @@ fn run_repl(
                 );
                 println!("- flow_mode: {}", if flow { "on" } else { "off" });
                 println!("- enabled optional settings:");
-                if !print_repl_active_settings(&flow_cfg, &runtime_settings) {
+                if !print_repl_active_settings(&flow_cfg, &runtime_settings, debug) {
                     println!("- (none)");
                 }
                 continue;
             }
             "show config" => {
-                print_repl_config(&model_path, threshold, &flow_cfg, &runtime_settings);
+                print_repl_config(&model_path, threshold, debug, &flow_cfg, &runtime_settings);
                 continue;
             }
             "setup testnet" => {
@@ -2725,7 +2888,7 @@ fn run_repl(
                 horizon_from_env = false;
                 friendbot_from_env = false;
                 println!("Applied testnet baseline (network+horizon+friendbot).");
-                print_repl_config(&model_path, threshold, &flow_cfg, &runtime_settings);
+                print_repl_config(&model_path, threshold, debug, &flow_cfg, &runtime_settings);
                 continue;
             }
             _ => {}
@@ -2751,6 +2914,7 @@ fn run_repl(
                 false,
                 Some(&flow_cfg),
                 Some(&runtime_settings),
+                debug,
             );
             if code != 0 {
                 eprintln!("repl step returned code {code}");
@@ -2884,9 +3048,25 @@ fn run_repl(
                 }
             }
 
+            match parse_debug_line(&line) {
+                Ok(Some(enabled)) => {
+                    debug = enabled;
+                    println!(
+                        "Intent debug trace: {}",
+                        if enabled { "enabled" } else { "disabled" }
+                    );
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
             if let Some((name, prompt)) = parse_set_from_ai_assignment(&line) {
                 if is_intent_assignment_name(&name) {
-                    match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+                    match build_plan_from_intent_prompt(&prompt, &model_path, threshold, debug) {
                         Ok(plan) => {
                             let code = execute_plan(
                                 plan,
@@ -2895,6 +3075,7 @@ fn run_repl(
                                 true,
                                 Some(&flow_cfg),
                                 Some(&runtime_settings),
+                                debug,
                             );
                             if code != 0 {
                                 eprintln!("repl step returned code {code}");
@@ -2931,7 +3112,7 @@ fn run_repl(
             }
 
             let prompt = strip_wrapping_quotes(&line);
-            match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+            match build_plan_from_intent_prompt(&prompt, &model_path, threshold, debug) {
                 Ok(plan) => {
                     let code = execute_plan(
                         plan,
@@ -2940,6 +3121,7 @@ fn run_repl(
                         true,
                         Some(&flow_cfg),
                         Some(&runtime_settings),
+                        debug,
                     );
                     if code != 0 {
                         eprintln!("repl step returned code {code}");
@@ -2963,12 +3145,15 @@ fn main() {
         }
     };
 
+    let debug = resolve_intent_debug(cli.debug);
+
     if cli.repl {
         let code = run_repl(
             cli.flow,
             cli.auto_yes,
             cli.intent_model,
             cli.intent_threshold,
+            debug,
         );
         if code != 0 {
             std::process::exit(code);
@@ -2990,7 +3175,7 @@ fn main() {
             }
         };
         let model_path = cli.intent_model.unwrap_or_else(resolve_intent_model_path);
-        match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+        match build_plan_from_intent_prompt(&prompt, &model_path, threshold, debug) {
             Ok(plan) => plan,
             Err(err) => {
                 eprintln!("Error: {err}");
@@ -3014,6 +3199,7 @@ fn main() {
                 &path,
                 cli.intent_model.clone(),
                 cli.intent_threshold,
+                debug,
             ) {
                 Ok((script_plan, script_cfg, script_intent_mode, script_runtime)) => {
                     cfg_override = Some(script_cfg);
@@ -3035,7 +3221,7 @@ fn main() {
     };
 
     if let (Some(path), Some(cfg)) = (script_setup_path.as_deref(), cfg_override.as_ref()) {
-        print_script_setup(path, cfg, runtime_override.as_ref(), cli.flow);
+        print_script_setup(path, cfg, runtime_override.as_ref(), cli.flow, debug);
     }
 
     let code = execute_plan(
@@ -3045,6 +3231,7 @@ fn main() {
         intent_mode,
         cfg_override.as_ref(),
         runtime_override.as_ref(),
+        debug,
     );
     if code != 0 {
         std::process::exit(code);
