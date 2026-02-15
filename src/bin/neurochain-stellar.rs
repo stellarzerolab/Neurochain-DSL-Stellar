@@ -2635,7 +2635,7 @@ fn run_repl(
     flow_cfg.soroban_source = None;
     let mut runtime_settings = runtime_settings_from_env();
 
-    println!("NeuroChain Soroban REPL (intent -> action).");
+    println!("NeuroChain Stellar REPL (intent -> action).");
     print_repl_divider();
     println!("Current model: {model_path}");
     println!("Current threshold: {threshold:.2}");

@@ -1,6 +1,6 @@
-# NeuroChain Soroban — Stellar Actions Guide
+# NeuroChain Stellar — Stellar Actions Guide
 
-Tämä on **elävä käyttöohje** NeuroChain‑Sorobanin CLI‑polulle. Päivitetään tätä dokumenttia aina, kun uusia actioneita, preview‑tietoja tai guardrailseja lisätään.
+Tämä on **elävä käyttöohje** NeuroChain‑Stellarin CLI‑polulle. Päivitetään tätä dokumenttia aina, kun uusia actioneita, preview‑tietoja tai guardrailseja lisätään.
 
 ## Mikä tämä on?
 
@@ -54,7 +54,7 @@ Huom:
 ### Pääajot (suositus, RELEASE)
 
 ```powershell
-cd C:\Users\Ville\Desktop\neurochain_dsl_soroban
+cd <project-root>
 
 # 1) Normaali CLI/REPL ajo
 cargo run --release --bin neurochain-stellar

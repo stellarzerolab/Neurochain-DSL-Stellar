@@ -24,7 +24,7 @@ fn stellar_repl_help_and_exit_work() {
     cmd.write_stdin("help\n\nexit\n\n")
         .assert()
         .success()
-        .stdout(contains("NeuroChain Soroban REPL"))
+        .stdout(contains("NeuroChain Stellar REPL"))
         .stdout(contains("Soroban REPL quick start"))
         .stdout(contains(
             "- help dsl            (show normal NeuroChain DSL help)",
@@ -43,7 +43,7 @@ fn stellar_repl_starts_with_flow_flag_only() {
         .write_stdin("exit\n\n")
         .assert()
         .success()
-        .stdout(contains("NeuroChain Soroban REPL"))
+        .stdout(contains("NeuroChain Stellar REPL"))
         .stdout(contains("Exiting"));
 }
 
