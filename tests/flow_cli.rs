@@ -5,6 +5,13 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 
+fn intent_model_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx")
+}
+
 fn spawn_test_server() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
     let addr = listener.local_addr().unwrap();
@@ -65,7 +72,7 @@ stellar.tx.status hash="ABC123"
 "#;
     fs::write(&tmp, input).expect("write temp nc");
 
-    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_str().unwrap())
         .arg("--flow")
@@ -73,7 +80,7 @@ stellar.tx.status hash="ABC123"
         .env("NC_STELLAR_HORIZON_URL", &base_url)
         .env("NC_FRIENDBOT_URL", &friendbot_url)
         .output()
-        .expect("run neurochain-soroban");
+        .expect("run neurochain-stellar");
 
     let combined = format!(
         "{}\n{}",
@@ -89,16 +96,13 @@ stellar.tx.status hash="ABC123"
 
 #[test]
 fn intent_mode_low_confidence_blocks_flow_and_returns_exit_5() {
-    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("models")
-        .join("intent_stellar")
-        .join("model.onnx");
+    let model_path = intent_model_path();
     if !model_path.exists() {
         eprintln!("skipping test; missing model: {}", model_path.display());
         return;
     }
 
-    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg("--intent-text")
         .arg("Tell me a joke about stars")
@@ -109,7 +113,7 @@ fn intent_mode_low_confidence_blocks_flow_and_returns_exit_5() {
         .arg("--flow")
         .arg("--yes")
         .output()
-        .expect("run neurochain-soroban in intent mode");
+        .expect("run neurochain-stellar in intent mode");
 
     assert_eq!(output.status.code(), Some(5));
 
@@ -121,4 +125,153 @@ fn intent_mode_low_confidence_blocks_flow_and_returns_exit_5() {
     assert!(combined.contains("Intent safety guard blocked flow"));
     assert!(combined.contains("\"kind\": \"unknown\""));
     assert!(!combined.contains("=== Preview ==="));
+}
+
+#[test]
+fn intent_mode_slot_missing_blocks_flow_and_returns_exit_5() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg("Send XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P")
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .output()
+        .expect("run neurochain-stellar in intent mode with slot missing");
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Intent safety guard blocked flow"));
+    assert!(combined.contains("slot_missing"));
+    assert!(!combined.contains("=== Preview ==="));
+}
+
+#[test]
+fn intent_mode_allowlist_enforced_blocks_with_exit_3() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg("Send 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P")
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.20")
+        .env("NC_ASSET_ALLOWLIST", "USDC:GISSUER")
+        .env("NC_ALLOWLIST_ENFORCE", "1")
+        .output()
+        .expect("run neurochain-stellar with allowlist enforce");
+
+    assert_eq!(output.status.code(), Some(3));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Allowlist violations (enforced)"));
+    assert!(combined.contains("asset XLM"));
+}
+
+#[test]
+fn intent_mode_policy_enforced_blocks_with_exit_4() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(
+            "Call contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello",
+        )
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .env(
+            "NC_CONTRACT_POLICY",
+            policy_path.to_string_lossy().to_string(),
+        )
+        .env("NC_CONTRACT_POLICY_ENFORCE", "1")
+        .output()
+        .expect("run neurochain-stellar with contract policy enforce");
+
+    assert_eq!(output.status.code(), Some(4));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Contract policy violations (enforced)"));
+    assert!(combined.contains("policy_args_missing"));
+}
+
+#[test]
+fn intent_mode_flow_submit_happy_path_balance_query() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let base_url = spawn_test_server();
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(format!("Check balance for {account} asset XLM"))
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .env("NC_STELLAR_HORIZON_URL", &base_url)
+        .output()
+        .expect("run neurochain-stellar flow submit for balance query");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"stellar_account_balance\""));
+    assert!(combined.contains("=== Preview ==="));
+    assert!(combined.contains("Submit results:"));
+    assert!(combined.contains("balance"));
 }

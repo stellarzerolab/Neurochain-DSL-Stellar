@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
+use std::path::PathBuf;
 
 fn assert_contains_in_order(haystack: &str, needles: &[&str]) {
     let mut pos = 0usize;
@@ -17,9 +18,9 @@ fn help_row(command: &str, description: &str) -> String {
 }
 
 #[test]
-fn soroban_repl_help_and_exit_work() {
+fn stellar_repl_help_and_exit_work() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin("help\n\nexit\n\n")
         .assert()
         .success()
@@ -35,9 +36,9 @@ fn soroban_repl_help_and_exit_work() {
 }
 
 #[test]
-fn soroban_repl_starts_with_flow_flag_only() {
+fn stellar_repl_starts_with_flow_flag_only() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.arg("--flow")
         .write_stdin("exit\n\n")
         .assert()
@@ -47,9 +48,9 @@ fn soroban_repl_starts_with_flow_flag_only() {
 }
 
 #[test]
-fn soroban_repl_accepts_ai_model_line() {
+fn stellar_repl_accepts_ai_model_line() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin("AI: \"models/intent_stellar/model.onnx\"\n\nexit\n\n")
         .assert()
         .success()
@@ -60,9 +61,9 @@ fn soroban_repl_accepts_ai_model_line() {
 }
 
 #[test]
-fn soroban_repl_accepts_network_and_wallet_commands() {
+fn stellar_repl_accepts_network_and_wallet_commands() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin("set network = \"testnet\"\n\nset wallet = \"nc-testnet\"\n\nexit\n\n")
         .assert()
         .success()
@@ -72,9 +73,9 @@ fn soroban_repl_accepts_network_and_wallet_commands() {
 }
 
 #[test]
-fn soroban_repl_accepts_runtime_setting_commands() {
+fn stellar_repl_accepts_runtime_setting_commands() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin(
         "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\nallowlist_enforce\n\nallowlist_enforce off\n\nallowlist_enforce\n\nexit\n\n",
     )
@@ -95,9 +96,9 @@ fn soroban_repl_accepts_runtime_setting_commands() {
 }
 
 #[test]
-fn soroban_repl_supports_help_all_show_config_and_setup_testnet() {
+fn stellar_repl_supports_help_all_show_config_and_setup_testnet() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin(
         "help all\n\nshow config\n\nsetup testnet\n\ntxrep off\n\nshow config\n\nexit\n\n",
     )
@@ -114,9 +115,9 @@ fn soroban_repl_supports_help_all_show_config_and_setup_testnet() {
 }
 
 #[test]
-fn soroban_repl_help_all_is_sectioned_and_single_line_formatted() {
+fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     let output = cmd
         .write_stdin("help all\n\nexit\n\n")
         .output()
@@ -144,8 +145,12 @@ fn soroban_repl_help_all_is_sectioned_and_single_line_formatted() {
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
     let enforce_row = help_row("allowlist_enforce", "enable allowlist enforce");
     let intent_row = help_row(
-        "set intent from AI: \"Transfer 5 XLM to G...\"",
+        "set stellar intent from AI: \"Transfer 5 XLM to G...\"",
         "classify prompt -> ActionPlan",
+    );
+    let set_var_row = help_row(
+        "set <var> from AI: \"...\"",
+        "predict with active model -> store variable",
     );
     let setup_row = help_row("show setup", "print active setup");
     let help_dsl_row = help_row("help dsl", "show normal NeuroChain DSL language help");
@@ -155,6 +160,7 @@ fn soroban_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&network_row));
     assert!(stdout.contains(&txrep_row));
     assert!(stdout.contains(&enforce_row));
+    assert!(stdout.contains(&set_var_row));
     assert!(stdout.contains(&intent_row));
     assert!(stdout.contains(&help_dsl_row));
     assert!(stdout.contains(&setup_row));
@@ -179,13 +185,60 @@ fn soroban_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(toggle_section.contains("allowlist_enforce"));
     assert!(!toggle_section.contains("intent_threshold: <f32>"));
 
-    assert!(prompt_section.contains("set intent from AI: \"Transfer 5 XLM to G...\""));
+    assert!(prompt_section.contains("set stellar intent from AI: \"Transfer 5 XLM to G...\""));
 }
 
 #[test]
-fn soroban_repl_defaults_to_flow_mode_without_flag() {
+fn stellar_repl_set_var_from_ai_does_not_trigger_intent_flow() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(
+            "AI: \"models/intent_stellar/model.onnx\"\n\nset mood from AI: \"Send 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl set var from ai");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("Variable mood set from AI:"));
+    assert!(!stdout.contains("\"schema_version\""));
+    assert!(!stderr.contains("=== Preview ==="));
+}
+
+#[test]
+fn stellar_repl_macro_from_ai_is_rejected_with_guidance() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin("macro from AI: \"Transfer 5 XLM to G...\"\n\nexit\n\n")
+        .output()
+        .expect("run repl macro from ai");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(
+        "macro from AI is not supported in neurochain-stellar; use set stellar intent from AI"
+    ));
+    assert!(!stdout.contains("\"schema_version\""));
+    assert!(!stderr.contains("=== Preview ==="));
+}
+
+#[test]
+fn stellar_repl_defaults_to_flow_mode_without_flag() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.env_remove("NC_ALLOWLIST_ENFORCE")
         .env_remove("NC_CONTRACT_POLICY_ENFORCE")
         .env_remove("NC_ASSET_ALLOWLIST")
@@ -200,9 +253,9 @@ fn soroban_repl_defaults_to_flow_mode_without_flag() {
 }
 
 #[test]
-fn soroban_repl_no_flow_flag_disables_preview() {
+fn stellar_repl_no_flow_flag_disables_preview() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.arg("--no-flow")
         .write_stdin("stellar.payment to=\"GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\" amount=\"1\" asset_code=\"XLM\"\n\nexit\n\n")
         .assert()
@@ -212,9 +265,9 @@ fn soroban_repl_no_flow_flag_disables_preview() {
 }
 
 #[test]
-fn soroban_repl_starts_without_wallet_even_when_env_source_is_set() {
+fn stellar_repl_starts_without_wallet_even_when_env_source_is_set() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.env("NC_SOROBAN_SOURCE", "nc-testnet")
         .write_stdin("exit\n\n")
         .assert()
@@ -223,9 +276,9 @@ fn soroban_repl_starts_without_wallet_even_when_env_source_is_set() {
 }
 
 #[test]
-fn soroban_repl_help_dsl_shows_language_help() {
+fn stellar_repl_help_dsl_shows_language_help() {
     #[allow(deprecated)]
-    let mut cmd = Command::cargo_bin("neurochain-soroban").expect("bin build");
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin("help dsl\n\nexit\n\n")
         .assert()
         .success()

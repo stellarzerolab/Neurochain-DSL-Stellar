@@ -82,7 +82,7 @@ Allowlist (MVP):
 
 ## Phase 2 — CLI skeleton: simulate → preview → confirm
 
-Build a CLI binary (e.g. `neurochain-soroban`) that:
+Build a CLI binary (e.g. `neurochain-stellar`) that:
 
 1) reads `.nc` / stdin
 2) produces an action plan (initially “manual mode”: actions can be authored directly)
@@ -136,7 +136,7 @@ Implement `ContractInvoke` like this:
 
 ## Phase 5 — Axum server (same core)
 
-Implement a server binary (e.g. `neurochain-soroban-server`) exposing:
+Implement a server binary (e.g. `neurochain-stellar-server`) exposing:
 
 - `POST /api/stellar/simulate`
 - `POST /api/stellar/submit`

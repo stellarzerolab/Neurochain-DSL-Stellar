@@ -18,17 +18,17 @@ fn nc_script_supports_ai_network_wallet_and_intent_lines() {
 AI: "models/intent_stellar/model.onnx"
 network: testnet
 wallet: nc-testnet
-set intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+set stellar intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
 "#;
     fs::write(&tmp, script).expect("write temp nc script");
 
-    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_string_lossy().to_string())
         .arg("--intent-threshold")
         .arg("0.20")
         .output()
-        .expect("run neurochain-soroban script mode");
+        .expect("run neurochain-stellar script mode");
 
     assert!(output.status.success());
 
@@ -79,13 +79,13 @@ else:
 "#;
     fs::write(&tmp, script).expect("write temp nc script");
 
-    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_string_lossy().to_string())
         .arg("--intent-threshold")
         .arg("0.20")
         .output()
-        .expect("run neurochain-soroban script mode");
+        .expect("run neurochain-stellar script mode");
 
     assert!(output.status.success());
 
@@ -111,11 +111,11 @@ stellar.payment to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" am
 "#;
     fs::write(&tmp, script).expect("write temp nc script");
 
-    let bin = env!("CARGO_BIN_EXE_neurochain-soroban");
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_string_lossy().to_string())
         .output()
-        .expect("run neurochain-soroban script mode");
+        .expect("run neurochain-stellar script mode");
 
     assert_eq!(output.status.code(), Some(3));
 
@@ -125,6 +125,33 @@ stellar.payment to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" am
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(combined.contains("Allowlist violations (enforced)"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_rejects_macro_from_ai_in_stellar_mode() {
+    let tmp = std::env::temp_dir().join("nc_script_macro_from_ai_rejected.nc");
+    let script = r#"
+AI: "models/intent_macro/model.onnx"
+macro from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert_eq!(output.status.code(), Some(1));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("macro from AI is not supported in neurochain-stellar"));
 
     let _ = fs::remove_file(tmp);
 }

@@ -22,9 +22,9 @@ use serde_json::Value;
 
 fn print_usage() {
     eprintln!(
-        "Usage: neurochain-soroban [<file.nc|plan.json>] [--flow|--no-flow] [--yes] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
+        "Usage: neurochain-stellar [<file.nc|plan.json>] [--flow|--no-flow] [--yes] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
     );
-    eprintln!("Usage: neurochain-soroban --repl [--flow|--no-flow]");
+    eprintln!("Usage: neurochain-stellar --repl [--flow|--no-flow]");
     eprintln!("If no args are provided, REPL mode is started (flow enabled by default).");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
@@ -1425,22 +1425,6 @@ fn parse_ai_model_line(line: &str) -> Option<String> {
     }
 }
 
-fn extract_prompt_from_set_from_ai(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if !lower.starts_with("set ") {
-        return None;
-    }
-    let marker = " from ai:";
-    let idx = lower.find(marker)?;
-    let prompt = strip_wrapping_quotes(&trimmed[idx + marker.len()..]);
-    if prompt.is_empty() {
-        None
-    } else {
-        Some(prompt)
-    }
-}
-
 fn extract_prompt_from_macro_from_ai(line: &str) -> Option<String> {
     let trimmed = line.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -1454,6 +1438,10 @@ fn extract_prompt_from_macro_from_ai(line: &str) -> Option<String> {
     } else {
         Some(prompt)
     }
+}
+
+fn is_macro_from_ai_line(line: &str) -> bool {
+    extract_prompt_from_macro_from_ai(line).is_some()
 }
 
 fn parse_named_value(line: &str, names: &[&str]) -> Option<String> {
@@ -1593,6 +1581,21 @@ fn parse_set_from_ai_assignment(line: &str) -> Option<(String, String)> {
         return None;
     }
     Some((name.to_string(), prompt))
+}
+
+fn normalize_assignment_name(name: &str) -> String {
+    name.split_whitespace()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn is_intent_assignment_name(name: &str) -> bool {
+    matches!(
+        normalize_assignment_name(name).as_str(),
+        "intent" | "stellar intent"
+    )
 }
 
 fn parse_set_literal_assignment(line: &str) -> Option<(String, String)> {
@@ -1971,7 +1974,7 @@ impl ScriptBuildContext {
         }
 
         if let Some((name, prompt)) = parse_set_from_ai_assignment(line) {
-            if name.eq_ignore_ascii_case("intent") {
+            if is_intent_assignment_name(&name) {
                 self.append_intent_prompt(&prompt)?;
             } else {
                 let prediction = match self.predict_current_model(&prompt) {
@@ -1988,14 +1991,15 @@ impl ScriptBuildContext {
             return Ok(());
         }
 
+        if is_macro_from_ai_line(line) {
+            return Err(anyhow!(
+                "macro from AI is not supported in neurochain-stellar; use set stellar intent from AI: \"...\""
+            ));
+        }
+
         if let Some((name, value)) = parse_set_literal_assignment(line) {
             let resolved = self.variables.get(&value).cloned().unwrap_or(value);
             self.variables.insert(name, resolved);
-            return Ok(());
-        }
-
-        if let Some(prompt) = extract_prompt_from_macro_from_ai(line) {
-            self.append_intent_prompt(&prompt)?;
             return Ok(());
         }
 
@@ -2132,6 +2136,24 @@ fn build_plan_from_intent_prompt(
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
     Ok(plan)
+}
+
+fn predict_variable_from_model(
+    models: &mut HashMap<String, AIModel>,
+    model_path: &str,
+    prompt: &str,
+) -> Result<String> {
+    let model = if let Some(model) = models.get(model_path) {
+        model.clone()
+    } else {
+        let loaded = AIModel::new(model_path)
+            .with_context(|| format!("failed to load model for set ... from AI: {model_path}"))?;
+        models.insert(model_path.to_string(), loaded.clone());
+        loaded
+    };
+    model
+        .predict(prompt)
+        .context("set ... from AI prediction failed")
 }
 
 fn resolve_threshold(override_value: Option<f32>) -> Result<f32> {
@@ -2400,7 +2422,8 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings) {
 - wallet: nc-testnet
 - txrep               (optional preview on)
 - allowlist_enforce   (optional hard-fail on allowlist)
-- set intent from AI: \"Transfer 5 XLM to G...\"
+- set mood from AI: \"This is great\"   (store model prediction to variable)
+- set stellar intent from AI: \"Transfer 5 XLM to G...\"
 - help all            (show every command)
 - help dsl            (show normal NeuroChain DSL help)
 - Toggle commands are listed in `help all` under Toggles (on/off).
@@ -2555,12 +2578,16 @@ fn print_repl_help_all() {
 
     let prompt_actions = [
         (
-            "set intent from AI: \"Transfer 5 XLM to G...\"",
+            "set <var> from AI: \"...\"",
+            "predict with active model -> store variable",
+        ),
+        (
+            "set stellar intent from AI: \"Transfer 5 XLM to G...\"",
             "classify prompt -> ActionPlan",
         ),
         (
-            "macro from AI: \"Transfer 5 XLM to G...\"",
-            "alias to intent prompt",
+            "macro from AI: \"...\"",
+            "not supported here (use set stellar intent from AI)",
         ),
         ("plain text prompt", "classify prompt -> ActionPlan"),
         ("stellar.* / soroban.* lines", "manual action-plan mode"),
@@ -2586,6 +2613,8 @@ fn run_repl(
     initial_threshold: Option<f32>,
 ) -> i32 {
     let mut model_path = initial_model.unwrap_or_else(resolve_intent_model_path);
+    let mut models: HashMap<String, AIModel> = HashMap::new();
+    let mut variables: HashMap<String, String> = HashMap::new();
     let mut threshold = match resolve_threshold(initial_threshold) {
         Ok(v) => v,
         Err(err) => {
@@ -2855,25 +2884,44 @@ fn run_repl(
                 }
             }
 
-            if let Some(prompt) = extract_prompt_from_set_from_ai(&line)
-                .or_else(|| extract_prompt_from_macro_from_ai(&line))
-            {
-                match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
-                    Ok(plan) => {
-                        let code = execute_plan(
-                            plan,
-                            flow,
-                            auto_yes,
-                            true,
-                            Some(&flow_cfg),
-                            Some(&runtime_settings),
-                        );
-                        if code != 0 {
-                            eprintln!("repl step returned code {code}");
+            if let Some((name, prompt)) = parse_set_from_ai_assignment(&line) {
+                if is_intent_assignment_name(&name) {
+                    match build_plan_from_intent_prompt(&prompt, &model_path, threshold) {
+                        Ok(plan) => {
+                            let code = execute_plan(
+                                plan,
+                                flow,
+                                auto_yes,
+                                true,
+                                Some(&flow_cfg),
+                                Some(&runtime_settings),
+                            );
+                            if code != 0 {
+                                eprintln!("repl step returned code {code}");
+                            }
+                        }
+                        Err(err) => eprintln!("intent error: {err}"),
+                    }
+                } else {
+                    match predict_variable_from_model(&mut models, &model_path, &prompt) {
+                        Ok(prediction) => {
+                            variables.insert(name.clone(), prediction.clone());
+                            println!("Variable {name} set from AI: {prediction}");
+                        }
+                        Err(err) => {
+                            variables.insert(name.clone(), prompt.clone());
+                            eprintln!("set_from_ai_fallback {name}: {err}");
+                            println!("Variable {name} set from raw prompt fallback.");
                         }
                     }
-                    Err(err) => eprintln!("intent error: {err}"),
                 }
+                continue;
+            }
+
+            if is_macro_from_ai_line(&line) {
+                eprintln!(
+                    "macro from AI is not supported in neurochain-stellar; use set stellar intent from AI: \"...\""
+                );
                 continue;
             }
 
@@ -2975,7 +3023,7 @@ fn main() {
                     script_plan
                 }
                 Err(err) => {
-                    eprintln!("Error: {err}");
+                    eprintln!("Error: {err:#}");
                     std::process::exit(1);
                 }
             },

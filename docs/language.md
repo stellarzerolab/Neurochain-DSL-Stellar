@@ -43,9 +43,9 @@ Note: NeuroChain also has a REST server. See `docs/getting_started.md` for how t
 - `cargo run --bin neurochain-server`
 
 IntentStellar to ActionPlan (Soroban CLI path):
-- `cargo run --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..."`
-- `cargo run --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..." --flow --yes`
-- `cargo run --bin neurochain-soroban` (interactive REPL mode)
+- `cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..."`
+- `cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..." --flow --yes`
+- `cargo run --bin neurochain-stellar` (interactive REPL mode)
 
 In `--intent-text` mode, low-confidence or slot-missing plans are blocked before submit for safety.
 In Soroban REPL mode you can also set runtime context inside CLI:

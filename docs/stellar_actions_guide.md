@@ -4,7 +4,7 @@ Tämä on **elävä käyttöohje** NeuroChain‑Sorobanin CLI‑polulle. Päivit
 
 ## Mikä tämä on?
 
-`neurochain-soroban` lukee `.nc`‑tiedoston ja muuntaa rivit **ActionPlan**‑JSONiksi. Kun käytät `--flow`, se ajaa polun:
+`neurochain-stellar` lukee `.nc`‑tiedoston ja muuntaa rivit **ActionPlan**‑JSONiksi. Kun käytät `--flow`, se ajaa polun:
 
 **simulate → preview → confirm → submit**
 
@@ -31,25 +31,25 @@ Muut Classic‑actionit (payment/change_trust/create_account) ovat seuraavassa v
 
 ### CLI ajosyntaksi (Cargo vs binäärin argumentit)
 
-Tärkeä sääntö: `cargo run` tarvitsee erotinmerkin `--`, jotta argumentit menevät **neurochain-soroban**-binäärille eikä Cargolle.
+Tärkeä sääntö: `cargo run` tarvitsee erotinmerkin `--`, jotta argumentit menevät **neurochain-stellar**-binäärille eikä Cargolle.
 
 ```powershell
 # OIKEIN: REPL (flow oletuksena päällä)
-cargo run --release --bin neurochain-soroban
+cargo run --release --bin neurochain-stellar
 
 # OIKEIN: REPL plan-only (ei simulate/submit)
-cargo run --release --bin neurochain-soroban -- --no-flow
+cargo run --release --bin neurochain-stellar -- --no-flow
 
 # OIKEIN: explicit flow (valinnainen, ei pakollinen REPL:ssä)
-cargo run --release --bin neurochain-soroban -- --flow
+cargo run --release --bin neurochain-stellar -- --flow
 
 # VÄÄRIN: --flow menee Cargolle -> "unexpected argument '--flow'"
-cargo run --release --bin neurochain-soroban --flow
+cargo run --release --bin neurochain-stellar --flow
 ```
 
 Huom:
-- `cargo run --bin neurochain-soroban ...` ilman `--release` = **DEBUG/DEV-tila** (`target\debug\...`).
-- `cargo run --release --bin neurochain-soroban ...` = **RELEASE-tila** (`target\release\...`), optimoitu ajo.
+- `cargo run --bin neurochain-stellar ...` ilman `--release` = **DEBUG/DEV-tila** (`target\debug\...`).
+- `cargo run --release --bin neurochain-stellar ...` = **RELEASE-tila** (`target\release\...`), optimoitu ajo.
 
 ### Pääajot (suositus, RELEASE)
 
@@ -57,10 +57,10 @@ Huom:
 cd C:\Users\Ville\Desktop\neurochain_dsl_soroban
 
 # 1) Normaali CLI/REPL ajo
-cargo run --release --bin neurochain-soroban
+cargo run --release --bin neurochain-stellar
 
 # 2) Plan-only REPL (jos et halua simulate/submit tässä sessiossa)
-cargo run --release --bin neurochain-soroban -- --no-flow
+cargo run --release --bin neurochain-stellar -- --no-flow
 ```
 
 Nämä kaksi ovat pääkomennot päivittäiseen käyttöön.
@@ -70,23 +70,23 @@ Huom: normaali REPL ajaa flow-putkea oletuksena (`simulate -> preview -> confirm
 
 ```powershell
 # Normaali CLI/REPL ajo (debug)
-cargo run --bin neurochain-soroban
+cargo run --bin neurochain-stellar
 
 # Plan-only REPL (debug)
-cargo run --bin neurochain-soroban -- --no-flow
+cargo run --bin neurochain-stellar -- --no-flow
 ```
 
 ### Muut ajotavat (tarvittaessa, RELEASE)
 
 ```powershell
 # Intent prompt suoraan CLI-flagilla
-cargo run --release --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..."
+cargo run --release --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..."
 
 # .nc tiedosto
-cargo run --release --bin neurochain-soroban -- examples\intent_stellar_payment_flow.nc
+cargo run --release --bin neurochain-stellar -- examples\intent_stellar_payment_flow.nc
 
 # .nc flow (simulate -> preview -> confirm -> submit)
-cargo run --release --bin neurochain-soroban -- examples\intent_stellar_payment_flow.nc --flow
+cargo run --release --bin neurochain-stellar -- examples\intent_stellar_payment_flow.nc --flow
 ```
 
 Tarvittaessa samat komennot debugilla: poista `--release`.
@@ -182,7 +182,7 @@ wallet: nc-testnet
 txrep
 asset_allowlist: XLM
 allowlist_enforce
-set intent from AI: "Transfer 5 XLM to G..."
+set stellar intent from AI: "Transfer 5 XLM to G..."
 ```
 
 Testnet‑USDC esimerkki (Stellar Expert):
@@ -199,7 +199,7 @@ Validoinnit ajetaan aina, mutta blokkauksen taso riippuu enforce‑envistä:
 - `NC_ALLOWLIST_ENFORCE=1`: allowlist-rike = hard-fail, prosessi poistuu koodilla `3`.
 - `NC_CONTRACT_POLICY_ENFORCE=0` (tai unset): policy-rikkeet = warning, ajo jatkuu.
 - `NC_CONTRACT_POLICY_ENFORCE=1`: policy-rike = hard-fail, prosessi poistuu koodilla `4`.
-- Intent-tilassa (`--intent-text` tai `set intent from AI`) `Unknown` / `intent_error` / `intent_warning`
+- Intent-tilassa (`--intent-text` tai `set stellar intent from AI`) `Unknown` / `intent_error` / `intent_warning`
   blokkkaa flown turvallisesti ja palauttaa koodin `5`.
 
 ---
@@ -207,7 +207,7 @@ Validoinnit ajetaan aina, mutta blokkauksen taso riippuu enforce‑envistä:
 ## 3) Käyttö — pelkkä JSON‑ActionPlan
 
 ```powershell
-cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc
+cargo run --bin neurochain-stellar -- examples\stellar_actions_example.nc
 ```
 
 Tulos on ActionPlan JSON, joka kertoo mitä **aikoisi** tehdä.
@@ -215,13 +215,13 @@ Tulos on ActionPlan JSON, joka kertoo mitä **aikoisi** tehdä.
 ## 3.5) Käyttö — `--intent-text` (IntentStellar -> ActionPlan)
 
 ```powershell
-cargo run --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..."
+cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..."
 ```
 
 Mallin polku/kynnys voidaan overrideata:
 
 ```powershell
-cargo run --bin neurochain-soroban -- --intent-text "Transfer 5 XLM to G..." --intent-model models\intent_stellar\model.onnx --intent-threshold 0.60
+cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..." --intent-model models\intent_stellar\model.onnx --intent-threshold 0.60
 ```
 
 Turvablockki:
@@ -231,7 +231,7 @@ Turvablockki:
 ## 3.6) Käyttö — interactive REPL (`AI:` + promptit)
 
 ```powershell
-cargo run --bin neurochain-soroban
+cargo run --bin neurochain-stellar
 ```
 
 Huom (wallet-startup REPLissä):
@@ -260,8 +260,10 @@ Toggles (on/off):
 - `allowlist_enforce off` -> disable allowlist enforce
 
 Prompt/Action commands:
-- `set intent from AI: "Transfer 5 XLM to G..."` -> classify prompt -> ActionPlan
-- `macro from AI: "Transfer 5 XLM to G..."` -> alias to intent prompt
+- `set <var> from AI: "..."` -> predict with active model and store variable
+- `set stellar intent from AI: "Transfer 5 XLM to G..."` -> classify prompt -> ActionPlan
+- `set intent from AI: "Transfer 5 XLM to G..."` -> legacy alias (still supported)
+- `macro from AI: "..."` -> not supported in `neurochain-stellar` (use `set stellar intent from AI`)
 - `plain text prompt` -> classify prompt -> ActionPlan
 - `stellar.* / soroban.* lines` -> manual action-plan mode
 
@@ -280,18 +282,18 @@ Yhtenäinen toggle-sääntö:
 
 ## 3.7) Käyttö — `.nc` scripti samoilla komennoilla
 
-Samat meta-rivit toimivat nyt myös tiedostossa (`neurochain-soroban script.nc`):
+Samat meta-rivit toimivat nyt myös tiedostossa (`neurochain-stellar script.nc`):
 
 ```nc
 AI: "models/intent_stellar/model.onnx"
 network: testnet
 wallet: nc-testnet
 txrep
-set intent from AI: "Transfer 5 XLM to G..."
+set stellar intent from AI: "Transfer 5 XLM to G..."
 ```
 
 ```powershell
-cargo run --bin neurochain-soroban -- examples\intent_stellar_smoke.nc --flow
+cargo run --bin neurochain-stellar -- examples\intent_stellar_smoke.nc --flow
 ```
 
 Huom:
@@ -312,14 +314,14 @@ AI: "models/distilbert-sst2/model.onnx"
 set mood from AI: "This is wonderful!"
 if mood == "Positive":
     AI: "models/intent_stellar/model.onnx"
-    set intent from AI: "Transfer 5 XLM to G..."
+    set stellar intent from AI: "Transfer 5 XLM to G..."
 ```
 
 Valmis esimerkki: `examples/multi_model_if_payment.nc`
 
 ## 3.8) `--flow` vs ilman `--flow` (tärkeä)
 
-- REPLissä (`cargo run --bin neurochain-soroban`) flow on oletuksena päällä.
+- REPLissä (`cargo run --bin neurochain-stellar`) flow on oletuksena päällä.
 - `--no-flow` pakottaa REPLin plan-only-tilaan (ei simulaatiota/submitia).
 - Tiedosto-/`--intent-text`-ajossa ilman `--flow`: tulostetaan vain `ActionPlan` JSON (dry-run).
 - Tiedosto-/`--intent-text`-ajossa `--flow` kanssa: ajetaan `simulate -> preview -> confirm -> submit`.
@@ -328,17 +330,17 @@ Valmis esimerkki: `examples/multi_model_if_payment.nc`
 - `NC_TXREP_PREVIEW=1` vaikuttaa preview-vaiheeseen, joten se näkyy käytännössä flow-ajossa.
 
 Nopea yhteenveto:
-- `cargo run --bin neurochain-soroban` = REPL, flow oletuksena päällä.
-- `cargo run --bin neurochain-soroban -- --no-flow` = REPL plan-only.
-- `cargo run --bin neurochain-soroban -- <input>` = tiedosto/intent dry-run.
-- `cargo run --bin neurochain-soroban -- <input> --flow` = tiedosto/intent voi tehdä oikean submitin.
+- `cargo run --bin neurochain-stellar` = REPL, flow oletuksena päällä.
+- `cargo run --bin neurochain-stellar -- --no-flow` = REPL plan-only.
+- `cargo run --bin neurochain-stellar -- <input>` = tiedosto/intent dry-run.
+- `cargo run --bin neurochain-stellar -- <input> --flow` = tiedosto/intent voi tehdä oikean submitin.
 
 ---
 
 ## 4) Käyttö — simulate → preview → confirm → submit
 
 ```powershell
-cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_actions_example.nc --flow
 ```
 
 - Preview näyttää **fee‑arvion** (Horizon `fee_stats`) ja **efektit**.
@@ -380,7 +382,7 @@ Tuetut arg‑tyypit:
 ```
 
 ```powershell
-cargo run --bin neurochain-soroban -- examples\stellar_actions_example.nc --flow --yes
+cargo run --bin neurochain-stellar -- examples\stellar_actions_example.nc --flow --yes
 ```
 
 ---
@@ -435,11 +437,11 @@ Vaihtoehtona voit käyttää erillisiä tiedostoja (ei kommentointia):
 ```powershell
 # Receiver (trustline)
 $env:NC_SOROBAN_SOURCE="nc-new"
-cargo run --bin neurochain-soroban -- examples\stellar_usdc_trustline.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_usdc_trustline.nc --flow
 
 # Sender (USDC payment)
 $env:NC_SOROBAN_SOURCE="nc-testnet"
-cargo run --bin neurochain-soroban -- examples\stellar_usdc_payment.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_usdc_payment.nc --flow
 ```
 
 **Test‑asset (oma issuer) – 3 askelta:**
@@ -447,15 +449,15 @@ cargo run --bin neurochain-soroban -- examples\stellar_usdc_payment.nc --flow
 ```powershell
 # 1) Receiver trustline (nc-new)
 $env:NC_SOROBAN_SOURCE="nc-new"
-cargo run --bin neurochain-soroban -- examples\stellar_testasset_trustline.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_trustline.nc --flow
 
 # 2) Issuer issues TESTUSD to receiver (nc-testnet)
 $env:NC_SOROBAN_SOURCE="nc-testnet"
-cargo run --bin neurochain-soroban -- examples\stellar_testasset_issue.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_issue.nc --flow
 
 # 3) Receiver sends TESTUSD back (nc-new)
 $env:NC_SOROBAN_SOURCE="nc-new"
-cargo run --bin neurochain-soroban -- examples\stellar_testasset_payment.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_payment.nc --flow
 ```
 
 **3‑tilin malli (distributor → user):**
@@ -465,11 +467,11 @@ Korvaa `GUSER...` oikealla käyttäjä‑tilillä ja aja:
 ```powershell
 # User trustline (user alias)
 $env:NC_SOROBAN_SOURCE="user-alias"
-cargo run --bin neurochain-soroban -- examples\stellar_testasset_user_trustline.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_user_trustline.nc --flow
 
 # Distributor -> user payment (nc-new)
 $env:NC_SOROBAN_SOURCE="nc-new"
-cargo run --bin neurochain-soroban -- examples\stellar_testasset_user_payment.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_user_payment.nc --flow
 ```
 
 ---

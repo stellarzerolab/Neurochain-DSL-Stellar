@@ -1,5 +1,5 @@
 # Manual action-plan example for the Soroban adapter
-# These lines are parsed by parse_action_plan_from_nc() and printed as JSON by neurochain-soroban.
+# These lines are parsed by parse_action_plan_from_nc() and printed as JSON by neurochain-stellar.
 
 stellar.account.balance account="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" asset="XLM"
 
