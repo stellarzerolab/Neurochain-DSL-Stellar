@@ -190,6 +190,14 @@ fn macro_model_path() -> PathBuf {
     base.join("intent_macro").join("model.onnx")
 }
 
+fn intent_stellar_model_path() -> PathBuf {
+    let base = std::env::var("NC_MODELS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| models_dir());
+
+    base.join("intent_stellar").join("model.onnx")
+}
+
 #[test]
 fn api_analyze_smoke_and_errors() {
     let port = find_free_port();
@@ -301,6 +309,68 @@ fn api_analyze_requires_api_key_when_configured() {
     let resp: AnalyzeResp = serde_json::from_str(&resp_body).expect("json parse");
     assert!(resp.ok);
     assert!(resp.output.contains("hi"));
+}
+
+#[test]
+fn api_stellar_intent_plan_smoke_and_blocks() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+
+    let child = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-server"))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("HOST", "127.0.0.1")
+        .env("PORT", port.to_string())
+        .env("NC_MODELS_DIR", models_dir())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn neurochain-server");
+
+    let _server = Server { child };
+
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_stellar_intent_plan_smoke_and_blocks skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Check balance for {account} asset XLM"),
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "stellar_account_balance"
+    );
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Tell me a joke about stars",
+        "threshold": 0.99
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 5);
+    assert_eq!(resp["plan"]["actions"][0]["kind"], "unknown");
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {

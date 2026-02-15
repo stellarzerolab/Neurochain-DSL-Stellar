@@ -542,3 +542,28 @@ Tätä ohjetta päivitetään aina, kun:
 - uusia actioneita lisätään
 - previewn sisältö laajenee
 - guardrails‑logiikka muuttuu
+
+## 10) Server API: IntentStellar -> ActionPlan
+
+Uusi endpoint:
+
+```http
+POST /api/stellar/intent-plan
+```
+
+Esimerkki:
+
+```powershell
+$body = @{
+  model     = "intent_stellar"
+  prompt    = "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM"
+  threshold = 0.55
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8081/api/stellar/intent-plan" -ContentType "application/json" -Body $body
+```
+
+Response sisältää:
+- `plan` (ActionPlan JSON)
+- `blocked` + `exit_code` (samat blokkikoodit: 3 allowlist, 4 policy, 5 intent safety)
+- `logs`
