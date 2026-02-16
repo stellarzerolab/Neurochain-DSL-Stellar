@@ -371,6 +371,62 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 5);
     assert_eq!(resp["plan"]["actions"][0]["kind"], "unknown");
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Send 5 XLM to {account}"),
+        "threshold": 0.20,
+        "allowlist_assets": "USDC:GISSUER",
+        "allowlist_enforce": true
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 3);
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello",
+        "threshold": 0.00,
+        "contract_policy_enforce": true
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 4);
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"World\"} arg_types={\"to\":\"address\"}",
+        "threshold": 0.00
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 5);
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|w| w.contains("slot_type_error")),
+        "expected slot_type_error warning"
+    );
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {

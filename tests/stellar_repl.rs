@@ -222,6 +222,25 @@ fn stellar_repl_set_var_from_ai_does_not_trigger_intent_flow() {
 }
 
 #[test]
+fn stellar_repl_set_var_from_ai_fails_fast_without_raw_fallback() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(
+            "AI: \"models/does_not_exist/model.onnx\"\n\nset mood from AI: \"This is wonderful!\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl set var from ai failfast");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("set_from_ai_failed mood:"));
+    assert!(!stdout.contains("Variable mood set from AI:"));
+    assert!(!stdout.contains("raw prompt fallback"));
+}
+
+#[test]
 fn stellar_repl_macro_from_ai_is_rejected_with_guidance() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
@@ -291,4 +310,143 @@ fn stellar_repl_help_dsl_shows_language_help() {
         .stdout(contains("Basic syntax:"))
         .stdout(contains("AI: \"path/to/model.onnx\""))
         .stdout(contains("Exiting"));
+}
+
+#[test]
+fn stellar_repl_intent_safety_block_reports_step_code_5() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(
+            "AI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.99\n\nset stellar intent from AI: \"Tell me a joke about stars\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl low-confidence guard");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Intent safety guard blocked flow"));
+    assert!(combined.contains("repl step returned code 5"));
+}
+
+#[test]
+fn stellar_repl_allowlist_enforced_reports_step_code_3() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(
+            "asset_allowlist: USDC:GISSUER\n\nallowlist_enforce\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.20\n\nset stellar intent from AI: \"Send 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl allowlist enforce");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Allowlist violations (enforced):"));
+    assert!(combined.contains("repl step returned code 3"));
+}
+
+#[test]
+fn stellar_repl_policy_enforced_reports_step_code_4() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .env("NC_CONTRACT_POLICY", policy_path.to_string_lossy().to_string())
+        .env("NC_CONTRACT_POLICY_ENFORCE", "1")
+        .write_stdin(
+            "AI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl policy enforce");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Contract policy violations (enforced):"));
+    assert!(combined.contains("repl step returned code 4"));
+}
+
+#[test]
+fn stellar_repl_typed_slot_error_reports_step_code_5() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(
+            r#"AI: "models/intent_stellar/model.onnx"
+
+intent_threshold: 0.00
+
+Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={"to":"World"} arg_types={"to":"address"}
+
+exit
+
+"#,
+        )
+        .output()
+        .expect("run repl typed-slot type error");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_type_error"));
+    assert!(combined.contains("repl step returned code 5"));
 }

@@ -269,7 +269,7 @@ Toggles (on/off):
 - `debug off` -> disable intent pipeline trace
 
 Prompt/Action commands:
-- `set <var> from AI: "..."` -> predict with active model and store variable
+- `set <var> from AI: "..."` -> predict with active model and store variable (fail-fast: no raw-prompt fallback on model/predict error)
 - `set stellar intent from AI: "Transfer 5 XLM to G..."` -> classify prompt -> ActionPlan
 - `set intent from AI: "Transfer 5 XLM to G..."` -> legacy alias (still supported)
 - `macro from AI: "..."` -> not supported in `neurochain-stellar` (use `set stellar intent from AI`)
@@ -328,6 +328,15 @@ if mood == "Positive":
 
 Valmis esimerkki: `examples/multi_model_if_payment.nc`
 
+Golden path (malli-agnostinen gate, suositus tuotantoon):
+- `examples/golden_path_model_agnostic.nc`
+- Yksi yhtenäinen rakenne: `set <var> from AI` + `if` + `set stellar intent from AI`
+- Vaihdat vain gate-mallin, promptin ja `allow_label`-arvon (SST2/factcheck/toxic/...)
+
+```powershell
+cargo run --release --bin neurochain-stellar -- examples\golden_path_model_agnostic.nc --flow
+```
+
 ## 3.8) `--flow` vs ilman `--flow` (tärkeä)
 
 - REPLissä (`cargo run --bin neurochain-stellar`) flow on oletuksena päällä.
@@ -370,10 +379,19 @@ Soroban‑invoke voidaan validoida contract‑kohtaisella policyllä ennen simul
 - Enforce: `NC_CONTRACT_POLICY_ENFORCE=1` → hard‑fail
 
 Tuetut arg‑tyypit:
-- `string | number | bool | address | symbol | bytes`  
+- `string | number | bool | address | symbol | bytes | u64`  
   - `address`: strkey (G… / C…, 56 merkkiä)  
   - `symbol`: 1–32 ASCII, ei whitespace  
   - `bytes`: hex muodossa `0x...`
+  - `u64`: ei-negatiivinen kokonaisluku (JSON number tai string, esim. `100`)
+
+Intent-promptissa voit pakottaa typed-slot validoinnin `ContractInvoke`-tapauksessa:
+
+```text
+Invoke contract C... function transfer args={"to":"G...","amount":100} arg_types={"to":"address","amount":"u64"}
+```
+
+Jos tyyppi ei täsmää, tulos on `slot_type_error` -> `Unknown` -> safe no-submit (flow blokataan).
 
 **Esimerkki (hello‑contract):**
 ```json
@@ -545,6 +563,23 @@ Tätä ohjetta päivitetään aina, kun:
 
 ## 10) Server API: IntentStellar -> ActionPlan
 
+Käynnistä serveri (sama binääri palvelee sekä `/api/analyze` että `/api/stellar/intent-plan`):
+
+```powershell
+cd C:\Users\Ville\Desktop\neurochain_dsl_stellar
+cargo run --release --bin neurochain-server
+```
+
+Valinnaiset envit:
+
+```powershell
+$env:HOST="127.0.0.1"
+$env:PORT="8081"
+$env:NC_MODELS_DIR="models"
+$env:NC_API_KEY="your-secret-key"   # jos haluat API-key suojauksen
+cargo run --release --bin neurochain-server
+```
+
 Uusi endpoint:
 
 ```http
@@ -567,3 +602,5 @@ Response sisältää:
 - `plan` (ActionPlan JSON)
 - `blocked` + `exit_code` (samat blokkikoodit: 3 allowlist, 4 policy, 5 intent safety)
 - `logs`
+
+Endpoint käyttää samaa intent-corea kuin CLI (`classify_intent_stellar` + `build_intent_action_plan`), joten guardrail-käyttäytyminen on yhtenäinen REPL/.nc/server-polkujen välillä.

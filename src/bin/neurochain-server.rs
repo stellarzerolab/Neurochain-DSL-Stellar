@@ -273,6 +273,16 @@ fn is_hex_bytes(value: &str) -> bool {
     hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+fn is_u64_value(value: &Value) -> bool {
+    if value.as_u64().is_some() {
+        return true;
+    }
+    value
+        .as_str()
+        .map(|s| s.trim().parse::<u64>().is_ok())
+        .unwrap_or(false)
+}
+
 fn validate_arg_type(value: &Value, ty: &str) -> bool {
     match ty {
         "string" => value.is_string(),
@@ -281,6 +291,7 @@ fn validate_arg_type(value: &Value, ty: &str) -> bool {
         "address" => value.as_str().map(is_strkey).unwrap_or(false),
         "symbol" => value.as_str().map(is_symbol).unwrap_or(false),
         "bytes" => value.as_str().map(is_hex_bytes).unwrap_or(false),
+        "u64" => is_u64_value(value),
         _ => false,
     }
 }

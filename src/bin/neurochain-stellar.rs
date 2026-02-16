@@ -412,6 +412,16 @@ fn is_hex_bytes(value: &str) -> bool {
     hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+fn is_u64_value(value: &Value) -> bool {
+    if value.as_u64().is_some() {
+        return true;
+    }
+    value
+        .as_str()
+        .map(|s| s.trim().parse::<u64>().is_ok())
+        .unwrap_or(false)
+}
+
 fn validate_arg_type(value: &Value, ty: &str) -> bool {
     match ty {
         "string" => value.is_string(),
@@ -420,6 +430,7 @@ fn validate_arg_type(value: &Value, ty: &str) -> bool {
         "address" => value.as_str().map(is_strkey).unwrap_or(false),
         "symbol" => value.as_str().map(is_symbol).unwrap_or(false),
         "bytes" => value.as_str().map(is_hex_bytes).unwrap_or(false),
+        "u64" => is_u64_value(value),
         _ => false,
     }
 }
@@ -2018,15 +2029,9 @@ impl ScriptBuildContext {
             if is_intent_assignment_name(&name) {
                 self.append_intent_prompt(&prompt)?;
             } else {
-                let prediction = match self.predict_current_model(&prompt) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        self.plan.warnings.push(format!(
-                            "script_warning: set_from_ai_fallback {name}: {err}"
-                        ));
-                        prompt.clone()
-                    }
-                };
+                let prediction = self
+                    .predict_current_model(&prompt)
+                    .with_context(|| format!("set_from_ai_failed: variable `{name}`"))?;
                 self.variables.insert(name, prediction);
             }
             return Ok(());
@@ -3090,9 +3095,7 @@ fn run_repl(
                             println!("Variable {name} set from AI: {prediction}");
                         }
                         Err(err) => {
-                            variables.insert(name.clone(), prompt.clone());
-                            eprintln!("set_from_ai_fallback {name}: {err}");
-                            println!("Variable {name} set from raw prompt fallback.");
+                            eprintln!("set_from_ai_failed {name}: {err}");
                         }
                     }
                 }

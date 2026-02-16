@@ -216,8 +216,26 @@ fn function_re() -> &'static Regex {
     })
 }
 
+fn destination_account_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)\b(?:to|destination|recipient)\b.*?(G[A-Z2-7]{55})")
+            .expect("destination regex")
+    })
+}
+
 fn extract_first_account(prompt: &str) -> Option<String> {
     account_re().find(prompt).map(|m| m.as_str().to_string())
+}
+
+fn extract_nth_account(prompt: &str, index: usize) -> Option<String> {
+    if index == 0 {
+        return None;
+    }
+    account_re()
+        .find_iter(prompt)
+        .nth(index - 1)
+        .map(|m| m.as_str().to_string())
 }
 
 fn extract_first_contract(prompt: &str) -> Option<String> {
@@ -252,6 +270,13 @@ fn extract_balance_asset(prompt: &str) -> Option<String> {
 fn extract_function(prompt: &str) -> Option<String> {
     let captures = function_re().captures(prompt)?;
     Some(captures.get(1)?.as_str().to_string())
+}
+
+fn extract_destination_account(prompt: &str) -> Option<String> {
+    destination_account_re()
+        .captures(prompt)
+        .and_then(|captures| captures.get(1))
+        .map(|m| m.as_str().to_string())
 }
 
 fn extract_json_block(src: &str) -> Option<(String, usize)> {
@@ -306,15 +331,17 @@ fn extract_json_block(src: &str) -> Option<(String, usize)> {
     None
 }
 
-fn extract_args_json(prompt: &str) -> Value {
+fn extract_named_json(prompt: &str, key: &str) -> Option<Value> {
     let lower = prompt.to_ascii_lowercase();
-    if let Some(idx) = lower.find("args=") {
-        let tail = prompt[idx + 5..].trim_start();
-        if let Some((json_text, _)) = extract_json_block(tail) {
-            if let Ok(value) = serde_json::from_str::<Value>(&json_text) {
-                return value;
-            }
-        }
+    let idx = lower.find(key)?;
+    let tail = prompt[idx + key.len()..].trim_start();
+    let (json_text, _) = extract_json_block(tail)?;
+    serde_json::from_str::<Value>(&json_text).ok()
+}
+
+fn extract_args_json(prompt: &str) -> Value {
+    if let Some(value) = extract_named_json(prompt, "args=") {
+        return value;
     }
 
     if let Some(pos) = prompt.find('{') {
@@ -330,6 +357,109 @@ fn extract_args_json(prompt: &str) -> Value {
     }
 
     Value::Object(serde_json::Map::new())
+}
+
+fn extract_arg_types(prompt: &str) -> Result<Option<serde_json::Map<String, Value>>, String> {
+    let arg_types =
+        extract_named_json(prompt, "arg_types=").or_else(|| extract_named_json(prompt, "types="));
+    let Some(arg_types) = arg_types else {
+        return Ok(None);
+    };
+    let Some(obj) = arg_types.as_object() else {
+        return Err("slot_type_error: ContractInvoke arg_types must be object JSON".to_string());
+    };
+    Ok(Some(obj.clone()))
+}
+
+fn is_base32_char(c: char) -> bool {
+    matches!(c, 'A'..='Z' | '2'..='7')
+}
+
+fn is_strkey(value: &str) -> bool {
+    if value.len() != 56 {
+        return false;
+    }
+    let first = value.chars().next().unwrap_or('\0');
+    if first != 'G' && first != 'C' {
+        return false;
+    }
+    value.chars().all(is_base32_char)
+}
+
+fn is_symbol(value: &str) -> bool {
+    let len = value.len();
+    if len == 0 || len > 32 {
+        return false;
+    }
+    value
+        .chars()
+        .all(|c| c.is_ascii() && !c.is_control() && !c.is_whitespace())
+}
+
+fn is_hex_bytes(value: &str) -> bool {
+    if !value.starts_with("0x") {
+        return false;
+    }
+    let hex = &value[2..];
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
+        return false;
+    }
+    hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn is_u64_value(value: &Value) -> bool {
+    if value.as_u64().is_some() {
+        return true;
+    }
+    value
+        .as_str()
+        .map(|s| s.trim().parse::<u64>().is_ok())
+        .unwrap_or(false)
+}
+
+fn value_matches_typed_slot(value: &Value, ty: &str) -> bool {
+    match ty {
+        "address" => value.as_str().map(is_strkey).unwrap_or(false),
+        "bytes" => value.as_str().map(is_hex_bytes).unwrap_or(false),
+        "symbol" => value.as_str().map(is_symbol).unwrap_or(false),
+        "u64" => is_u64_value(value),
+        _ => false,
+    }
+}
+
+fn validate_contract_invoke_arg_types(
+    args: &Value,
+    arg_types: &serde_json::Map<String, Value>,
+) -> Result<(), String> {
+    let Some(args_obj) = args.as_object() else {
+        return Err("slot_missing: ContractInvoke args must be object JSON".to_string());
+    };
+
+    for (key, value) in arg_types {
+        let Some(ty_raw) = value.as_str() else {
+            return Err(format!(
+                "slot_type_error: ContractInvoke arg_types.{key} must be string"
+            ));
+        };
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !matches!(ty.as_str(), "address" | "bytes" | "symbol" | "u64") {
+            return Err(format!(
+                "slot_type_error: ContractInvoke arg_types.{key} unsupported type {ty_raw}"
+            ));
+        }
+        let Some(arg_value) = args_obj.get(key) else {
+            return Err(format!(
+                "slot_type_error: ContractInvoke missing typed arg {key}:{ty}"
+            ));
+        };
+        if !value_matches_typed_slot(arg_value, ty.as_str()) {
+            return Err(format!(
+                "slot_type_error: ContractInvoke {key} expected {ty}"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn slot_missing(intent: IntentStellarLabel, slot: &str) -> String {
@@ -390,7 +520,9 @@ fn build_change_trust(prompt: &str) -> Result<Action, String> {
 }
 
 fn build_transfer_xlm(prompt: &str) -> Result<Action, String> {
-    let to = require_account(prompt, IntentStellarLabel::TransferXLM, "to")?;
+    let to = extract_destination_account(prompt)
+        .or_else(|| extract_first_account(prompt))
+        .ok_or_else(|| slot_missing(IntentStellarLabel::TransferXLM, "to"))?;
     let amount = require_amount(prompt, IntentStellarLabel::TransferXLM, "amount")?;
     Ok(Action::StellarPayment {
         to,
@@ -401,7 +533,10 @@ fn build_transfer_xlm(prompt: &str) -> Result<Action, String> {
 }
 
 fn build_transfer_asset(prompt: &str) -> Result<Action, String> {
-    let to = require_account(prompt, IntentStellarLabel::TransferAsset, "to")?;
+    let to = extract_destination_account(prompt)
+        .or_else(|| extract_nth_account(prompt, 2))
+        .or_else(|| extract_first_account(prompt))
+        .ok_or_else(|| slot_missing(IntentStellarLabel::TransferAsset, "to"))?;
     let amount = require_amount(prompt, IntentStellarLabel::TransferAsset, "amount")?;
     let (asset_code, asset_issuer) = require_asset_pair(prompt, IntentStellarLabel::TransferAsset)?;
     Ok(Action::StellarPayment {
@@ -431,6 +566,9 @@ fn build_contract_invoke(prompt: &str) -> Result<Action, String> {
     let args = extract_args_json(prompt);
     if !args.is_object() {
         return Err("slot_missing: ContractInvoke args must be object JSON".to_string());
+    }
+    if let Some(arg_types) = extract_arg_types(prompt)? {
+        validate_contract_invoke_arg_types(&args, &arg_types)?;
     }
     Ok(Action::SorobanContractInvoke {
         contract_id,
@@ -550,6 +688,50 @@ mod tests {
                 .warnings
                 .iter()
                 .any(|w| w.starts_with("intent_error: slot_missing")));
+        }
+    }
+
+    #[test]
+    fn contract_invoke_typed_slots_accept_valid_payload() {
+        let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+        let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+        let prompt = format!(
+            "Invoke contract {contract} function transfer args={{\"to\":\"{account}\",\"blob\":\"0x0A0B\",\"ticker\":\"USDC\",\"amount\":100}} arg_types={{\"to\":\"address\",\"blob\":\"bytes\",\"ticker\":\"symbol\",\"amount\":\"u64\"}}"
+        );
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert_eq!(plan.actions.len(), 1);
+        assert_eq!(plan.actions[0].kind(), "soroban.contract.invoke");
+        assert!(plan
+            .warnings
+            .iter()
+            .all(|w| !w.starts_with("intent_error: slot_type_error")));
+    }
+
+    #[test]
+    fn contract_invoke_typed_slots_type_error_creates_unknown() {
+        let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+        let prompt = format!(
+            "Invoke contract {contract} function transfer args={{\"to\":\"World\",\"amount\":-1}} arg_types={{\"to\":\"address\",\"amount\":\"u64\"}}"
+        );
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert!(matches!(plan.actions[0], Action::Unknown { .. }));
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("intent_error: slot_type_error")));
+    }
+
+    #[test]
+    fn transfer_asset_prefers_destination_account_over_issuer() {
+        let issuer = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+        let recipient = "GCBYKY5GGH4GYUE5AXAUGUS4VUQAQAEO5YMSEJSD2OLC2WBAXEXAJGZQ";
+        let prompt = format!("Send 12.5 TESTUSD:{issuer} to {recipient}");
+
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::TransferAsset));
+        assert_eq!(plan.actions.len(), 1);
+        match &plan.actions[0] {
+            Action::StellarPayment { to, .. } => assert_eq!(to, recipient),
+            other => panic!("expected StellarPayment, got {other:?}"),
         }
     }
 }
