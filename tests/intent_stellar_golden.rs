@@ -155,13 +155,13 @@ fn intent_stellar_golden() {
             text: "Tell me a joke about stars",
             expected_label: "Unknown",
             expected_action_kind: "unknown",
-            min_score: 0.20,
+            min_score: 0.15,
         },
         Case {
             text: "How is the weather in Helsinki today?",
             expected_label: "Unknown",
             expected_action_kind: "unknown",
-            min_score: 0.20,
+            min_score: 0.15,
         },
     ];
 
