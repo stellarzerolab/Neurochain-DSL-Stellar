@@ -293,7 +293,7 @@ fn example_golden_path_model_agnostic_blocked_skips_payment() {
 }
 
 #[test]
-fn example_policy_typed_stage2_normalize_trims_symbol_arg() {
+fn example_policy_typed_stage2_normalize_showcases_multiple_normalizations() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")
         .join("intent_stellar")
@@ -304,9 +304,8 @@ fn example_policy_typed_stage2_normalize_trims_symbol_arg() {
     }
 
     let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("contracts")
-        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
-        .join("policy.json");
+        .join("examples")
+        .join("intent_stellar_policy_typed_stage2_demo_policy.json");
     if !policy_path.exists() {
         eprintln!("skipping test; missing policy: {}", policy_path.display());
         return;
@@ -333,8 +332,23 @@ fn example_policy_typed_stage2_normalize_trims_symbol_arg() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(
+        combined
+            .matches("\"kind\": \"soroban_contract_invoke\"")
+            .count()
+            >= 3
+    );
+    assert!(combined.contains("\"function\": \"hello\""));
     assert!(combined.contains("\"to\": \"World\""));
+    assert!(
+        combined.contains("\"to\": \"GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX\"")
+    );
+    assert!(combined.contains("\"blob\": \"0x0a0b\""));
+    assert!(combined.contains("\"blob\": \"0xaabb\""));
+    assert!(combined.contains("\"ticker\": \"USDC\""));
+    assert!(combined.contains("\"ticker\": \"XLM\""));
+    assert!(combined.contains("\"amount\": 100"));
+    assert!(combined.contains("\"amount\": 42"));
     assert!(!combined.contains("slot_type_error"));
     assert!(combined.contains("intent_stellar_policy_typed_stage2_normalize.nc"));
 }
@@ -416,7 +430,8 @@ fn nc_script_policy_typed_stage2_normalizes_multiple_user_input_variants() {
 
     let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     for (case_name, prompt, expected_snippets) in cases {
-        let tmp_script = std::env::temp_dir().join(format!("nc_script_typed_v2_stage2_{case_name}.nc"));
+        let tmp_script =
+            std::env::temp_dir().join(format!("nc_script_typed_v2_stage2_{case_name}.nc"));
         let script = format!(
             "AI: \"models/intent_stellar/model.onnx\"\nintent_threshold: 0.00\ncontract_policy: {}\nset stellar intent from AI: \"{}\"\n",
             tmp_policy.to_string_lossy(),
