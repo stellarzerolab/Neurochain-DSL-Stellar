@@ -296,6 +296,93 @@ fn validate_arg_type(value: &Value, ty: &str) -> bool {
     }
 }
 
+fn is_typed_template_v2_type(ty: &str) -> bool {
+    matches!(ty, "address" | "bytes" | "symbol" | "u64")
+}
+
+fn policy_typed_slot_error_for_action(
+    contract_id: &str,
+    function: &str,
+    args: &Value,
+    schema: &ArgSchema,
+) -> Option<String> {
+    let Some(args_obj) = args.as_object() else {
+        return None;
+    };
+
+    for (key, ty_raw) in &schema.required {
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !is_typed_template_v2_type(ty.as_str()) {
+            continue;
+        }
+        if let Some(value) = args_obj.get(key) {
+            if !validate_arg_type(value, ty.as_str()) {
+                return Some(format!(
+                    "slot_type_error: ContractInvoke {key} expected {ty} (policy {contract_id}:{function})"
+                ));
+            }
+        }
+    }
+
+    for (key, ty_raw) in &schema.optional {
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !is_typed_template_v2_type(ty.as_str()) {
+            continue;
+        }
+        if let Some(value) = args_obj.get(key) {
+            if !validate_arg_type(value, ty.as_str()) {
+                return Some(format!(
+                    "slot_type_error: ContractInvoke {key} expected {ty} (policy {contract_id}:{function})"
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+fn apply_policy_typed_templates_v2(plan: &mut ActionPlan, policies: &[ContractPolicy]) -> usize {
+    if policies.is_empty() {
+        return 0;
+    }
+
+    let mut policy_map: HashMap<&str, &ContractPolicy> = HashMap::new();
+    for policy in policies {
+        policy_map.insert(policy.contract_id.as_str(), policy);
+    }
+
+    let mut converted = 0usize;
+    for action in &mut plan.actions {
+        let maybe_reason = match action {
+            Action::SorobanContractInvoke {
+                contract_id,
+                function,
+                args,
+            } => {
+                let Some(policy) = policy_map.get(contract_id.as_str()) else {
+                    continue;
+                };
+                let Some(schema) = policy.args_schema.get(function) else {
+                    continue;
+                };
+
+                policy_typed_slot_error_for_action(contract_id, function, args, schema)
+            }
+            _ => None,
+        };
+
+        if let Some(reason) = maybe_reason {
+            *action = Action::Unknown {
+                reason: reason.clone(),
+            };
+            plan.warnings.push(format!("intent_error: {reason}"));
+            converted += 1;
+        }
+    }
+
+    converted
+}
+
 fn validate_contract_policies(
     plan: &ActionPlan,
     policies: &[ContractPolicy],
@@ -704,6 +791,12 @@ async fn api_stellar_intent_plan(
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
 
+    let policies = load_contract_policies();
+    let typed_v2_converted = apply_policy_typed_templates_v2(&mut plan, &policies);
+    logs.push(format!(
+        "typed_template_v2: policy_slot_type_converted={typed_v2_converted}"
+    ));
+
     let assets_raw = req
         .allowlist_assets
         .clone()
@@ -727,7 +820,6 @@ async fn api_stellar_intent_plan(
         ));
     }
 
-    let policies = load_contract_policies();
     let (policy_warnings, policy_errors) = validate_contract_policies(&plan, &policies);
     let policy_is_enforced = policy_enforced(req.contract_policy_enforce);
     logs.push(format!(

@@ -188,6 +188,46 @@ stellar.payment to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" am
 }
 
 #[test]
+fn nc_script_policy_settings_can_enforce_without_env() {
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let tmp = std::env::temp_dir().join("nc_script_policy_settings_enforce.nc");
+    let script = format!(
+        "contract_policy: {}\ncontract_policy_enforce\nAI: \"models/intent_stellar/model.onnx\"\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello\"\n",
+        policy_path.to_string_lossy()
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .output()
+        .expect("run neurochain-stellar script mode with policy settings");
+
+    assert_eq!(output.status.code(), Some(4));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Contract policy violations (enforced):"));
+    assert!(combined.contains("- contract_policy:"));
+    assert!(combined.contains("- contract_policy_enforce: on"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
 fn nc_script_intent_safety_blocks_flow_with_exit_5() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

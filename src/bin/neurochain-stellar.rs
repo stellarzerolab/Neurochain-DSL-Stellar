@@ -191,14 +191,12 @@ fn allowlist_enforced(override_value: Option<bool>) -> bool {
     parse_bool_value(&std::env::var("NC_ALLOWLIST_ENFORCE").unwrap_or_default()).unwrap_or(false)
 }
 
-fn policy_enforced() -> bool {
-    matches!(
-        std::env::var("NC_CONTRACT_POLICY_ENFORCE")
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes" | "on"
-    )
+fn policy_enforced(override_value: Option<bool>) -> bool {
+    if let Some(value) = override_value {
+        return value;
+    }
+    parse_bool_value(&std::env::var("NC_CONTRACT_POLICY_ENFORCE").unwrap_or_default())
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -245,6 +243,9 @@ struct RuntimeSettings {
     allowlist_assets: Option<String>,
     allowlist_contracts: Option<String>,
     allowlist_enforce: Option<bool>,
+    contract_policy: Option<String>,
+    contract_policy_dir: Option<String>,
+    contract_policy_enforce: Option<bool>,
 }
 
 impl RuntimeSettings {
@@ -270,6 +271,15 @@ fn runtime_settings_from_env() -> RuntimeSettings {
             .ok()
             .filter(|v| !v.trim().is_empty()),
         allowlist_enforce: parse_bool_value(&env::var("NC_ALLOWLIST_ENFORCE").unwrap_or_default()),
+        contract_policy: env::var("NC_CONTRACT_POLICY")
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
+        contract_policy_dir: env::var("NC_CONTRACT_POLICY_DIR")
+            .ok()
+            .filter(|v| !v.trim().is_empty()),
+        contract_policy_enforce: parse_bool_value(
+            &env::var("NC_CONTRACT_POLICY_ENFORCE").unwrap_or_default(),
+        ),
     }
 }
 
@@ -341,10 +351,15 @@ fn load_network_config() -> NetworkConfig {
     }
 }
 
-fn load_contract_policies() -> Vec<ContractPolicy> {
+fn load_contract_policies(runtime: Option<&RuntimeSettings>) -> Vec<ContractPolicy> {
     let mut policies = Vec::new();
 
-    if let Ok(path) = env::var("NC_CONTRACT_POLICY") {
+    let direct_policy_path = runtime
+        .and_then(|r| r.contract_policy.as_deref())
+        .map(str::to_string)
+        .or_else(|| env::var("NC_CONTRACT_POLICY").ok())
+        .filter(|v| !v.trim().is_empty());
+    if let Some(path) = direct_policy_path {
         if let Ok(data) = fs::read_to_string(&path) {
             match serde_json::from_str::<ContractPolicy>(&data) {
                 Ok(policy) => policies.push(policy),
@@ -355,7 +370,12 @@ fn load_contract_policies() -> Vec<ContractPolicy> {
         }
     }
 
-    let policy_dir = env::var("NC_CONTRACT_POLICY_DIR").unwrap_or_else(|_| "contracts".to_string());
+    let policy_dir = runtime
+        .and_then(|r| r.contract_policy_dir.as_deref())
+        .map(str::to_string)
+        .or_else(|| env::var("NC_CONTRACT_POLICY_DIR").ok())
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "contracts".to_string());
     if let Ok(entries) = fs::read_dir(&policy_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -433,6 +453,93 @@ fn validate_arg_type(value: &Value, ty: &str) -> bool {
         "u64" => is_u64_value(value),
         _ => false,
     }
+}
+
+fn is_typed_template_v2_type(ty: &str) -> bool {
+    matches!(ty, "address" | "bytes" | "symbol" | "u64")
+}
+
+fn policy_typed_slot_error_for_action(
+    contract_id: &str,
+    function: &str,
+    args: &Value,
+    schema: &ArgSchema,
+) -> Option<String> {
+    let Some(args_obj) = args.as_object() else {
+        return None;
+    };
+
+    for (key, ty_raw) in &schema.required {
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !is_typed_template_v2_type(ty.as_str()) {
+            continue;
+        }
+        if let Some(value) = args_obj.get(key) {
+            if !validate_arg_type(value, ty.as_str()) {
+                return Some(format!(
+                    "slot_type_error: ContractInvoke {key} expected {ty} (policy {contract_id}:{function})"
+                ));
+            }
+        }
+    }
+
+    for (key, ty_raw) in &schema.optional {
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !is_typed_template_v2_type(ty.as_str()) {
+            continue;
+        }
+        if let Some(value) = args_obj.get(key) {
+            if !validate_arg_type(value, ty.as_str()) {
+                return Some(format!(
+                    "slot_type_error: ContractInvoke {key} expected {ty} (policy {contract_id}:{function})"
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+fn apply_policy_typed_templates_v2(plan: &mut ActionPlan, policies: &[ContractPolicy]) -> usize {
+    if policies.is_empty() {
+        return 0;
+    }
+
+    let mut policy_map: HashMap<&str, &ContractPolicy> = HashMap::new();
+    for policy in policies {
+        policy_map.insert(policy.contract_id.as_str(), policy);
+    }
+
+    let mut converted = 0usize;
+    for action in &mut plan.actions {
+        let maybe_reason = match action {
+            neurochain::actions::Action::SorobanContractInvoke {
+                contract_id,
+                function,
+                args,
+            } => {
+                let Some(policy) = policy_map.get(contract_id.as_str()) else {
+                    continue;
+                };
+                let Some(schema) = policy.args_schema.get(function) else {
+                    continue;
+                };
+
+                policy_typed_slot_error_for_action(contract_id, function, args, schema)
+            }
+            _ => None,
+        };
+
+        if let Some(reason) = maybe_reason {
+            *action = neurochain::actions::Action::Unknown {
+                reason: reason.clone(),
+            };
+            plan.warnings.push(format!("intent_error: {reason}"));
+            converted += 1;
+        }
+    }
+
+    converted
 }
 
 fn validate_contract_policies(
@@ -1595,6 +1702,39 @@ fn parse_allowlist_enforce_line(line: &str) -> Result<Option<bool>> {
         .ok_or_else(|| anyhow!("invalid allowlist_enforce value `{value}` (use on/off/true/false)"))
 }
 
+fn parse_contract_policy_line(line: &str) -> Option<Option<String>> {
+    let value = parse_named_value(line, &["contract_policy", "policy_file", "policy"])?;
+    let lowered = value.trim().to_ascii_lowercase();
+    if matches!(lowered.as_str(), "off" | "none" | "null" | "disabled") {
+        return Some(None);
+    }
+    Some(Some(value))
+}
+
+fn parse_contract_policy_dir_line(line: &str) -> Option<Option<String>> {
+    let value = parse_named_value(line, &["contract_policy_dir", "policy_dir"])?;
+    let lowered = value.trim().to_ascii_lowercase();
+    if matches!(lowered.as_str(), "off" | "none" | "null" | "disabled") {
+        return Some(None);
+    }
+    Some(Some(value))
+}
+
+fn parse_contract_policy_enforce_line(line: &str) -> Result<Option<bool>> {
+    if line.trim().eq_ignore_ascii_case("contract_policy_enforce")
+        || line.trim().eq_ignore_ascii_case("policy_enforce")
+    {
+        return Ok(Some(true));
+    }
+    let Some(value) = parse_named_value(line, &["contract_policy_enforce", "policy_enforce"])
+    else {
+        return Ok(None);
+    };
+    parse_bool_value(&value).map(Some).ok_or_else(|| {
+        anyhow!("invalid contract_policy_enforce value `{value}` (use on/off/true/false)")
+    })
+}
+
 fn parse_debug_line(line: &str) -> Result<Option<bool>> {
     if line.trim().eq_ignore_ascii_case("debug") {
         return Ok(Some(true));
@@ -2015,8 +2155,23 @@ impl ScriptBuildContext {
             return Ok(());
         }
 
+        if let Some(policy_path) = parse_contract_policy_line(line) {
+            self.runtime_settings.contract_policy = policy_path;
+            return Ok(());
+        }
+
+        if let Some(policy_dir) = parse_contract_policy_dir_line(line) {
+            self.runtime_settings.contract_policy_dir = policy_dir;
+            return Ok(());
+        }
+
         if let Some(enforce) = parse_allowlist_enforce_line(line)? {
             self.runtime_settings.allowlist_enforce = Some(enforce);
+            return Ok(());
+        }
+
+        if let Some(enforce) = parse_contract_policy_enforce_line(line)? {
+            self.runtime_settings.contract_policy_enforce = Some(enforce);
             return Ok(());
         }
 
@@ -2315,6 +2470,15 @@ fn execute_plan(
     debug: bool,
 ) -> i32 {
     let runtime_settings = runtime_settings.cloned().unwrap_or_default();
+    let policies = load_contract_policies(Some(&runtime_settings));
+    if intent_mode {
+        let typed_v2_converted = apply_policy_typed_templates_v2(&mut plan, &policies);
+        intent_debug_log(
+            debug,
+            "typed-template-v2",
+            format!("policy_slot_type_converted={typed_v2_converted}"),
+        );
+    }
     let allowlist = runtime_settings.allowlist();
     let violations = validate_plan(&plan, &allowlist);
     let allowlist_is_enforced = allowlist_enforced(runtime_settings.allowlist_enforce);
@@ -2357,9 +2521,8 @@ fn execute_plan(
         }
     }
 
-    let policies = load_contract_policies();
     let (policy_warnings, policy_errors) = validate_contract_policies(&plan, &policies);
-    let policy_is_enforced = policy_enforced();
+    let policy_is_enforced = policy_enforced(runtime_settings.contract_policy_enforce);
     intent_debug_log(
         debug,
         "guardrails",
@@ -2379,7 +2542,9 @@ fn execute_plan(
             for err in &policy_errors {
                 eprintln!("- {err}");
             }
-            eprintln!("Set NC_CONTRACT_POLICY_ENFORCE=0 (or unset) to allow warnings only.");
+            eprintln!(
+                "Set NC_CONTRACT_POLICY_ENFORCE=0 (or unset), or use contract_policy_enforce: off in REPL/.nc."
+            );
             intent_debug_log(
                 debug,
                 "guardrails",
@@ -2538,6 +2703,30 @@ fn print_repl_config(
             "off"
         }
     );
+    println!(
+        "- contract_policy: {}",
+        runtime
+            .contract_policy
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or("(env/default)")
+    );
+    println!(
+        "- contract_policy_dir: {}",
+        runtime
+            .contract_policy_dir
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or("(env/default: contracts)")
+    );
+    println!(
+        "- contract_policy_enforce: {}",
+        if policy_enforced(runtime.contract_policy_enforce) {
+            "on"
+        } else {
+            "off"
+        }
+    );
 }
 
 fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) -> bool {
@@ -2547,7 +2736,7 @@ fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings, de
         .as_deref()
         .filter(|v| !v.trim().is_empty())
     {
-        println!("asset_allowlist: {assets}");
+        println!("- asset_allowlist: {assets}");
         any = true;
     }
     if let Some(contracts) = runtime
@@ -2555,44 +2744,79 @@ fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings, de
         .as_deref()
         .filter(|v| !v.trim().is_empty())
     {
-        println!("soroban_allowlist: {contracts}");
+        println!("- soroban_allowlist: {contracts}");
         any = true;
     }
     if cfg.txrep_preview {
-        println!("txrep");
+        println!("- txrep");
         any = true;
     }
     if allowlist_enforced(runtime.allowlist_enforce) {
-        println!("allowlist_enforce");
+        println!("- allowlist_enforce");
+        any = true;
+    }
+    if let Some(policy_path) = runtime
+        .contract_policy
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+    {
+        println!("- contract_policy: {policy_path}");
+        any = true;
+    }
+    if let Some(policy_dir) = runtime
+        .contract_policy_dir
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+    {
+        println!("- contract_policy_dir: {policy_dir}");
+        any = true;
+    }
+    if policy_enforced(runtime.contract_policy_enforce) {
+        println!("- contract_policy_enforce");
         any = true;
     }
     if debug {
-        println!("debug");
+        println!("- debug");
         any = true;
     }
     any
 }
 
 fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) {
-    println!(
-        "Soroban REPL quick start:
-- AI: \"models/intent_stellar/model.onnx\"
-- network: testnet
-- wallet: nc-testnet
-- txrep               (optional preview on)
-- allowlist_enforce   (optional hard-fail on allowlist)
-- debug               (optional intent trace on)
-- set mood from AI: \"This is great\"   (store model prediction to variable)
-- set stellar intent from AI: \"Transfer 5 XLM to G...\"
-- help all            (show every command)
-- help dsl            (show normal NeuroChain DSL help)
-- Toggle commands are listed in `help all` under Toggles (on/off).
-- show setup          (print active setup)
-- show config         (print active config)
-- setup testnet       (set network+horizon+friendbot baseline)
-- restart with --no-flow if you want plan-only REPL
-- exit"
-    );
+    println!("Soroban REPL quick start:");
+    let quick_rows = [
+        ("AI: \"models/intent_stellar/model.onnx\"", ""),
+        ("network: testnet", ""),
+        ("wallet: nc-testnet", ""),
+        ("txrep", "(optional preview on)"),
+        ("allowlist_enforce", "(optional hard-fail on allowlist)"),
+        ("contract_policy: <path>", "(optional policy file)"),
+        ("contract_policy_enforce", "(optional hard-fail on policy)"),
+        ("debug", "(optional intent trace on)"),
+        (
+            "set <var> from AI: \"...\"",
+            "(store model prediction to variable)",
+        ),
+        (
+            "set stellar intent from AI: \"...\"",
+            "(classify prompt -> ActionPlan)",
+        ),
+        ("help all", "(show every command)"),
+        ("help dsl", "(show normal NeuroChain DSL help)"),
+        ("show setup", "(print active setup)"),
+        ("show config", "(print active config)"),
+        ("setup testnet", "(set network+horizon+friendbot baseline)"),
+        ("exit", ""),
+    ];
+    for (command, desc) in quick_rows {
+        if desc.is_empty() {
+            println!("- {command}");
+        } else {
+            println!("- {:<34} {}", command, desc);
+        }
+    }
+    println!("- Toggle commands are listed in `help all` under Toggles (on/off).");
+    println!("- restart with --no-flow if you want plan-only REPL");
     println!();
     println!("Enabled optional settings:");
     if !print_repl_active_settings(cfg, runtime, debug) {
@@ -2672,9 +2896,31 @@ fn print_script_setup(
         {
             eprintln!("- soroban_allowlist: {contracts}");
         }
+        if let Some(policy_path) = runtime
+            .contract_policy
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+        {
+            eprintln!("- contract_policy: {policy_path}");
+        }
+        if let Some(policy_dir) = runtime
+            .contract_policy_dir
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+        {
+            eprintln!("- contract_policy_dir: {policy_dir}");
+        }
         eprintln!(
             "- allowlist_enforce: {}",
             if allowlist_enforced(runtime.allowlist_enforce) {
+                "on"
+            } else {
+                "off"
+            }
+        );
+        eprintln!(
+            "- contract_policy_enforce: {}",
+            if policy_enforced(runtime.contract_policy_enforce) {
                 "on"
             } else {
                 "off"
@@ -2727,6 +2973,14 @@ fn print_repl_help_all() {
             "soroban_allowlist: C1:transfer,C2",
             "set NC_SOROBAN_ALLOWLIST equivalent",
         ),
+        (
+            "contract_policy: <path>",
+            "set NC_CONTRACT_POLICY equivalent",
+        ),
+        (
+            "contract_policy_dir: <dir>",
+            "set NC_CONTRACT_POLICY_DIR equivalent",
+        ),
     ];
     print_repl_help_section("Core setup (value required)", &core_setup);
 
@@ -2735,6 +2989,11 @@ fn print_repl_help_all() {
         ("txrep off", "disable txrep preview in flow"),
         ("allowlist_enforce", "enable allowlist enforce"),
         ("allowlist_enforce off", "disable allowlist enforce"),
+        ("contract_policy_enforce", "enable contract policy enforce"),
+        (
+            "contract_policy_enforce off",
+            "disable contract policy enforce",
+        ),
         ("debug", "enable intent pipeline trace"),
         ("debug off", "disable intent pipeline trace"),
     ];
@@ -2746,7 +3005,7 @@ fn print_repl_help_all() {
             "predict with active model -> store variable",
         ),
         (
-            "set stellar intent from AI: \"Transfer 5 XLM to G...\"",
+            "set stellar intent from AI: \"...\"",
             "classify prompt -> ActionPlan",
         ),
         (
@@ -3037,11 +3296,45 @@ fn run_repl(
                 continue;
             }
 
+            if let Some(policy_path) = parse_contract_policy_line(&line) {
+                runtime_settings.contract_policy = policy_path.clone();
+                println!(
+                    "Contract policy file: {}",
+                    policy_path.as_deref().unwrap_or("(disabled)")
+                );
+                continue;
+            }
+
+            if let Some(policy_dir) = parse_contract_policy_dir_line(&line) {
+                runtime_settings.contract_policy_dir = policy_dir.clone();
+                println!(
+                    "Contract policy dir: {}",
+                    policy_dir.as_deref().unwrap_or("(disabled)")
+                );
+                continue;
+            }
+
             match parse_allowlist_enforce_line(&line) {
                 Ok(Some(enabled)) => {
                     runtime_settings.allowlist_enforce = Some(enabled);
                     println!(
                         "Allowlist enforce: {}",
+                        if enabled { "enabled" } else { "disabled" }
+                    );
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            match parse_contract_policy_enforce_line(&line) {
+                Ok(Some(enabled)) => {
+                    runtime_settings.contract_policy_enforce = Some(enabled);
+                    println!(
+                        "Contract policy enforce: {}",
                         if enabled { "enabled" } else { "disabled" }
                     );
                     continue;

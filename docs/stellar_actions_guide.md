@@ -179,6 +179,9 @@ Suositus: laita nämä **heti alkuun** (AI -> network -> wallet -> muut asetukse
 - `NC_ASSET_ALLOWLIST` -> `asset_allowlist: XLM,USDC:GISSUER`
 - `NC_SOROBAN_ALLOWLIST` -> `soroban_allowlist: C1:transfer,C2`
 - `NC_ALLOWLIST_ENFORCE` -> `allowlist_enforce` (päälle) / `allowlist_enforce off` (pois)
+- `NC_CONTRACT_POLICY` -> `contract_policy: contracts/<id>/policy.json`
+- `NC_CONTRACT_POLICY_DIR` -> `contract_policy_dir: contracts`
+- `NC_CONTRACT_POLICY_ENFORCE` -> `contract_policy_enforce` (päälle) / `contract_policy_enforce off` (pois)
 
 Esimerkki (REPL tai `.nc`):
 
@@ -189,6 +192,8 @@ wallet: nc-testnet
 txrep
 asset_allowlist: XLM
 allowlist_enforce
+contract_policy: contracts/CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ/policy.json
+contract_policy_enforce
 set stellar intent from AI: "Transfer 5 XLM to G..."
 ```
 
@@ -208,6 +213,12 @@ Validoinnit ajetaan aina, mutta blokkauksen taso riippuu enforce‑envistä:
 - `NC_CONTRACT_POLICY_ENFORCE=1`: policy-rike = hard-fail, prosessi poistuu koodilla `4`.
 - Intent-tilassa (`--intent-text` tai `set stellar intent from AI`) `Unknown` / `intent_error` / `intent_warning`
   blokkkaa flown turvallisesti ja palauttaa koodin `5`.
+
+Typed template v2 (policy-backed):
+- Jos `contract_policy.args_schema` määrittää typed-argin (`address` / `bytes` / `symbol` / `u64`) ja promptin `args` sisältää vääräntyyppisen arvon, tulos muutetaan intent-polussa:
+  `slot_type_error -> Unknown -> safe no-submit` (exit `5`).
+- Tämä toimii nyt samalla tavalla CLI + REPL + `.nc` + `/api/stellar/intent-plan`.
+- Huom: puuttuva pakollinen arg pysyy policy-virheenä (`policy_args_missing`) ja enforce-tilassa se blokkaa koodilla `4` (ei `5`).
 
 ---
 
@@ -259,18 +270,22 @@ Core setup (value required):
 - `simulate_flag: "--send no"` -> set soroban simulate flag
 - `asset_allowlist: XLM,USDC:G...` -> set NC_ASSET_ALLOWLIST equivalent
 - `soroban_allowlist: C1:transfer,C2` -> set NC_SOROBAN_ALLOWLIST equivalent
+- `contract_policy: <path>` -> set NC_CONTRACT_POLICY equivalent
+- `contract_policy_dir: <dir>` -> set NC_CONTRACT_POLICY_DIR equivalent
 
 Toggles (on/off):
 - `txrep` -> enable txrep preview in flow
 - `txrep off` -> disable txrep preview in flow
 - `allowlist_enforce` -> enable allowlist enforce
 - `allowlist_enforce off` -> disable allowlist enforce
+- `contract_policy_enforce` -> enable contract policy enforce
+- `contract_policy_enforce off` -> disable contract policy enforce
 - `debug` -> enable intent pipeline trace
 - `debug off` -> disable intent pipeline trace
 
 Prompt/Action commands:
 - `set <var> from AI: "..."` -> predict with active model and store variable (fail-fast: no raw-prompt fallback on model/predict error)
-- `set stellar intent from AI: "Transfer 5 XLM to G..."` -> classify prompt -> ActionPlan
+- `set stellar intent from AI: "..."` -> classify prompt -> ActionPlan
 - `set intent from AI: "Transfer 5 XLM to G..."` -> legacy alias (still supported)
 - `macro from AI: "..."` -> not supported in `neurochain-stellar` (use `set stellar intent from AI`)
 - `plain text prompt` -> classify prompt -> ActionPlan
@@ -286,8 +301,8 @@ Utility commands:
 - `exit` -> leave REPL
 
 Yhtenäinen toggle-sääntö:
-- Pelkkä asetusrivi kytkee päälle (`txrep`, `allowlist_enforce`, `debug`)
-- `off` samassa rivissä kytkee pois (`txrep off`, `allowlist_enforce off`, `debug off`)
+- Pelkkä asetusrivi kytkee päälle (`txrep`, `allowlist_enforce`, `contract_policy_enforce`, `debug`)
+- `off` samassa rivissä kytkee pois (`txrep off`, `allowlist_enforce off`, `contract_policy_enforce off`, `debug off`)
 
 ## 3.7) Käyttö — `.nc` scripti samoilla komennoilla
 
@@ -393,6 +408,11 @@ Invoke contract C... function transfer args={"to":"G...","amount":100} arg_types
 
 Jos tyyppi ei täsmää, tulos on `slot_type_error` -> `Unknown` -> safe no-submit (flow blokataan).
 
+Myös ilman `arg_types=`-kenttää policy voi tehdä typed-v2 tarkistuksen:
+- jos `args_schema` määrittää esim. `hello.to = symbol` ja promptissa on `args={"to":"Hello World"}`,
+  arvo hylätään intent-polussa `slot_type_error`-virheenä (`Unknown`, safe no-submit / exit `5`).
+- tämä koskee vain väärää tyyppiä; puuttuva pakollinen kenttä jää policy-kerroksen `policy_args_missing`-virheeksi.
+
 **Esimerkki (hello‑contract):**
 ```json
 {
@@ -411,6 +431,66 @@ Jos tyyppi ei täsmää, tulos on `slot_type_error` -> `Unknown` -> safe no-subm
 ```powershell
 cargo run --bin neurochain-stellar -- examples\stellar_actions_example.nc --flow --yes
 ```
+
+Policy typed v2 fail/pass pari (esimerkit):
+- `examples/intent_stellar_policy_typed_slot_error.nc` -> policy-backed type mismatch (`slot_type_error`, safe no-submit / exit `5`)
+- `examples/intent_stellar_policy_typed_slot_ok.nc` -> policy-backed type OK (action pysyy `soroban_contract_invoke`)
+
+Minimikomennot, jotta tämä toimii (REPL):
+
+```text
+AI: "models/intent_stellar/model.onnx"
+intent_threshold: 0.00
+contract_policy: contracts/CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ/policy.json
+contract_policy_enforce
+
+# FAIL -> slot_type_error -> unknown -> exit 5 (flow)
+set stellar intent from AI: "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"Hello World\"}"
+
+# PASS -> soroban_contract_invoke
+set stellar intent from AI: "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"World\"}"
+```
+
+Minimikomennot, jotta tämä toimii (`.nc` + CLI):
+
+```powershell
+cargo run --release --bin neurochain-stellar -- examples\intent_stellar_policy_typed_slot_error.nc --flow --yes
+cargo run --release --bin neurochain-stellar -- examples\intent_stellar_policy_typed_slot_ok.nc --flow --yes
+```
+
+Minimikomennot, jos haluat käyttää env-muuttujia (CLI tai scripti):
+
+```powershell
+$env:NC_CONTRACT_POLICY="contracts\CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\policy.json"
+$env:NC_CONTRACT_POLICY_ENFORCE="1"
+cargo run --release --bin neurochain-stellar -- --intent-text "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"Hello World\"}" --flow --yes
+```
+
+REPL quick-start (policy + typed v2 fail/pass):
+
+```text
+AI: "models/intent_stellar/model.onnx"
+intent_threshold: 0.00
+contract_policy: contracts/CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ/policy.json
+contract_policy_enforce
+
+# FAIL (policy vaatii hello.to = symbol; "Hello World" ei ole validi symbol)
+set stellar intent from AI: "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"Hello World\"}"
+
+# PASS (validi symbol)
+set stellar intent from AI: "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"World\"}"
+```
+
+Mitä tapahtuu:
+- FAIL-rivi -> `slot_type_error` -> `unknown` -> flow blokataan turvallisesti (`exit 5` / REPL step code `5`)
+- PASS-rivi -> ActionPlaniin jää `soroban_contract_invoke`
+- Jos kenttä puuttuu kokonaan (esim. ei `to`-argia), policy-kerros antaa `policy_args_missing` ja enforce-tilassa blokkaus on `exit 4`
+
+Testikattavuus (repo):
+- `tests/stellar_repl.rs` -> REPL `contract_policy` / `contract_policy_enforce` asetukset ilman env:iä + typed mismatch näkyvyys
+- `tests/stellar_script.rs` -> `.nc`-scripti policy-asetuksilla ilman env:iä
+- `tests/flow_cli.rs` -> `--flow` blokkautuu `slot_type_error`-tilanteessa (`exit 5`)
+- `tests/server_analyze.rs` -> `/api/stellar/intent-plan` palauttaa policy-derived `slot_type_error` blokkina (`exit_code=5`)
 
 ---
 

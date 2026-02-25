@@ -239,6 +239,54 @@ fn intent_mode_policy_enforced_blocks_with_exit_4() {
 }
 
 #[test]
+fn intent_mode_policy_typed_slot_error_blocks_with_exit_5() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(
+            "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"Hello World\"}",
+        )
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .env(
+            "NC_CONTRACT_POLICY",
+            policy_path.to_string_lossy().to_string(),
+        )
+        .output()
+        .expect("run neurochain-stellar with policy-typed slot mismatch");
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_type_error"));
+    assert!(combined.contains("Intent safety guard blocked flow"));
+    assert!(!combined.contains("=== Preview ==="));
+}
+
+#[test]
 fn intent_mode_flow_submit_happy_path_balance_query() {
     let model_path = intent_model_path();
     if !model_path.exists() {

@@ -26,9 +26,7 @@ fn stellar_repl_help_and_exit_work() {
         .success()
         .stdout(contains("NeuroChain Stellar REPL"))
         .stdout(contains("Soroban REPL quick start"))
-        .stdout(contains(
-            "- help dsl            (show normal NeuroChain DSL help)",
-        ))
+        .stdout(contains("help dsl"))
         .stdout(contains(
             "Toggle commands are listed in `help all` under Toggles (on/off).",
         ))
@@ -77,7 +75,7 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin(
-        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\nallowlist_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\nallowlist_enforce\n\nexit\n\n",
+        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\ncontract_policy: contracts/demo/policy.json\n\ncontract_policy_dir: contracts\n\nallowlist_enforce\n\ncontract_policy_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\ncontract_policy_enforce off\n\nallowlist_enforce\n\nexit\n\n",
     )
     .assert()
     .success()
@@ -90,10 +88,14 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     .stdout(contains("Txrep preview: disabled"))
     .stdout(contains("Asset allowlist set to: XLM"))
     .stdout(contains("Soroban allowlist set to: CTEST:transfer"))
+    .stdout(contains("Contract policy file: contracts/demo/policy.json"))
+    .stdout(contains("Contract policy dir: contracts"))
     .stdout(contains("Allowlist enforce: enabled"))
+    .stdout(contains("Contract policy enforce: enabled"))
     .stdout(contains("Intent debug trace: enabled"))
     .stdout(contains("Intent debug trace: disabled"))
     .stdout(contains("Allowlist enforce: disabled"))
+    .stdout(contains("Contract policy enforce: disabled"))
     .stdout(contains("Exiting"));
 }
 
@@ -146,9 +148,18 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     );
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
     let enforce_row = help_row("allowlist_enforce", "enable allowlist enforce");
+    let policy_row = help_row(
+        "contract_policy: <path>",
+        "set NC_CONTRACT_POLICY equivalent",
+    );
+    let policy_dir_row = help_row(
+        "contract_policy_dir: <dir>",
+        "set NC_CONTRACT_POLICY_DIR equivalent",
+    );
+    let policy_enforce_row = help_row("contract_policy_enforce", "enable contract policy enforce");
     let debug_row = help_row("debug", "enable intent pipeline trace");
     let intent_row = help_row(
-        "set stellar intent from AI: \"Transfer 5 XLM to G...\"",
+        "set stellar intent from AI: \"...\"",
         "classify prompt -> ActionPlan",
     );
     let set_var_row = help_row(
@@ -163,6 +174,9 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&network_row));
     assert!(stdout.contains(&txrep_row));
     assert!(stdout.contains(&enforce_row));
+    assert!(stdout.contains(&policy_row));
+    assert!(stdout.contains(&policy_dir_row));
+    assert!(stdout.contains(&policy_enforce_row));
     assert!(stdout.contains(&debug_row));
     assert!(stdout.contains(&set_var_row));
     assert!(stdout.contains(&intent_row));
@@ -187,10 +201,53 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
 
     assert!(toggle_section.contains("txrep"));
     assert!(toggle_section.contains("allowlist_enforce"));
+    assert!(toggle_section.contains("contract_policy_enforce"));
     assert!(toggle_section.contains("debug"));
     assert!(!toggle_section.contains("intent_threshold: <f32>"));
 
-    assert!(prompt_section.contains("set stellar intent from AI: \"Transfer 5 XLM to G...\""));
+    assert!(prompt_section.contains("set stellar intent from AI: \"...\""));
+}
+
+#[test]
+fn stellar_repl_policy_settings_can_enforce_without_env() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(format!(
+            "contract_policy: {}\n\ncontract_policy_enforce\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello\"\n\nexit\n\n",
+            policy_path.to_string_lossy()
+        ))
+        .output()
+        .expect("run repl policy settings without env");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Contract policy file:"));
+    assert!(combined.contains("Contract policy enforce: enabled"));
+    assert!(combined.contains("Contract policy violations (enforced):"));
+    assert!(combined.contains("repl step returned code 4"));
 }
 
 #[test]
