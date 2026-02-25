@@ -323,6 +323,56 @@ set stellar intent from AI: "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE7
 }
 
 #[test]
+fn nc_script_policy_typed_slot_error_blocks_flow_with_exit_5() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let tmp = std::env::temp_dir().join("nc_script_policy_typed_slot_error_block.nc");
+    let script = format!(
+        "contract_policy: {}\nAI: \"models/intent_stellar/model.onnx\"\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={{\"to\":\"Hello World\"}}\"\n",
+        policy_path.to_string_lossy()
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_type_error"));
+    assert!(combined.contains("Intent safety guard blocked flow"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
 fn nc_script_typed_slot_error_blocks_flow_with_exit_5() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

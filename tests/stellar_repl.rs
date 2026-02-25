@@ -471,6 +471,46 @@ fn stellar_repl_policy_enforced_reports_step_code_4() {
 }
 
 #[test]
+fn stellar_repl_policy_typed_slot_error_reports_step_code_5() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(format!(
+            "contract_policy: {}\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={{\"to\":\"Hello World\"}}\"\n\nexit\n\n",
+            policy_path.to_string_lossy()
+        ))
+        .output()
+        .expect("run repl policy typed-slot type error");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_type_error"));
+    assert!(combined.contains("repl step returned code 5"));
+}
+
+#[test]
 fn stellar_repl_typed_slot_error_reports_step_code_5() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")
