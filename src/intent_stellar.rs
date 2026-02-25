@@ -417,6 +417,34 @@ fn is_u64_value(value: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn typed_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(n) => {
+            if n.is_i64() {
+                "i64"
+            } else if n.is_u64() {
+                "u64"
+            } else {
+                "number"
+            }
+        }
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn typed_value_preview(value: &Value) -> String {
+    let mut rendered = value.to_string();
+    if rendered.len() > 96 {
+        rendered.truncate(93);
+        rendered.push_str("...");
+    }
+    rendered
+}
+
 fn value_matches_typed_slot(value: &Value, ty: &str) -> bool {
     match ty {
         "address" => value.as_str().map(is_strkey).unwrap_or(false),
@@ -427,36 +455,167 @@ fn value_matches_typed_slot(value: &Value, ty: &str) -> bool {
     }
 }
 
+fn normalize_typed_slot_value(value: &mut Value, ty: &str) -> Result<bool, String> {
+    match ty {
+        "address" => {
+            let Some(raw) = value.as_str() else {
+                return Err(format!(
+                    "expected address got {} value={}",
+                    typed_value_kind(value),
+                    typed_value_preview(value)
+                ));
+            };
+            let normalized = raw.trim().to_ascii_uppercase();
+            if !is_strkey(&normalized) {
+                return Err(format!(
+                    "expected address got string value={}",
+                    typed_value_preview(&Value::String(raw.to_string()))
+                ));
+            }
+            let changed = normalized != raw;
+            if changed {
+                *value = Value::String(normalized);
+            }
+            Ok(changed)
+        }
+        "bytes" => {
+            let Some(raw) = value.as_str() else {
+                return Err(format!(
+                    "expected bytes got {} value={}",
+                    typed_value_kind(value),
+                    typed_value_preview(value)
+                ));
+            };
+            let mut normalized = raw.trim().to_string();
+            if normalized.starts_with("0X") {
+                normalized.replace_range(..2, "0x");
+            } else if !normalized.starts_with("0x") {
+                let bare = normalized.clone();
+                if !bare.is_empty()
+                    && bare.len().is_multiple_of(2)
+                    && bare.chars().all(|c| c.is_ascii_hexdigit())
+                {
+                    normalized = format!("0x{bare}");
+                }
+            }
+            if normalized.starts_with("0x") {
+                let lower_hex = normalized[2..].to_ascii_lowercase();
+                normalized = format!("0x{lower_hex}");
+            }
+            if !is_hex_bytes(&normalized) {
+                return Err(format!(
+                    "expected bytes got string value={}",
+                    typed_value_preview(&Value::String(raw.to_string()))
+                ));
+            }
+            let changed = normalized != raw;
+            if changed {
+                *value = Value::String(normalized);
+            }
+            Ok(changed)
+        }
+        "symbol" => {
+            let Some(raw) = value.as_str() else {
+                return Err(format!(
+                    "expected symbol got {} value={}",
+                    typed_value_kind(value),
+                    typed_value_preview(value)
+                ));
+            };
+            let normalized = raw.trim().to_string();
+            if !is_symbol(&normalized) {
+                return Err(format!(
+                    "expected symbol got string value={}",
+                    typed_value_preview(&Value::String(raw.to_string()))
+                ));
+            }
+            let changed = normalized != raw;
+            if changed {
+                *value = Value::String(normalized);
+            }
+            Ok(changed)
+        }
+        "u64" => {
+            if value.as_u64().is_some() {
+                return Ok(false);
+            }
+            if let Some(raw) = value.as_str() {
+                let trimmed = raw.trim();
+                let parsed = trimmed.parse::<u64>().map_err(|_| {
+                    format!(
+                        "expected u64 got string value={}",
+                        typed_value_preview(&Value::String(raw.to_string()))
+                    )
+                })?;
+                let changed = value != &Value::Number(parsed.into());
+                *value = Value::Number(parsed.into());
+                return Ok(changed);
+            }
+            Err(format!(
+                "expected u64 got {} value={}",
+                typed_value_kind(value),
+                typed_value_preview(value)
+            ))
+        }
+        _ => Ok(false),
+    }
+}
+
 fn validate_contract_invoke_arg_types(
-    args: &Value,
+    args: &mut Value,
     arg_types: &serde_json::Map<String, Value>,
 ) -> Result<(), String> {
     let Some(args_obj) = args.as_object() else {
         return Err("slot_missing: ContractInvoke args must be object JSON".to_string());
     };
+    let mut errors: Vec<String> = Vec::new();
+    let mut normalized_updates: Vec<(String, Value)> = Vec::new();
 
     for (key, value) in arg_types {
         let Some(ty_raw) = value.as_str() else {
-            return Err(format!(
+            errors.push(format!(
                 "slot_type_error: ContractInvoke arg_types.{key} must be string"
             ));
+            continue;
         };
         let ty = ty_raw.trim().to_ascii_lowercase();
         if !matches!(ty.as_str(), "address" | "bytes" | "symbol" | "u64") {
-            return Err(format!(
+            errors.push(format!(
                 "slot_type_error: ContractInvoke arg_types.{key} unsupported type {ty_raw}"
             ));
+            continue;
         }
         let Some(arg_value) = args_obj.get(key) else {
-            return Err(format!(
+            errors.push(format!(
                 "slot_type_error: ContractInvoke missing typed arg {key}:{ty}"
             ));
+            continue;
         };
-        if !value_matches_typed_slot(arg_value, ty.as_str()) {
-            return Err(format!(
+        let mut normalized_value = arg_value.clone();
+        if let Err(detail) = normalize_typed_slot_value(&mut normalized_value, ty.as_str()) {
+            errors.push(format!("slot_type_error: ContractInvoke {key} {detail}"));
+            continue;
+        }
+        if !value_matches_typed_slot(&normalized_value, ty.as_str()) {
+            errors.push(format!(
                 "slot_type_error: ContractInvoke {key} expected {ty}"
             ));
+            continue;
         }
+        if &normalized_value != arg_value {
+            normalized_updates.push((key.clone(), normalized_value));
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+
+    let Some(args_obj_mut) = args.as_object_mut() else {
+        return Err("slot_missing: ContractInvoke args must be object JSON".to_string());
+    };
+    for (key, value) in normalized_updates {
+        args_obj_mut.insert(key, value);
     }
 
     Ok(())
@@ -563,12 +722,12 @@ fn build_contract_invoke(prompt: &str) -> Result<Action, String> {
         .ok_or_else(|| slot_missing(IntentStellarLabel::ContractInvoke, "contract_id"))?;
     let function = extract_function(prompt)
         .ok_or_else(|| slot_missing(IntentStellarLabel::ContractInvoke, "function"))?;
-    let args = extract_args_json(prompt);
+    let mut args = extract_args_json(prompt);
     if !args.is_object() {
         return Err("slot_missing: ContractInvoke args must be object JSON".to_string());
     }
     if let Some(arg_types) = extract_arg_types(prompt)? {
-        validate_contract_invoke_arg_types(&args, &arg_types)?;
+        validate_contract_invoke_arg_types(&mut args, &arg_types)?;
     }
     Ok(Action::SorobanContractInvoke {
         contract_id,
@@ -708,6 +867,27 @@ mod tests {
     }
 
     #[test]
+    fn contract_invoke_typed_slots_normalize_valid_payload() {
+        let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+        let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+        let prompt = format!(
+            "Invoke contract {contract} function transfer args={{\"to\":\"{}\",\"blob\":\"0X0A0B\",\"ticker\":\" USDC \",\"amount\":\"00100\"}} arg_types={{\"to\":\"address\",\"blob\":\"bytes\",\"ticker\":\"symbol\",\"amount\":\"u64\"}}",
+            account.to_ascii_lowercase()
+        );
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert_eq!(plan.actions.len(), 1);
+        match &plan.actions[0] {
+            Action::SorobanContractInvoke { args, .. } => {
+                assert_eq!(args["to"].as_str(), Some(account));
+                assert_eq!(args["blob"].as_str(), Some("0x0a0b"));
+                assert_eq!(args["ticker"].as_str(), Some("USDC"));
+                assert_eq!(args["amount"].as_u64(), Some(100));
+            }
+            other => panic!("expected SorobanContractInvoke, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn contract_invoke_typed_slots_type_error_creates_unknown() {
         let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
         let prompt = format!(
@@ -719,6 +899,23 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.starts_with("intent_error: slot_type_error")));
+    }
+
+    #[test]
+    fn contract_invoke_typed_slots_report_multiple_errors() {
+        let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+        let prompt = format!(
+            "Invoke contract {contract} function transfer args={{\"to\":\"World\",\"blob\":\"XYZ\",\"amount\":-1}} arg_types={{\"to\":\"address\",\"blob\":\"bytes\",\"amount\":\"u64\"}}"
+        );
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert!(matches!(plan.actions[0], Action::Unknown { .. }));
+        let joined = plan.warnings.join(" | ");
+        assert!(joined.contains("ContractInvoke to"));
+        assert!(joined.contains("expected address"));
+        assert!(joined.contains("ContractInvoke blob"));
+        assert!(joined.contains("expected bytes"));
+        assert!(joined.contains("ContractInvoke amount"));
+        assert!(joined.contains("expected u64"));
     }
 
     #[test]

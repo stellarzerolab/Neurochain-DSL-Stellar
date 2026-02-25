@@ -318,6 +318,136 @@ fn intent_mode_debug_flag_emits_trace_lines() {
 }
 
 #[test]
+fn intent_mode_policy_typed_v2_normalizes_address_bytes_symbol_u64() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let tmp_policy = std::env::temp_dir().join("nc_policy_typed_v2_normalize.json");
+    let policy = format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "address",
+        "blob": "bytes",
+        "ticker": "symbol",
+        "amount": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }}
+}}"#
+    );
+    fs::write(&tmp_policy, policy).expect("write temp policy");
+
+    let prompt = format!(
+        "Invoke contract {contract} function hello args={{\"to\":\"{}\",\"blob\":\"0X0A0B\",\"ticker\":\" USDC \",\"amount\":\"00100\"}}",
+        account.to_ascii_lowercase()
+    );
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(prompt)
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .env(
+            "NC_CONTRACT_POLICY",
+            tmp_policy.to_string_lossy().to_string(),
+        )
+        .output()
+        .expect("run neurochain-stellar with typed-v2 normalization");
+
+    let _ = fs::remove_file(&tmp_policy);
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains(&format!("\"to\": \"{account}\"")));
+    assert!(combined.contains("\"blob\": \"0x0a0b\""));
+    assert!(combined.contains("\"ticker\": \"USDC\""));
+    assert!(combined.contains("\"amount\": 100"));
+}
+
+#[test]
+fn intent_mode_policy_typed_v2_reports_multiple_arg_errors() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let tmp_policy = std::env::temp_dir().join("nc_policy_typed_v2_multi_error.json");
+    let policy = format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "address",
+        "blob": "bytes",
+        "amount": "u64"
+      }},
+      "optional": {{
+        "ticker": "symbol"
+      }}
+    }}
+  }}
+}}"#
+    );
+    fs::write(&tmp_policy, policy).expect("write temp policy");
+
+    let prompt = format!(
+        "Invoke contract {contract} function hello args={{\"to\":\"World\",\"blob\":\"XYZ\",\"ticker\":\"BAD VALUE\",\"amount\":-1}}"
+    );
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(prompt)
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .env(
+            "NC_CONTRACT_POLICY",
+            tmp_policy.to_string_lossy().to_string(),
+        )
+        .output()
+        .expect("run neurochain-stellar with typed-v2 multi error");
+
+    let _ = fs::remove_file(&tmp_policy);
+
+    assert_eq!(output.status.code(), Some(5));
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_type_error"));
+    assert!(combined.contains("ContractInvoke to"));
+    assert!(combined.contains("ContractInvoke blob"));
+    assert!(combined.contains("ContractInvoke ticker"));
+    assert!(combined.contains("ContractInvoke amount"));
+    assert!(combined.contains("Intent safety guard blocked flow"));
+}
+
+#[test]
 fn intent_mode_flow_submit_happy_path_balance_query() {
     let model_path = intent_model_path();
     if !model_path.exists() {

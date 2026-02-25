@@ -418,6 +418,31 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
 
     let body = json!({
         "model": "intent_stellar",
+        "prompt": "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\" World \"}",
+        "threshold": 0.00
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["args"]["to"], "World");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l.contains("typed_template_v2:") && l.contains("normalized_args=")),
+        "expected typed_template_v2 normalized_args summary in logs"
+    );
+
+    let body = json!({
+        "model": "intent_stellar",
         "prompt": "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={\"to\":\"World\"} arg_types={\"to\":\"address\"}",
         "threshold": 0.00
     })

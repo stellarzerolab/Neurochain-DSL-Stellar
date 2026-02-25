@@ -488,11 +488,20 @@ Mitä tapahtuu:
 - PASS-rivi -> ActionPlaniin jää `soroban_contract_invoke`
 - Jos kenttä puuttuu kokonaan (esim. ei `to`-argia), policy-kerros antaa `policy_args_missing` ja enforce-tilassa blokkaus on `exit 4`
 
+Typed templates v2 (stage 2) normalisointi + virheraportointi:
+- `symbol`: trimmaa reunavälit ennen validointia (esim. `" World "` -> `"World"`).
+- `bytes`: normalisoi yleisiä hex-muotoja (`0X0A0B` tai `0A0B`) -> `0x0a0b`.
+- `u64`: hyväksyy merkkijonon (esim. `"00100"`) ja normalisoi JSON-numeroksi (`100`).
+- `address`: trimmaa + normalisoi yläkirjaimiin ennen validointia.
+- Jos useampi typed-arg on virheellinen samassa pyynnössä, saat useamman `slot_type_error`-varoituksen (per arg), ei vain ensimmäistä virhettä.
+
 Testikattavuus (repo):
 - `tests/stellar_repl.rs` -> REPL `contract_policy` / `contract_policy_enforce` asetukset ilman env:iä + typed mismatch näkyvyys
 - `tests/stellar_script.rs` -> `.nc`-scripti policy-asetuksilla ilman env:iä
 - `tests/flow_cli.rs` -> `--flow` blokkautuu `slot_type_error`-tilanteessa (`exit 5`)
 - `tests/server_analyze.rs` -> `/api/stellar/intent-plan` palauttaa policy-derived `slot_type_error` blokkina (`exit_code=5`)
+- `src/intent_stellar.rs` -> typed slot normalisointi + monivirheraportointi (`arg_types=` polku)
+- `tests/flow_cli.rs` -> policy-backed typed v2 edge-testit (`address/bytes/symbol/u64` normalisointi + multi-error)
 
 ---
 
