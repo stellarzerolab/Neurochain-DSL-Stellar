@@ -345,11 +345,13 @@ Valmis esimerkki: `examples/multi_model_if_payment.nc`
 
 Golden path (malli-agnostinen gate, suositus tuotantoon):
 - `examples/golden_path_model_agnostic.nc`
+- `examples/golden_path_model_agnostic_blocked.nc` (blocked variantti; sama rakenne, maksu skipataan)
 - Yksi yhtenäinen rakenne: `set <var> from AI` + `if` + `set stellar intent from AI`
 - Vaihdat vain gate-mallin, promptin ja `allow_label`-arvon (SST2/factcheck/toxic/...)
 
 ```powershell
 cargo run --release --bin neurochain-stellar -- examples\golden_path_model_agnostic.nc --flow
+cargo run --release --bin neurochain-stellar -- examples\golden_path_model_agnostic_blocked.nc --flow
 ```
 
 ## 3.8) `--flow` vs ilman `--flow` (tärkeä)

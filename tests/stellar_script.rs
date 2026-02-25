@@ -199,6 +199,100 @@ else:
 }
 
 #[test]
+fn example_golden_path_model_agnostic_produces_payment_plan() {
+    let intent_model = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    let sst2_model = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("distilbert-sst2")
+        .join("model.onnx");
+    if !intent_model.exists() {
+        eprintln!("skipping test; missing model: {}", intent_model.display());
+        return;
+    }
+    if !sst2_model.exists() {
+        eprintln!("skipping test; missing model: {}", sst2_model.display());
+        return;
+    }
+
+    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("golden_path_model_agnostic.nc");
+    if !script_path.exists() {
+        eprintln!("skipping test; missing example: {}", script_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.20")
+        .output()
+        .expect("run neurochain-stellar golden-path example");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+    assert!(combined.contains("\"asset_code\": \"XLM\""));
+    assert!(combined.contains("golden_path_model_agnostic.nc"));
+}
+
+#[test]
+fn example_golden_path_model_agnostic_blocked_skips_payment() {
+    let intent_model = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    let sst2_model = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("distilbert-sst2")
+        .join("model.onnx");
+    if !intent_model.exists() {
+        eprintln!("skipping test; missing model: {}", intent_model.display());
+        return;
+    }
+    if !sst2_model.exists() {
+        eprintln!("skipping test; missing model: {}", sst2_model.display());
+        return;
+    }
+
+    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("golden_path_model_agnostic_blocked.nc");
+    if !script_path.exists() {
+        eprintln!("skipping test; missing example: {}", script_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.20")
+        .output()
+        .expect("run neurochain-stellar blocked golden-path example");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!combined.contains("\"kind\": \"stellar_payment\""));
+    assert!(combined.contains("\"actions\": []"));
+    assert!(combined.contains("golden_path_model_agnostic_blocked.nc"));
+}
+
+#[test]
 fn nc_script_allowlist_settings_can_enforce_without_env() {
     let tmp = std::env::temp_dir().join("nc_script_allowlist_enforce.nc");
     let script = r#"
