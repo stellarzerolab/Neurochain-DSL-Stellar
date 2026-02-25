@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::ErrorKind,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -503,6 +504,144 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
             .any(|w| w.contains("slot_type_error") && w.contains("policy")),
         "expected policy-derived slot_type_error warning"
     );
+}
+
+#[test]
+fn api_stellar_intent_plan_stage3_typed_v2_parity() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_stellar_intent_plan_stage3_typed_v2_parity skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let contract = "CELFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy_path = std::env::temp_dir().join("nc_server_api_stage3_typed_v2_policy.json");
+    let policy_dir = std::env::temp_dir().join("nc_server_api_stage3_empty_policies");
+    let _ = fs::create_dir_all(&policy_dir);
+    let policy = format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "address",
+        "blob": "bytes",
+        "ticker": "symbol",
+        "amount": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }}
+}}"#
+    );
+    fs::write(&policy_path, policy).expect("write temp stage3 policy");
+
+    let child = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-server"))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("HOST", "127.0.0.1")
+        .env("PORT", port.to_string())
+        .env("NC_MODELS_DIR", models_dir())
+        .env(
+            "NC_CONTRACT_POLICY",
+            policy_path.to_string_lossy().to_string(),
+        )
+        .env(
+            "NC_CONTRACT_POLICY_DIR",
+            policy_dir.to_string_lossy().to_string(),
+        )
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn neurochain-server");
+    let _server = Server { child };
+
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!(
+            "Invoke contract {contract} function hello args={{\"to\":\" {} \",\"blob\":\"0XDE AD_be-EF\",\"ticker\":\" USDC \",\"amount\":\"1_000,000\"}}",
+            account.to_ascii_lowercase()
+        ),
+        "threshold": 0.00
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["args"]["to"], account);
+    assert_eq!(resp["plan"]["actions"][0]["args"]["blob"], "0xdeadbeef");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["ticker"], "USDC");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["amount"], 1000000);
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l.contains("typed_template_v2:") && l.contains("normalized_args=")),
+        "expected typed_template_v2 normalized_args summary in logs"
+    );
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!(
+            "Invoke contract {contract} function hello args={{\"to\":\"World\",\"blob\":\"0xABC\",\"ticker\":\" BAD VALUE \",\"amount\":\"18446744073709551616\"}}"
+        ),
+        "threshold": 0.00
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 5);
+    assert_eq!(resp["plan"]["actions"][0]["kind"], "unknown");
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let warning_text = warnings
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert!(warning_text.contains("slot_type_error"));
+    assert!(warning_text.contains("ContractInvoke to"));
+    assert!(warning_text.contains("ContractInvoke blob"));
+    assert!(warning_text.contains("ContractInvoke ticker"));
+    assert!(warning_text.contains("ContractInvoke amount"));
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l.contains("typed_template_v2: policy_slot_type_converted=1")),
+        "expected typed_template_v2 conversion summary in logs"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l == "block: intent_safety"),
+        "expected intent safety block marker in logs"
+    );
+
+    let _ = fs::remove_file(&policy_path);
+    let _ = fs::remove_dir(&policy_dir);
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
