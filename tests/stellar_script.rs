@@ -293,6 +293,175 @@ fn example_golden_path_model_agnostic_blocked_skips_payment() {
 }
 
 #[test]
+fn example_policy_typed_stage2_normalize_trims_symbol_arg() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("intent_stellar_policy_typed_stage2_normalize.nc");
+    if !script_path.exists() {
+        eprintln!("skipping test; missing example: {}", script_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(script_path.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar stage2 normalization example");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains("\"to\": \"World\""));
+    assert!(!combined.contains("slot_type_error"));
+    assert!(combined.contains("intent_stellar_policy_typed_stage2_normalize.nc"));
+}
+
+#[test]
+fn nc_script_policy_typed_stage2_normalizes_multiple_user_input_variants() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let tmp_policy = std::env::temp_dir().join("nc_script_typed_v2_stage2_variants_policy.json");
+    let policy = format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["transfer"],
+  "args_schema": {{
+    "transfer": {{
+      "required": {{
+        "to": "address",
+        "blob": "bytes",
+        "ticker": "symbol",
+        "amount": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }}
+}}"#
+    );
+    fs::write(&tmp_policy, policy).expect("write temp policy");
+
+    let cases: Vec<(&str, String, Vec<String>)> = vec![
+        (
+            "uppercase_prefix_and_whitespace",
+            format!(
+                "Invoke contract {contract} function transfer args={{\"to\":\"{}\",\"blob\":\"0X0A0B\",\"ticker\":\" USDC \",\"amount\":\"00100\"}}",
+                account.to_ascii_lowercase()
+            ),
+            vec![
+                format!("\"to\": \"{account}\""),
+                "\"blob\": \"0x0a0b\"".to_string(),
+                "\"ticker\": \"USDC\"".to_string(),
+                "\"amount\": 100".to_string(),
+            ],
+        ),
+        (
+            "bare_hex_and_spaced_u64",
+            format!(
+                "Invoke contract {contract} function transfer args={{\"to\":\" {} \",\"blob\":\"AABB\",\"ticker\":\" XLM \",\"amount\":\" 42 \"}}",
+                account.to_ascii_lowercase()
+            ),
+            vec![
+                format!("\"to\": \"{account}\""),
+                "\"blob\": \"0xaabb\"".to_string(),
+                "\"ticker\": \"XLM\"".to_string(),
+                "\"amount\": 42".to_string(),
+            ],
+        ),
+        (
+            "mixed_case_address_symbol_trim",
+            format!(
+                "Invoke contract {contract} function transfer args={{\"to\":\"{}\",\"blob\":\"0xdeadBEEF\",\"ticker\":\" token \",\"amount\":\"7\"}}",
+                account.to_ascii_lowercase()
+            ),
+            vec![
+                format!("\"to\": \"{account}\""),
+                "\"blob\": \"0xdeadbeef\"".to_string(),
+                "\"ticker\": \"token\"".to_string(),
+                "\"amount\": 7".to_string(),
+            ],
+        ),
+    ];
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    for (case_name, prompt, expected_snippets) in cases {
+        let tmp_script = std::env::temp_dir().join(format!("nc_script_typed_v2_stage2_{case_name}.nc"));
+        let script = format!(
+            "AI: \"models/intent_stellar/model.onnx\"\nintent_threshold: 0.00\ncontract_policy: {}\nset stellar intent from AI: \"{}\"\n",
+            tmp_policy.to_string_lossy(),
+            prompt
+        );
+        fs::write(&tmp_script, script).expect("write temp nc script");
+
+        let output = Command::new(bin)
+            .arg(tmp_script.to_string_lossy().to_string())
+            .output()
+            .expect("run neurochain-stellar stage2 normalization variant");
+
+        let _ = fs::remove_file(&tmp_script);
+
+        assert!(
+            output.status.success(),
+            "case {case_name} failed with status {:?}",
+            output.status.code()
+        );
+
+        let combined = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            combined.contains("\"kind\": \"soroban_contract_invoke\""),
+            "case {case_name} did not produce soroban_contract_invoke\n{combined}"
+        );
+        assert!(
+            !combined.contains("slot_type_error"),
+            "case {case_name} unexpectedly emitted slot_type_error\n{combined}"
+        );
+        for snippet in expected_snippets {
+            assert!(
+                combined.contains(&snippet),
+                "case {case_name} missing normalized snippet `{snippet}`\n{combined}"
+            );
+        }
+    }
+
+    let _ = fs::remove_file(&tmp_policy);
+}
+
+#[test]
 fn nc_script_allowlist_settings_can_enforce_without_env() {
     let tmp = std::env::temp_dir().join("nc_script_allowlist_enforce.nc");
     let script = r#"

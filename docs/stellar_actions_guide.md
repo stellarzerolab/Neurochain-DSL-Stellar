@@ -437,6 +437,7 @@ cargo run --bin neurochain-stellar -- examples\stellar_actions_example.nc --flow
 Policy typed v2 fail/pass pari (esimerkit):
 - `examples/intent_stellar_policy_typed_slot_error.nc` -> policy-backed type mismatch (`slot_type_error`, safe no-submit / exit `5`)
 - `examples/intent_stellar_policy_typed_slot_ok.nc` -> policy-backed type OK (action pysyy `soroban_contract_invoke`)
+- `examples/intent_stellar_policy_typed_stage2_normalize.nc` -> stage2 normalisointi (`" World "` -> `"World"`, action pysyy `soroban_contract_invoke`)
 
 Minimikomennot, jotta tämä toimii (REPL):
 
