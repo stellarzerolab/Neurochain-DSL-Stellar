@@ -486,17 +486,29 @@ fn normalize_typed_slot_value(value: &mut Value, ty: &str) -> Result<bool, Strin
                     typed_value_preview(value)
                 ));
             };
-            let mut normalized = raw.trim().to_string();
-            if normalized.starts_with("0X") {
-                normalized.replace_range(..2, "0x");
-            } else if !normalized.starts_with("0x") {
-                let bare = normalized.clone();
-                if !bare.is_empty()
-                    && bare.len().is_multiple_of(2)
-                    && bare.chars().all(|c| c.is_ascii_hexdigit())
-                {
-                    normalized = format!("0x{bare}");
-                }
+            let trimmed = raw.trim();
+            let (had_prefix, body) = if let Some(rest) = trimmed.strip_prefix("0x") {
+                (true, rest)
+            } else if let Some(rest) = trimmed.strip_prefix("0X") {
+                (true, rest)
+            } else {
+                (false, trimmed)
+            };
+            let compact: String = body
+                .chars()
+                .filter(|c| !(c.is_ascii_whitespace() || matches!(c, '_' | '-')))
+                .collect();
+            let mut normalized = if had_prefix {
+                format!("0x{compact}")
+            } else {
+                compact.clone()
+            };
+            if !had_prefix
+                && !compact.is_empty()
+                && compact.len().is_multiple_of(2)
+                && compact.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                normalized = format!("0x{compact}");
             }
             if normalized.starts_with("0x") {
                 let lower_hex = normalized[2..].to_ascii_lowercase();
@@ -541,7 +553,11 @@ fn normalize_typed_slot_value(value: &mut Value, ty: &str) -> Result<bool, Strin
             }
             if let Some(raw) = value.as_str() {
                 let trimmed = raw.trim();
-                let parsed = trimmed.parse::<u64>().map_err(|_| {
+                let compact: String = trimmed
+                    .chars()
+                    .filter(|c| !matches!(c, '_' | ','))
+                    .collect();
+                let parsed = compact.parse::<u64>().map_err(|_| {
                     format!(
                         "expected u64 got string value={}",
                         typed_value_preview(&Value::String(raw.to_string()))
@@ -888,6 +904,27 @@ mod tests {
     }
 
     #[test]
+    fn contract_invoke_typed_slots_normalize_practical_separator_payload() {
+        let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+        let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+        let prompt = format!(
+            "Invoke contract {contract} function transfer args={{\"to\":\" {} \",\"blob\":\"0XDE AD_be-EF\",\"ticker\":\" USDC \",\"amount\":\"1_000,000\"}} arg_types={{\"to\":\"address\",\"blob\":\"bytes\",\"ticker\":\"symbol\",\"amount\":\"u64\"}}",
+            account.to_ascii_lowercase()
+        );
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert_eq!(plan.actions.len(), 1);
+        match &plan.actions[0] {
+            Action::SorobanContractInvoke { args, .. } => {
+                assert_eq!(args["to"].as_str(), Some(account));
+                assert_eq!(args["blob"].as_str(), Some("0xdeadbeef"));
+                assert_eq!(args["ticker"].as_str(), Some("USDC"));
+                assert_eq!(args["amount"].as_u64(), Some(1_000_000));
+            }
+            other => panic!("expected SorobanContractInvoke, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn contract_invoke_typed_slots_type_error_creates_unknown() {
         let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
         let prompt = format!(
@@ -915,6 +952,25 @@ mod tests {
         assert!(joined.contains("ContractInvoke blob"));
         assert!(joined.contains("expected bytes"));
         assert!(joined.contains("ContractInvoke amount"));
+        assert!(joined.contains("expected u64"));
+    }
+
+    #[test]
+    fn contract_invoke_typed_slots_report_stage3_edge_errors() {
+        let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+        let prompt = format!(
+            "Invoke contract {contract} function transfer args={{\"to\":\"World\",\"blob\":\"0xABC\",\"ticker\":\" BAD VALUE \",\"amount\":\"18446744073709551616\"}} arg_types={{\"to\":\"address\",\"blob\":\"bytes\",\"ticker\":\"symbol\",\"amount\":\"u64\"}}"
+        );
+        let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert!(matches!(plan.actions[0], Action::Unknown { .. }));
+        let joined = plan.warnings.join(" | ");
+        assert!(joined.contains("ContractInvoke to"));
+        assert!(joined.contains("ContractInvoke blob"));
+        assert!(joined.contains("ContractInvoke ticker"));
+        assert!(joined.contains("ContractInvoke amount"));
+        assert!(joined.contains("expected address"));
+        assert!(joined.contains("expected bytes"));
+        assert!(joined.contains("expected symbol"));
         assert!(joined.contains("expected u64"));
     }
 

@@ -354,6 +354,101 @@ fn example_policy_typed_stage2_normalize_showcases_multiple_normalizations() {
 }
 
 #[test]
+fn example_typed_template_stage3_ok_showcases_practical_normalization() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("intent_stellar_typed_template_stage3_ok.nc");
+    if !script_path.exists() {
+        eprintln!("skipping test; missing example: {}", script_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(script_path.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar typed template stage3 ok example");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined
+            .matches("\"kind\": \"soroban_contract_invoke\"")
+            .count()
+            >= 3
+    );
+    assert!(combined.contains("\"to\": \"World\""));
+    assert!(
+        combined.contains("\"to\": \"GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX\"")
+    );
+    assert!(combined.contains("\"blob\": \"0xdeadbeef\""));
+    assert!(combined.contains("\"blob\": \"0xaabb\""));
+    assert!(combined.contains("\"ticker\": \"USDC\""));
+    assert!(combined.contains("\"ticker\": \"XLM\""));
+    assert!(combined.contains("\"amount\": 1000000"));
+    assert!(combined.contains("\"amount\": 42"));
+    assert!(!combined.contains("slot_type_error"));
+    assert!(combined.contains("intent_stellar_typed_template_stage3_ok.nc"));
+}
+
+#[test]
+fn example_typed_template_stage3_error_reports_multiple_typed_args_and_blocks_flow() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("intent_stellar_typed_template_stage3_error.nc");
+    if !script_path.exists() {
+        eprintln!("skipping test; missing example: {}", script_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(script_path.to_string_lossy().to_string())
+        .arg("--flow")
+        .arg("--yes")
+        .output()
+        .expect("run neurochain-stellar typed template stage3 error example");
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_type_error"));
+    assert!(combined.contains("ContractInvoke to"));
+    assert!(combined.contains("ContractInvoke blob"));
+    assert!(combined.contains("ContractInvoke ticker"));
+    assert!(combined.contains("ContractInvoke amount"));
+    assert!(combined.contains("Intent safety guard blocked flow"));
+    assert!(combined.contains("intent_stellar_typed_template_stage3_error.nc"));
+}
+
+#[test]
 fn nc_script_policy_typed_stage2_normalizes_multiple_user_input_variants() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

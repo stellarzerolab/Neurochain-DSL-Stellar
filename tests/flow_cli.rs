@@ -348,7 +348,7 @@ fn intent_mode_policy_typed_v2_normalizes_address_bytes_symbol_u64() {
     fs::write(&tmp_policy, policy).expect("write temp policy");
 
     let prompt = format!(
-        "Invoke contract {contract} function hello args={{\"to\":\"{}\",\"blob\":\"0X0A0B\",\"ticker\":\" USDC \",\"amount\":\"00100\"}}",
+        "Invoke contract {contract} function hello args={{\"to\":\" {} \",\"blob\":\"0XDE AD_be-EF\",\"ticker\":\" USDC \",\"amount\":\"1_000,000\"}}",
         account.to_ascii_lowercase()
     );
     let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
@@ -376,9 +376,9 @@ fn intent_mode_policy_typed_v2_normalizes_address_bytes_symbol_u64() {
     );
     assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
     assert!(combined.contains(&format!("\"to\": \"{account}\"")));
-    assert!(combined.contains("\"blob\": \"0x0a0b\""));
+    assert!(combined.contains("\"blob\": \"0xdeadbeef\""));
     assert!(combined.contains("\"ticker\": \"USDC\""));
-    assert!(combined.contains("\"amount\": 100"));
+    assert!(combined.contains("\"amount\": 1000000"));
 }
 
 #[test]
@@ -412,7 +412,7 @@ fn intent_mode_policy_typed_v2_reports_multiple_arg_errors() {
     fs::write(&tmp_policy, policy).expect("write temp policy");
 
     let prompt = format!(
-        "Invoke contract {contract} function hello args={{\"to\":\"World\",\"blob\":\"XYZ\",\"ticker\":\"BAD VALUE\",\"amount\":-1}}"
+        "Invoke contract {contract} function hello args={{\"to\":\"World\",\"blob\":\"0xABC\",\"ticker\":\" BAD VALUE \",\"amount\":\"18446744073709551616\"}}"
     );
     let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)

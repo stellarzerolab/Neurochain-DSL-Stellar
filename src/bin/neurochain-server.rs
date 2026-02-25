@@ -359,17 +359,29 @@ fn normalize_typed_slot_value(value: &mut Value, ty: &str) -> Result<bool, Strin
                     typed_value_preview(value)
                 ));
             };
-            let mut normalized = raw.trim().to_string();
-            if normalized.starts_with("0X") {
-                normalized.replace_range(..2, "0x");
-            } else if !normalized.starts_with("0x") {
-                let bare = normalized.clone();
-                if !bare.is_empty()
-                    && bare.len().is_multiple_of(2)
-                    && bare.chars().all(|c| c.is_ascii_hexdigit())
-                {
-                    normalized = format!("0x{bare}");
-                }
+            let trimmed = raw.trim();
+            let (had_prefix, body) = if let Some(rest) = trimmed.strip_prefix("0x") {
+                (true, rest)
+            } else if let Some(rest) = trimmed.strip_prefix("0X") {
+                (true, rest)
+            } else {
+                (false, trimmed)
+            };
+            let compact: String = body
+                .chars()
+                .filter(|c| !(c.is_ascii_whitespace() || matches!(c, '_' | '-')))
+                .collect();
+            let mut normalized = if had_prefix {
+                format!("0x{compact}")
+            } else {
+                compact.clone()
+            };
+            if !had_prefix
+                && !compact.is_empty()
+                && compact.len().is_multiple_of(2)
+                && compact.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                normalized = format!("0x{compact}");
             }
             if normalized.starts_with("0x") {
                 let lower_hex = normalized[2..].to_ascii_lowercase();
@@ -414,7 +426,11 @@ fn normalize_typed_slot_value(value: &mut Value, ty: &str) -> Result<bool, Strin
             }
             if let Some(raw) = value.as_str() {
                 let trimmed = raw.trim();
-                let parsed = trimmed.parse::<u64>().map_err(|_| {
+                let compact: String = trimmed
+                    .chars()
+                    .filter(|c| !matches!(c, '_' | ','))
+                    .collect();
+                let parsed = compact.parse::<u64>().map_err(|_| {
                     format!(
                         "expected u64 got string value={}",
                         typed_value_preview(&Value::String(raw.to_string()))
