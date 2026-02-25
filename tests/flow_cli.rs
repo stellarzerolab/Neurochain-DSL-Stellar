@@ -287,6 +287,37 @@ fn intent_mode_policy_typed_slot_error_blocks_with_exit_5() {
 }
 
 #[test]
+fn intent_mode_debug_flag_emits_trace_lines() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg("Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P")
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.20")
+        .arg("--debug")
+        .output()
+        .expect("run neurochain-stellar with --debug");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("[intent-debug]"));
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+}
+
+#[test]
 fn intent_mode_flow_submit_happy_path_balance_query() {
     let model_path = intent_model_path();
     if !model_path.exists() {

@@ -400,6 +400,38 @@ fn stellar_repl_intent_safety_block_reports_step_code_5() {
 }
 
 #[test]
+fn stellar_repl_debug_emits_intent_trace_lines() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--no-flow");
+    let output = cmd
+        .write_stdin(
+            "debug\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.20\n\nset stellar intent from AI: \"Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl debug trace");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Intent debug trace: enabled"));
+    assert!(combined.contains("[intent-debug]"));
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+}
+
+#[test]
 fn stellar_repl_allowlist_enforced_reports_step_code_3() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

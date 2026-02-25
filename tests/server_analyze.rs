@@ -387,6 +387,19 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 3);
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l.contains("allowlist: violations=")),
+        "expected allowlist summary in logs"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l == "block: allowlist_enforced"),
+        "expected allowlist block marker in logs"
+    );
 
     let body = json!({
         "model": "intent_stellar",
@@ -416,6 +429,19 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 5);
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l.contains("typed_template_v2: policy_slot_type_converted=")),
+        "expected typed_template_v2 summary in logs"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l == "block: intent_safety"),
+        "expected intent safety block marker in logs"
+    );
     let warnings = resp["plan"]["warnings"]
         .as_array()
         .cloned()

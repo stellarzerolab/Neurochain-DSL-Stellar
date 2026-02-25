@@ -49,6 +49,45 @@ set stellar intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3K
 }
 
 #[test]
+fn nc_script_debug_setting_emits_intent_trace_lines() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let tmp = std::env::temp_dir().join("nc_script_intent_debug_trace.nc");
+    let script = r#"
+debug
+AI: "models/intent_stellar/model.onnx"
+intent_threshold: 0.20
+set stellar intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("[intent-debug]"));
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
 fn nc_script_supports_if_gate_with_multiple_models() {
     let intent_model = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")
