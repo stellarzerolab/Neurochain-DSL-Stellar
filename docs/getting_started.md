@@ -80,14 +80,9 @@ neuro: Hello, Joe
 
 Start without a file:
 
-- **Debug** (faster build while developing):
-  ```bash
-  cargo run --bin neurochain
-  ```
-- **Release** (faster runtime):
-  ```bash
-  cargo run --release --bin neurochain
-  ```
+```bash
+cargo run --bin neurochain
+```
 
 Meta commands inside the interactive CLI:
 
@@ -111,6 +106,28 @@ cargo run --release --bin neurochain -- --version
 
 Tip: the extra `--` is required to pass flags through `cargo run`.
 
+### If you want to test the server with WebUI
+
+1) Start the server:
+
+```bash
+cargo run --release --bin neurochain-server
+```
+
+2) Open `https://stellarzerolab.art/webui` in the browser.
+
+3) In WebUI:
+
+- Runtime → **API (local / same-origin)**
+- API Base URL → `http://127.0.0.1:8081`
+
+Note: `127.0.0.1` always points to your own machine, so the WebUI will call your local server (not the public site).
+
+4) Press **Run** → output should appear.
+
+If you see “Failed to fetch”, make sure the server is running, the Base URL is correct, and your browser allows HTTPS → `http://127.0.0.1` requests.
+
+
 ## 4) Run the REST server (optional)
 
 Start the API server:
@@ -132,27 +149,6 @@ Defaults:
 Optional auth:
 - `NC_API_KEY=...`: if set, requests must include `X-API-Key: ...` (or `Authorization: Bearer ...`).
   Note: the hosted WebUI does not send an API key by default, so use curl/your own client or leave it unset for local tests.
-
-### Test with WebUI (optional)
-
-1) Start the server:
-
-```bash
-cargo run --release --bin neurochain-server
-```
-
-2) Open `https://stellarzerolab.art/webui` in the browser.
-
-3) In WebUI:
-
-- Runtime → **API (local / same-origin)**
-- API Base URL → `http://127.0.0.1:8081`
-
-Note: `127.0.0.1` always points to your own machine, so the WebUI will call your local server (not the public site).
-
-4) Press **Run** → output should appear.
-
-If you see “Failed to fetch”, make sure the server is running, the Base URL is correct, and your browser allows HTTPS → `http://127.0.0.1` requests.
 
 Quick test (SST‑2):
 
