@@ -308,6 +308,26 @@ case "$cmd" in
         exit 0
         ;;
       deploy)
+        deploy_alias=""
+        deploy_wasm=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --alias)
+              deploy_alias="$2"
+              shift 2
+              continue
+              ;;
+            --wasm)
+              deploy_wasm="$2"
+              shift 2
+              continue
+              ;;
+          esac
+          shift
+        done
+        mkdir -p "$config_dir"
+        printf '%s\n' "$deploy_alias" > "$config_dir/last-contract-alias"
+        printf '%s\n' "$deploy_wasm" > "$config_dir/last-contract-wasm"
         printf '%s\n' "{contract}"
         exit 0
         ;;
@@ -382,7 +402,7 @@ fn spawn_server() -> (Server, SocketAddr) {
 
 #[test]
 fn stellar_demo_workspace_flow_smoke() {
-    let (_server, addr) = spawn_server();
+    let (server, addr) = spawn_server();
 
     let (status, body) = http_post_json(
         addr,
@@ -425,7 +445,7 @@ fn stellar_demo_workspace_flow_smoke() {
     let (status, body) = http_post_json(
         addr,
         "/api/stellar/demo/contract/deploy",
-        &json!({ "alias": alias }).to_string(),
+        &json!({ "alias": alias.clone() }).to_string(),
         Some(API_KEY),
     );
     assert_eq!(status, 200);
@@ -439,9 +459,77 @@ fn stellar_demo_workspace_flow_smoke() {
         .as_deref()
         .unwrap_or_default()
         .contains(DEPLOY_HASH));
+    let used_default_contract_alias = fs::read_to_string(
+        server
+            ._temp
+            .path()
+            .join("config")
+            .join("last-contract-alias"),
+    )
+    .expect("read last-contract-alias after default deploy");
+    assert_eq!(used_default_contract_alias.trim(), format!("{alias}-demo"));
 
-    let alias = deploy.state.alias.clone().expect("alias after deploy");
-    let contract_id = deploy.state.contract_id.clone().expect("contract_id");
+    let override_wasm_path = server._temp.path().join("custom_demo_contract.wasm");
+    fs::write(&override_wasm_path, b"demo wasm").expect("write override wasm");
+    let requested_contract_alias = "intent-hello-demo";
+    let (status, body) = http_post_json(
+        addr,
+        "/api/stellar/demo/contract/deploy",
+        &json!({
+          "alias": alias.clone(),
+          "contract_alias": requested_contract_alias,
+          "wasm": override_wasm_path.to_string_lossy().to_string()
+        })
+        .to_string(),
+        Some(API_KEY),
+    );
+    assert_eq!(status, 200);
+    let deploy_override: DemoResp =
+        serde_json::from_str(&body).expect("parse override deploy resp");
+    assert!(deploy_override.ok, "override deploy failed: {body}");
+    assert_eq!(
+        deploy_override.state.contract_id.as_deref(),
+        Some(CONTRACT_ID)
+    );
+    assert_eq!(
+        deploy_override.state.contract_alias.as_deref(),
+        Some(requested_contract_alias)
+    );
+    let used_override_contract_alias = fs::read_to_string(
+        server
+            ._temp
+            .path()
+            .join("config")
+            .join("last-contract-alias"),
+    )
+    .expect("read last-contract-alias after override deploy");
+    assert_eq!(
+        used_override_contract_alias.trim(),
+        requested_contract_alias
+    );
+    let used_override_wasm = fs::read_to_string(
+        server
+            ._temp
+            .path()
+            .join("config")
+            .join("last-contract-wasm"),
+    )
+    .expect("read last-contract-wasm after override deploy");
+    assert_eq!(
+        used_override_wasm.trim(),
+        override_wasm_path.to_string_lossy()
+    );
+
+    let alias = deploy_override
+        .state
+        .alias
+        .clone()
+        .expect("alias after override deploy");
+    let contract_id = deploy_override
+        .state
+        .contract_id
+        .clone()
+        .expect("contract_id");
     let (status, body) = http_post_json(
         addr,
         "/api/stellar/demo/contract/invoke",

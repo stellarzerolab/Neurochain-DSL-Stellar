@@ -63,6 +63,10 @@ pub struct StellarDemoWorkspaceReq {
 #[derive(Debug, Deserialize)]
 pub struct StellarDemoDeployReq {
     pub alias: String,
+    #[serde(default)]
+    pub contract_alias: Option<String>,
+    #[serde(default)]
+    pub wasm: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -549,7 +553,24 @@ fn friendbot_fund(
     })
 }
 
-fn ensure_demo_contract_wasm(cfg: &StellarDemoConfig) -> Result<PathBuf> {
+fn ensure_demo_contract_wasm(
+    cfg: &StellarDemoConfig,
+    wasm_override: Option<&str>,
+) -> Result<PathBuf> {
+    if let Some(raw) = wasm_override {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let path = PathBuf::from(trimmed);
+            if path.exists() {
+                return Ok(path);
+            }
+            return Err(anyhow::anyhow!(
+                "requested wasm path does not exist: {}",
+                trimmed
+            ));
+        }
+    }
+
     if let Some(path) = &cfg.wasm_override {
         if path.exists() {
             return Ok(path.clone());
@@ -599,17 +620,23 @@ fn ensure_demo_contract_wasm(cfg: &StellarDemoConfig) -> Result<PathBuf> {
 
 fn deploy_demo_contract(
     cfg: &StellarDemoConfig,
-    alias: &str,
+    source_alias: &str,
+    contract_alias_override: Option<&str>,
+    wasm_override: Option<&str>,
 ) -> Result<(String, String, Option<String>)> {
-    let wasm_path = ensure_demo_contract_wasm(cfg)?;
-    let contract_alias = format!("{alias}-demo");
+    let wasm_path = ensure_demo_contract_wasm(cfg, wasm_override)?;
+    let contract_alias = contract_alias_override
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{source_alias}-demo"));
     let output = run_stellar_cli_ok(
         cfg,
         &[
             "contract".to_string(),
             "deploy".to_string(),
             "--source-account".to_string(),
-            alias.to_string(),
+            source_alias.to_string(),
             "--network".to_string(),
             STELLAR_DEMO_NETWORK.to_string(),
             "--alias".to_string(),
@@ -631,7 +658,7 @@ fn deploy_demo_contract(
         })
         .ok_or_else(|| anyhow::anyhow!("failed to parse deployed contract id from CLI output"))?;
 
-    let account = workspace_account(cfg, alias)?;
+    let account = workspace_account(cfg, source_alias)?;
     let client = make_demo_http_client(cfg)?;
     let tx_hash =
         tx_hash_from_cli.or_else(|| fetch_latest_tx_hash(&client, &cfg.horizon_url, &account).ok());
@@ -831,27 +858,42 @@ pub fn handle_workspace_status(
     Ok((state, logs))
 }
 
-pub fn handle_contract_deploy(alias: String) -> Result<(StellarDemoState, Vec<String>)> {
+pub fn handle_contract_deploy(
+    alias: String,
+    contract_alias: Option<String>,
+    wasm: Option<String>,
+) -> Result<(StellarDemoState, Vec<String>)> {
     let cfg = load_stellar_demo_config();
     let account = workspace_account(&cfg, &alias)?;
-    let (contract_id, contract_alias, tx_hash) = deploy_demo_contract(&cfg, &alias)?;
+    let requested_contract_alias = contract_alias.as_deref().map(str::to_string);
+    let requested_wasm = wasm.as_deref().map(str::to_string);
+    let (contract_id, deployed_contract_alias, tx_hash) =
+        deploy_demo_contract(&cfg, &alias, contract_alias.as_deref(), wasm.as_deref())?;
     let state = build_demo_state(
         &cfg,
         Some(alias.clone()),
         Some(account.clone()),
         Some(contract_id.clone()),
-        Some(contract_alias.clone()),
+        Some(deployed_contract_alias.clone()),
         tx_hash,
         None,
         Some("contract deployed".to_string()),
     );
-    let logs = vec![
+    let mut logs = vec![
         format!("network={STELLAR_DEMO_NETWORK}"),
         format!("alias={alias}"),
         format!("account={account}"),
-        format!("contract_alias={contract_alias}"),
+        format!("contract_alias={deployed_contract_alias}"),
         format!("contract_id={contract_id}"),
     ];
+    if let Some(requested_contract_alias) = requested_contract_alias {
+        logs.push(format!(
+            "requested_contract_alias={requested_contract_alias}"
+        ));
+    }
+    if let Some(requested_wasm) = requested_wasm {
+        logs.push(format!("requested_wasm={requested_wasm}"));
+    }
     Ok((state, logs))
 }
 

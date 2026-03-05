@@ -244,6 +244,18 @@ async fn api_stellar_demo_contract_deploy(
     Json(req): Json<StellarDemoDeployReq>,
 ) -> impl IntoResponse {
     let alias = req.alias.trim().to_string();
+    let contract_alias = req
+        .contract_alias
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+    let wasm = req
+        .wasm
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
     let mut logs = vec!["demo_op=contract_deploy".to_string()];
     if demo_auth_failed(&headers, &mut logs) {
         return (
@@ -260,7 +272,8 @@ async fn api_stellar_demo_contract_deploy(
         return demo_error_json("missing alias", logs, StellarDemoState::default());
     }
 
-    let task = task::spawn_blocking(move || handle_contract_deploy(alias)).await;
+    let task =
+        task::spawn_blocking(move || handle_contract_deploy(alias, contract_alias, wasm)).await;
 
     match task {
         Ok(Ok((state, op_logs))) => {
