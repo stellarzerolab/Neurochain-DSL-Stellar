@@ -360,6 +360,51 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
 
     let body = json!({
         "model": "intent_stellar",
+        "prompt": "Invoke deploy contract alias hello-demo wasm ./contracts/hello.wasm",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_deploy"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["alias"], "hello-demo");
+    assert_eq!(resp["plan"]["actions"][0]["wasm"], "./contracts/hello.wasm");
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Invoke deploy contract alias hello-demo",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 5);
+    assert_eq!(resp["plan"]["actions"][0]["kind"], "unknown");
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|w| w.contains("slot_missing") && w.contains("ContractDeploy missing wasm")),
+        "expected ContractDeploy slot_missing warning"
+    );
+
+    let body = json!({
+        "model": "intent_stellar",
         "prompt": "Tell me a joke about stars",
         "threshold": 0.99
     })

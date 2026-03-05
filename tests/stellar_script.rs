@@ -681,6 +681,88 @@ set stellar intent from AI: "Tell me a joke about stars"
 }
 
 #[test]
+fn nc_script_deploy_intent_phase1_builds_deploy_action() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let tmp = std::env::temp_dir().join("nc_script_deploy_intent_phase1_ok.nc");
+    let script = r#"
+AI: "models/intent_stellar/model.onnx"
+set stellar intent from AI: "Invoke deploy contract alias hello-demo wasm ./contracts/hello.wasm"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_deploy\""));
+    assert!(combined.contains("\"alias\": \"hello-demo\""));
+    assert!(combined.contains("\"wasm\": \"./contracts/hello.wasm\""));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_deploy_intent_phase1_missing_wasm_blocks_flow_with_exit_5() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let tmp = std::env::temp_dir().join("nc_script_deploy_intent_phase1_missing_wasm.nc");
+    let script = r#"
+AI: "models/intent_stellar/model.onnx"
+set stellar intent from AI: "Invoke deploy contract alias hello-demo"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_missing"));
+    assert!(combined.contains("ContractDeploy missing wasm"));
+    assert!(combined.contains("Intent safety guard blocked flow"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
 fn nc_script_policy_enforced_blocks_with_exit_4() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

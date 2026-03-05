@@ -138,6 +138,15 @@ fn action_to_dataset(action: &Action) -> (String, serde_json::Value, String) {
             let text = format!("Invoke contract {contract_id} function {function}");
             (intent, slots, text)
         }
+        Action::SorobanContractDeploy { alias, wasm } => {
+            let intent = "ContractDeploy".to_string();
+            let slots = serde_json::json!({
+                "alias": alias,
+                "wasm": wasm,
+            });
+            let text = format!("Deploy contract alias {alias} wasm {wasm}");
+            (intent, slots, text)
+        }
         Action::StellarAccountBalance { account, asset } => {
             let intent = "BalanceQuery".to_string();
             let slots = serde_json::json!({

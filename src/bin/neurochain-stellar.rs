@@ -848,6 +848,7 @@ fn estimate_op_count(plan: &ActionPlan) -> usize {
                 "stellar.account.create"
                     | "stellar.change_trust"
                     | "stellar.payment"
+                    | "soroban.contract.deploy"
                     | "soroban.contract.invoke"
             )
         })
@@ -966,6 +967,41 @@ fn extract_tx_hash(text: &str) -> Option<String> {
     if candidate.len() == 64 {
         return Some(candidate);
     }
+    None
+}
+
+fn extract_contract_id(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(json) = serde_json::from_str::<Value>(trimmed) {
+        for key in ["contract_id", "id"] {
+            if let Some(contract_id) = json.get(key).and_then(|v| v.as_str()) {
+                if is_strkey(contract_id) && contract_id.starts_with('C') {
+                    return Some(contract_id.to_string());
+                }
+            }
+        }
+    }
+
+    let mut candidate = String::new();
+    for ch in trimmed.chars() {
+        if is_base32_char(ch) || ch == 'C' {
+            candidate.push(ch);
+        } else {
+            if candidate.len() == 56 && candidate.starts_with('C') && is_strkey(&candidate) {
+                return Some(candidate);
+            }
+            candidate.clear();
+        }
+    }
+
+    if candidate.len() == 56 && candidate.starts_with('C') && is_strkey(&candidate) {
+        return Some(candidate);
+    }
+
     None
 }
 
@@ -1273,6 +1309,43 @@ fn soroban_cli_invoke(
     Ok(normalize_cli_output(&output))
 }
 
+fn soroban_cli_deploy(
+    cfg: &NetworkConfig,
+    alias: &str,
+    wasm: &str,
+    simulate: bool,
+) -> Result<String> {
+    let source = cfg
+        .soroban_source
+        .as_ref()
+        .ok_or_else(|| anyhow!("NC_SOROBAN_SOURCE is not set"))?;
+
+    let mut cmd = Command::new(&cfg.soroban_cli);
+    cmd.args([
+        "contract",
+        "deploy",
+        "--source-account",
+        source,
+        "--network",
+        &cfg.soroban_network,
+        "--alias",
+        alias,
+        "--wasm",
+        wasm,
+    ]);
+    if simulate {
+        cmd.args(&cfg.soroban_simulate_args);
+    }
+    let output = cmd.output().context("failed to run stellar CLI")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "stellar CLI error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(normalize_cli_output(&output))
+}
+
 fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
     let client = Client::new();
     let base_fee = fetch_base_fee(&client, &cfg.horizon_url).unwrap_or(100);
@@ -1441,6 +1514,28 @@ fn simulate_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Preview {
                     Err(err) => warnings.push(format!("simulate_error: tx status failed: {err}")),
                 }
             }
+            neurochain::actions::Action::SorobanContractDeploy { alias, wasm } => {
+                effects.push(format!("soroban deploy alias={alias} wasm={wasm}"));
+                if !std::path::Path::new(wasm).exists() {
+                    warnings.push(format!(
+                        "simulate_error: soroban deploy alias={alias} missing wasm file: {wasm}"
+                    ));
+                    continue;
+                }
+                match soroban_cli_deploy(cfg, alias, wasm, true) {
+                    Ok(output) => {
+                        if output.trim().is_empty() {
+                            effects.push(format!("soroban simulate deploy alias={alias} -> ok"));
+                        } else {
+                            effects
+                                .push(format!("soroban simulate deploy alias={alias} -> {output}"));
+                        }
+                    }
+                    Err(err) => warnings.push(format!(
+                        "simulate_error: soroban deploy alias={alias} failed: {err}"
+                    )),
+                }
+            }
             neurochain::actions::Action::SorobanContractInvoke {
                 contract_id,
                 function,
@@ -1552,6 +1647,44 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                         }
                     }
                     Err(err) => outputs.push(format!("balance submit failed for {account}: {err}")),
+                }
+            }
+            neurochain::actions::Action::SorobanContractDeploy { alias, wasm } => {
+                if !std::path::Path::new(wasm).exists() {
+                    outputs.push(format_submit_error(
+                        &format!("soroban deploy alias={alias}"),
+                        "submit",
+                        &format!("wasm file not found: {wasm}"),
+                    ));
+                    continue;
+                }
+
+                match soroban_cli_deploy(cfg, alias, wasm, false) {
+                    Ok(output) => {
+                        let mut tx_hash = extract_tx_hash(&output);
+                        if tx_hash.is_none() {
+                            if let Some(source) = cfg.soroban_source.as_deref() {
+                                if let Ok(latest) =
+                                    fetch_latest_tx_hash(&client, &cfg.horizon_url, source)
+                                {
+                                    tx_hash = Some(latest);
+                                }
+                            }
+                        }
+                        let contract_id =
+                            extract_contract_id(&output).unwrap_or_else(|| "-".to_string());
+                        let return_text =
+                            normalize_return(&output).unwrap_or_else(|| "-".to_string());
+                        outputs.push(format!(
+                            "soroban deploy alias={alias} | status=ok | contract_id={contract_id} | tx_hash={} | return={return_text}",
+                            tx_hash.unwrap_or_else(|| "-".to_string())
+                        ));
+                    }
+                    Err(err) => outputs.push(format_submit_error(
+                        &format!("soroban deploy alias={alias}"),
+                        "submit",
+                        &err.to_string(),
+                    )),
                 }
             }
             neurochain::actions::Action::SorobanContractInvoke {
@@ -3001,6 +3134,10 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: 
             "set stellar intent from AI: \"...\"",
             "(classify prompt -> ActionPlan)",
         ),
+        (
+            "soroban.contract.deploy alias=\"demo\" wasm=\"./demo.wasm\"",
+            "(manual deploy action)",
+        ),
         ("help all", "(show every command)"),
         ("help dsl", "(show normal NeuroChain DSL help)"),
         ("show setup", "(print active setup)"),
@@ -3207,6 +3344,10 @@ fn print_repl_help_all() {
         (
             "set stellar intent from AI: \"...\"",
             "classify prompt -> ActionPlan",
+        ),
+        (
+            "soroban.contract.deploy alias=\"...\" wasm=\"...\"",
+            "manual deploy action",
         ),
         (
             "macro from AI: \"...\"",

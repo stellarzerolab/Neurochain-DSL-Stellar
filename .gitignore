@@ -1,4 +1,5 @@
 /target
+/demo_contracts/**/target
 /logs
 /dist
 macro_raw_latest.log

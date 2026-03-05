@@ -161,6 +161,34 @@ fn intent_stellar_template_mapping_happy_paths() {
     }
     assert!(!has_intent_blocking_issue(&plan));
     assert_no_intent_error(&plan);
+
+    let plan = build_action_plan(
+        "Deploy contract alias hello-demo wasm ./contracts/hello.wasm",
+        &decision(IntentStellarLabel::Unknown),
+    );
+    match &plan.actions[0] {
+        Action::SorobanContractDeploy { alias, wasm } => {
+            assert_eq!(alias, "hello-demo");
+            assert_eq!(wasm, "./contracts/hello.wasm");
+        }
+        other => panic!("unexpected action: {other:?}"),
+    }
+    assert!(!has_intent_blocking_issue(&plan));
+    assert_no_intent_error(&plan);
+
+    let plan = build_action_plan(
+        "Deploy contract alias hello-demo wasm .\\contracts\\hello.wasm",
+        &decision(IntentStellarLabel::Unknown),
+    );
+    match &plan.actions[0] {
+        Action::SorobanContractDeploy { alias, wasm } => {
+            assert_eq!(alias, "hello-demo");
+            assert_eq!(wasm, ".\\contracts\\hello.wasm");
+        }
+        other => panic!("unexpected action: {other:?}"),
+    }
+    assert!(!has_intent_blocking_issue(&plan));
+    assert_no_intent_error(&plan);
 }
 
 #[test]

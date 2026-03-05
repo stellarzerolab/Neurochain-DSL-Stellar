@@ -20,6 +20,7 @@ pub enum IntentStellarLabel {
     TransferAsset,
     FundTestnet,
     TxStatus,
+    ContractDeploy,
     ContractInvoke,
     Unknown,
 }
@@ -34,6 +35,7 @@ impl IntentStellarLabel {
             IntentStellarLabel::TransferAsset => "TransferAsset",
             IntentStellarLabel::FundTestnet => "FundTestnet",
             IntentStellarLabel::TxStatus => "TxStatus",
+            IntentStellarLabel::ContractDeploy => "ContractDeploy",
             IntentStellarLabel::ContractInvoke => "ContractInvoke",
             IntentStellarLabel::Unknown => "Unknown",
         }
@@ -48,6 +50,7 @@ impl IntentStellarLabel {
             "TransferAsset" => IntentStellarLabel::TransferAsset,
             "FundTestnet" => IntentStellarLabel::FundTestnet,
             "TxStatus" => IntentStellarLabel::TxStatus,
+            "ContractDeploy" => IntentStellarLabel::ContractDeploy,
             "ContractInvoke" => IntentStellarLabel::ContractInvoke,
             _ => IntentStellarLabel::Unknown,
         }
@@ -160,6 +163,18 @@ pub fn build_action_plan(prompt: &str, decision: &IntentDecision) -> ActionPlan 
     }
 
     let result = match decision.label {
+        IntentStellarLabel::Unknown
+            if looks_like_contract_deploy_prompt(prompt)
+                && extract_deploy_alias(prompt).is_some() =>
+        {
+            build_contract_deploy(prompt)
+        }
+        IntentStellarLabel::ContractInvoke
+            if looks_like_contract_deploy_prompt(prompt)
+                && extract_deploy_alias(prompt).is_some() =>
+        {
+            build_contract_deploy(prompt)
+        }
         IntentStellarLabel::BalanceQuery => build_balance_query(prompt),
         IntentStellarLabel::CreateAccount => build_create_account(prompt),
         IntentStellarLabel::ChangeTrust => build_change_trust(prompt),
@@ -167,6 +182,7 @@ pub fn build_action_plan(prompt: &str, decision: &IntentDecision) -> ActionPlan 
         IntentStellarLabel::TransferAsset => build_transfer_asset(prompt),
         IntentStellarLabel::FundTestnet => build_fund_testnet(prompt),
         IntentStellarLabel::TxStatus => build_tx_status(prompt),
+        IntentStellarLabel::ContractDeploy => build_contract_deploy(prompt),
         IntentStellarLabel::ContractInvoke => build_contract_invoke(prompt),
         IntentStellarLabel::Unknown => {
             Err("slot_missing: Unknown intent has no action mapping".to_string())
@@ -213,6 +229,46 @@ fn function_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(r"(?i)\bfunction\s+([A-Za-z_][A-Za-z0-9_]{0,31})\b").expect("function regex")
+    })
+}
+
+fn deploy_alias_kv_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\balias\s*(?:=|:)\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9._-]{1,64}))"#)
+            .expect("deploy alias regex")
+    })
+}
+
+fn deploy_alias_space_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\balias\s+(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9._-]{1,64}))"#)
+            .expect("deploy alias space regex")
+    })
+}
+
+fn deploy_alias_named_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\b(?:as|named)\s+(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9._-]{1,64}))"#)
+            .expect("deploy alias named regex")
+    })
+}
+
+fn deploy_wasm_kv_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)\b(?:wasm|wasm_path)\s*(?:=|:)\s*(?:"([^"]+\.wasm)"|'([^']+\.wasm)'|([^\s"']+\.wasm))"#)
+            .expect("deploy wasm regex")
+    })
+}
+
+fn deploy_wasm_token_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:^|[\s"'(])((?:\./|\.\\)?[A-Za-z0-9_./\\:-]+\.wasm)\b"#)
+            .expect("deploy wasm token regex")
     })
 }
 
@@ -270,6 +326,62 @@ fn extract_balance_asset(prompt: &str) -> Option<String> {
 fn extract_function(prompt: &str) -> Option<String> {
     let captures = function_re().captures(prompt)?;
     Some(captures.get(1)?.as_str().to_string())
+}
+
+fn extract_deploy_alias(prompt: &str) -> Option<String> {
+    let from_capture = |captures: regex::Captures<'_>| {
+        captures
+            .get(1)
+            .or_else(|| captures.get(2))
+            .or_else(|| captures.get(3))
+            .map(|m| m.as_str().trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+
+    deploy_alias_kv_re()
+        .captures(prompt)
+        .and_then(from_capture)
+        .or_else(|| {
+            deploy_alias_space_re()
+                .captures(prompt)
+                .and_then(from_capture)
+        })
+        .or_else(|| {
+            deploy_alias_named_re()
+                .captures(prompt)
+                .and_then(from_capture)
+        })
+}
+
+fn extract_deploy_wasm(prompt: &str) -> Option<String> {
+    let from_capture = |captures: regex::Captures<'_>| {
+        captures
+            .get(1)
+            .or_else(|| captures.get(2))
+            .or_else(|| captures.get(3))
+            .map(|m| m.as_str().trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+
+    deploy_wasm_kv_re()
+        .captures(prompt)
+        .and_then(from_capture)
+        .or_else(|| {
+            deploy_wasm_token_re()
+                .captures(prompt)
+                .and_then(|captures| captures.get(1))
+                .map(|m| m.as_str().trim().to_string())
+                .filter(|v| !v.is_empty())
+        })
+}
+
+fn looks_like_contract_deploy_prompt(prompt: &str) -> bool {
+    let lower = prompt.to_ascii_lowercase();
+    lower.contains("deploy")
+        && (lower.contains("contract")
+            || lower.contains("soroban.contract.deploy")
+            || lower.contains(".wasm")
+            || lower.contains("wasm"))
 }
 
 fn extract_destination_account(prompt: &str) -> Option<String> {
@@ -752,6 +864,14 @@ fn build_contract_invoke(prompt: &str) -> Result<Action, String> {
     })
 }
 
+fn build_contract_deploy(prompt: &str) -> Result<Action, String> {
+    let alias = extract_deploy_alias(prompt)
+        .ok_or_else(|| slot_missing(IntentStellarLabel::ContractDeploy, "alias"))?;
+    let wasm = extract_deploy_wasm(prompt)
+        .ok_or_else(|| slot_missing(IntentStellarLabel::ContractDeploy, "wasm"))?;
+    Ok(Action::SorobanContractDeploy { alias, wasm })
+}
+
 pub fn has_intent_blocking_issue(plan: &ActionPlan) -> bool {
     let has_unknown = plan
         .actions
@@ -829,6 +949,11 @@ mod tests {
                 "stellar.tx.status",
             ),
             (
+                IntentStellarLabel::ContractDeploy,
+                "Deploy contract alias hello-demo wasm ./contracts/hello.wasm".to_string(),
+                "soroban.contract.deploy",
+            ),
+            (
                 IntentStellarLabel::ContractInvoke,
                 format!("Invoke contract {c1} function hello args={{\"to\":\"world\"}}"),
                 "soroban.contract.invoke",
@@ -856,14 +981,31 @@ mod tests {
             "invoke contract now",
             &decision(IntentStellarLabel::ContractInvoke),
         );
+        let deploy = build_action_plan(
+            "deploy contract alias hello-demo",
+            &decision(IntentStellarLabel::ContractDeploy),
+        );
 
-        for plan in [transfer, trust, invoke] {
+        for plan in [transfer, trust, invoke, deploy] {
             assert!(matches!(plan.actions[0], Action::Unknown { .. }));
             assert!(plan
                 .warnings
                 .iter()
                 .any(|w| w.starts_with("intent_error: slot_missing")));
         }
+    }
+
+    #[test]
+    fn contract_deploy_slot_parse_builds_action_for_unknown_and_invoke_labels() {
+        let prompt = "Deploy contract alias hello-demo wasm ./contracts/hello.wasm";
+
+        let unknown_plan = build_action_plan(prompt, &decision(IntentStellarLabel::Unknown));
+        assert_eq!(unknown_plan.actions.len(), 1);
+        assert_eq!(unknown_plan.actions[0].kind(), "soroban.contract.deploy");
+
+        let invoke_plan = build_action_plan(prompt, &decision(IntentStellarLabel::ContractInvoke));
+        assert_eq!(invoke_plan.actions.len(), 1);
+        assert_eq!(invoke_plan.actions[0].kind(), "soroban.contract.deploy");
     }
 
     #[test]

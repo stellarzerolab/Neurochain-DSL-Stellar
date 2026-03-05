@@ -236,6 +236,12 @@ Tulos on ActionPlan JSON, joka kertoo mitä **aikoisi** tehdä.
 cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..."
 ```
 
+Deploy-vaihe 1 (sääntöpohjainen fallback, ilman mallin retrainiä):
+
+```powershell
+cargo run --bin neurochain-stellar -- --intent-text "Deploy contract alias hello-demo wasm ./contracts/hello.wasm"
+```
+
 Mallin polku/kynnys voidaan overrideata:
 
 ```powershell
@@ -290,6 +296,7 @@ Prompt/Action commands:
 - `macro from AI: "..."` -> not supported in `neurochain-stellar` (use `set stellar intent from AI`)
 - `plain text prompt` -> classify prompt -> ActionPlan
 - `stellar.* / soroban.* lines` -> manual action-plan mode
+- `soroban.contract.deploy alias="..." wasm="..."` -> manual deploy action (`.nc` / REPL)
 
 Utility commands:
 - `help` -> quick start
@@ -522,6 +529,9 @@ stellar.account.fund_testnet account="G..."
 
 # Soroban invoke
 soroban.contract.invoke contract_id="C..." function="transfer" args={"to":"G...","amount":100}
+
+# Soroban deploy (manual)
+soroban.contract.deploy alias="hello-demo" wasm="./contracts/hello.wasm"
 ```
 
 **Huom:** määrät (`amount`, `starting_balance`, `limit`) tulkitaan XLM‑tyylisinä desimaaleina ja muunnetaan stroopeiksi (7 desimaalia) ennen submitia.
@@ -597,9 +607,9 @@ cargo run --bin neurochain-stellar -- examples\stellar_testasset_user_payment.nc
 
 ---
 
-## 7) Soroban invoke vaatii CLI‑avaimen
+## 7) Soroban invoke/deploy vaatii CLI‑avaimen
 
-Soroban invoke käyttää `stellar contract invoke`‑komentoa. Aseta **alias**:
+Soroban invoke ja deploy käyttävät `stellar contract ...`‑komentoja. Aseta **alias**:
 
 ```powershell
 # esimerkki: aseta key alias "quest1-new" ja käytä sitä

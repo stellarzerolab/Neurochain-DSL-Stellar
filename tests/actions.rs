@@ -208,11 +208,12 @@ stellar.change_trust asset_code="USDC" asset_issuer="G..." limit="1000"
 stellar.payment to="G..." amount="5" asset_code="XLM"
 stellar.payment to="G..." amount="12.5" asset_code="USDC" asset_issuer="G..."
 stellar.tx.status hash="ABC123"
+soroban.contract.deploy alias="hello-demo" wasm="./contracts/hello.wasm"
 soroban.contract.invoke contract_id="C..." function="transfer" args={"to":"G...","amount":100}
 "#;
 
     let plan = parse_action_plan_from_nc(input);
-    assert_eq!(plan.actions.len(), 7);
+    assert_eq!(plan.actions.len(), 8);
 
     matches!(plan.actions[0], Action::StellarAccountCreate { .. });
     matches!(plan.actions[1], Action::StellarAccountFundTestnet { .. });
@@ -220,8 +221,9 @@ soroban.contract.invoke contract_id="C..." function="transfer" args={"to":"G..."
     matches!(plan.actions[3], Action::StellarPayment { .. });
     matches!(plan.actions[4], Action::StellarPayment { .. });
     matches!(plan.actions[5], Action::StellarTxStatus { .. });
+    matches!(plan.actions[6], Action::SorobanContractDeploy { .. });
 
-    match &plan.actions[6] {
+    match &plan.actions[7] {
         Action::SorobanContractInvoke {
             contract_id,
             function,
@@ -233,6 +235,23 @@ soroban.contract.invoke contract_id="C..." function="transfer" args={"to":"G..."
             assert_eq!(args["amount"], Value::Number(100.into()));
         }
         _ => panic!("expected soroban.contract.invoke"),
+    }
+}
+
+#[test]
+fn parse_manual_nc_soroban_deploy_alias_and_wasm_path() {
+    let input = r#"
+soroban.contract.deploy alias="demo-c1" wasm="./target/wasm32v1-none/release/hello.wasm"
+"#;
+
+    let plan = parse_action_plan_from_nc(input);
+    assert_eq!(plan.actions.len(), 1);
+    match &plan.actions[0] {
+        Action::SorobanContractDeploy { alias, wasm } => {
+            assert_eq!(alias, "demo-c1");
+            assert_eq!(wasm, "./target/wasm32v1-none/release/hello.wasm");
+        }
+        other => panic!("expected soroban.contract.deploy, got {other:?}"),
     }
 }
 

@@ -162,6 +162,10 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "set stellar intent from AI: \"...\"",
         "classify prompt -> ActionPlan",
     );
+    let deploy_row = help_row(
+        "soroban.contract.deploy alias=\"...\" wasm=\"...\"",
+        "manual deploy action",
+    );
     let set_var_row = help_row(
         "set <var> from AI: \"...\"",
         "predict with active model -> store variable",
@@ -180,6 +184,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&debug_row));
     assert!(stdout.contains(&set_var_row));
     assert!(stdout.contains(&intent_row));
+    assert!(stdout.contains(&deploy_row));
     assert!(stdout.contains(&help_dsl_row));
     assert!(stdout.contains(&setup_row));
 

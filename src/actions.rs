@@ -65,6 +65,10 @@ pub enum Action {
         #[serde(default)]
         args: serde_json::Value,
     },
+    SorobanContractDeploy {
+        alias: String,
+        wasm: String,
+    },
     Unknown {
         reason: String,
     },
@@ -80,6 +84,7 @@ impl Action {
             Action::StellarPayment { .. } => "stellar.payment",
             Action::StellarTxStatus { .. } => "stellar.tx.status",
             Action::SorobanContractInvoke { .. } => "soroban.contract.invoke",
+            Action::SorobanContractDeploy { .. } => "soroban.contract.deploy",
             Action::Unknown { .. } => "unknown",
         }
     }
@@ -365,6 +370,19 @@ pub fn parse_action_plan_from_nc(contents: &str) -> ActionPlan {
                     },
                     _ => Action::Unknown {
                         reason: format!("line {}: missing contract_id/function", idx + 1),
+                    },
+                }
+            }
+            "soroban.contract.deploy" => {
+                let alias = kv
+                    .get("alias")
+                    .or_else(|| kv.get("contract_alias"))
+                    .cloned();
+                let wasm = kv.get("wasm").or_else(|| kv.get("wasm_path")).cloned();
+                match (alias, wasm) {
+                    (Some(alias), Some(wasm)) => Action::SorobanContractDeploy { alias, wasm },
+                    _ => Action::Unknown {
+                        reason: format!("line {}: missing alias/wasm", idx + 1),
                     },
                 }
             }
