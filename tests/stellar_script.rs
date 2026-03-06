@@ -1,6 +1,83 @@
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::thread;
+use tempfile::TempDir;
+
+fn create_fake_stellar_cli() -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir for fake stellar cli");
+    #[cfg(windows)]
+    let cli_path = dir.path().join("stellar.cmd");
+    #[cfg(not(windows))]
+    let cli_path = dir.path().join("stellar");
+
+    #[cfg(windows)]
+    let script = "@echo off\r\nif \"%1\"==\"keys\" if \"%2\"==\"generate\" (echo generated alias %3& exit /b 0)\r\nif \"%1\"==\"keys\" if \"%2\"==\"address\" (echo GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX& exit /b 0)\r\necho unexpected args %* 1>&2\r\nexit /b 1\r\n";
+    #[cfg(not(windows))]
+    let script = "#!/usr/bin/env sh\nif [ \"$1\" = \"keys\" ] && [ \"$2\" = \"generate\" ]; then\n  echo \"generated alias $3\"\n  exit 0\nfi\nif [ \"$1\" = \"keys\" ] && [ \"$2\" = \"address\" ]; then\n  echo \"GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX\"\n  exit 0\nfi\necho \"unexpected args: $@\" >&2\nexit 1\n";
+
+    fs::write(&cli_path, script).expect("write fake stellar cli");
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&cli_path)
+            .expect("metadata for fake stellar cli")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cli_path, perms).expect("chmod fake stellar cli");
+    }
+
+    (dir, cli_path)
+}
+
+fn spawn_friendbot_server() -> (String, Arc<AtomicBool>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind friendbot test server");
+    let addr = listener
+        .local_addr()
+        .expect("friendbot test server local addr");
+    let seen_friendbot = Arc::new(AtomicBool::new(false));
+    let seen_friendbot_bg = Arc::clone(&seen_friendbot);
+
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut buf = [0u8; 2048];
+            let n = match stream.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if n == 0 {
+                continue;
+            }
+            let req = String::from_utf8_lossy(&buf[..n]);
+            let path = req
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+
+            let (status, body) = if path.starts_with("/friendbot") {
+                seen_friendbot_bg.store(true, Ordering::SeqCst);
+                ("200 OK", r#"{"result":"ok"}"#)
+            } else {
+                ("404 Not Found", r#"{"error":"not found"}"#)
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    (format!("http://{}/friendbot", addr), seen_friendbot)
+}
 
 #[test]
 fn nc_script_supports_ai_network_wallet_and_intent_lines() {
@@ -44,6 +121,74 @@ set stellar intent from AI: "Transfer 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3K
     assert!(combined.contains("\"kind\": \"stellar_payment\""));
     assert!(combined.contains("\"asset_code\": \"XLM\""));
     assert!(combined.contains("intent_model: path=models/intent_stellar/model.onnx"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_wallet_generate_sets_wallet_source_alias() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli();
+    let tmp = std::env::temp_dir().join("nc_script_wallet_generate.nc");
+    let script = format!(
+        "stellar_cli: \"{}\"\nwallet_generate: demo-script\nnetwork: testnet\n",
+        fake_cli.to_string_lossy()
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .env_remove("NC_SOROBAN_SOURCE")
+        .env_remove("NC_STELLAR_SOURCE")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Script execution setup:"));
+    assert!(combined.contains("- wallet/source: demo-script"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_wallet_bootstrap_sets_wallet_source_and_calls_friendbot() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli();
+    let (friendbot_url, seen_friendbot) = spawn_friendbot_server();
+    let tmp = std::env::temp_dir().join("nc_script_wallet_bootstrap.nc");
+    let script = format!(
+        "stellar_cli: \"{}\"\nfriendbot: \"{}\"\nwallet_bootstrap: demo-script-boot\nnetwork: testnet\n",
+        fake_cli.to_string_lossy(),
+        friendbot_url
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .env_remove("NC_SOROBAN_SOURCE")
+        .env_remove("NC_STELLAR_SOURCE")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Script execution setup:"));
+    assert!(combined.contains("- wallet/source: demo-script-boot"));
+    assert!(
+        seen_friendbot.load(Ordering::SeqCst),
+        "expected wallet_bootstrap to call friendbot endpoint"
+    );
 
     let _ = fs::remove_file(tmp);
 }

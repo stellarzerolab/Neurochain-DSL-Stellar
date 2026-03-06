@@ -400,15 +400,43 @@ fn is_base32_char(c: char) -> bool {
     matches!(c, 'A'..='Z' | '2'..='7')
 }
 
-fn is_strkey(value: &str) -> bool {
+fn is_strkey_with_prefixes(value: &str, prefixes: &[char]) -> bool {
     if value.len() != 56 {
         return false;
     }
     let first = value.chars().next().unwrap_or('\0');
-    if first != 'G' && first != 'C' {
+    if !prefixes.contains(&first) {
         return false;
     }
     value.chars().all(is_base32_char)
+}
+
+fn is_strkey(value: &str) -> bool {
+    is_strkey_with_prefixes(value, &['G', 'C'])
+}
+
+fn extract_strkey_with_prefixes(text: &str, prefixes: &[char]) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut candidate = String::new();
+    for ch in trimmed.chars() {
+        let upper = ch.to_ascii_uppercase();
+        if is_base32_char(upper) {
+            candidate.push(upper);
+        } else {
+            if is_strkey_with_prefixes(&candidate, prefixes) {
+                return Some(candidate);
+            }
+            candidate.clear();
+        }
+    }
+    if is_strkey_with_prefixes(&candidate, prefixes) {
+        return Some(candidate);
+    }
+    None
 }
 
 fn is_symbol(value: &str) -> bool {
@@ -1054,6 +1082,47 @@ fn format_submit_ok(label: &str, hash: Option<String>, output: &str, note: Optio
 fn format_submit_error(label: &str, stage: &str, err: &str) -> String {
     let err_text = err.trim().replace('\n', "\\n");
     format!("{label} | status=error | stage={stage} | error={err_text}")
+}
+
+fn run_stellar_cli_capture(cfg: &NetworkConfig, args: &[&str]) -> Result<String> {
+    let output = Command::new(&cfg.soroban_cli)
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run {}", cfg.soroban_cli))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "stellar CLI error: {}",
+            normalize_cli_output(&output)
+        ));
+    }
+    Ok(normalize_cli_output(&output))
+}
+
+fn generate_wallet_alias(cfg: &NetworkConfig, alias: &str) -> Result<String> {
+    let alias = alias.trim();
+    if alias.is_empty() {
+        return Err(anyhow!("wallet alias is empty"));
+    }
+
+    run_stellar_cli_capture(cfg, &["keys", "generate", alias])
+        .with_context(|| format!("key generation failed for alias `{alias}`"))?;
+
+    let addr_output = run_stellar_cli_capture(cfg, &["keys", "address", alias])
+        .with_context(|| format!("failed to read address for alias `{alias}`"))?;
+    extract_strkey_with_prefixes(&addr_output, &['G'])
+        .ok_or_else(|| anyhow!("could not parse public key from `stellar keys address` output"))
+}
+
+fn bootstrap_wallet_alias(cfg: &NetworkConfig, alias: &str) -> Result<(String, String)> {
+    let public_key = generate_wallet_alias(cfg, alias)?;
+    let friendbot_url = cfg
+        .friendbot_url
+        .as_deref()
+        .ok_or_else(|| anyhow!("friendbot unavailable (set friendbot URL or use setup testnet)"))?;
+    let client = Client::new();
+    let fund_msg = friendbot_fund(&client, friendbot_url, &public_key)
+        .with_context(|| format!("friendbot fund failed for `{public_key}`"))?;
+    Ok((public_key, fund_msg))
 }
 
 fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
@@ -1961,6 +2030,50 @@ fn parse_source_line(line: &str) -> Option<String> {
     parse_named_value(line, &["wallet", "source", "lompakko"])
 }
 
+fn parse_wallet_generate_line(line: &str) -> Option<String> {
+    if let Some(alias) = parse_named_value(
+        line,
+        &[
+            "wallet_generate",
+            "generate_wallet",
+            "wallet_create",
+            "keygen",
+        ],
+    ) {
+        return Some(alias);
+    }
+
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["wallet generate ", "keys generate ", "generate wallet "] {
+        if lower.starts_with(prefix) {
+            let alias = strip_wrapping_quotes(trimmed[prefix.len()..].trim_start());
+            if !alias.is_empty() {
+                return Some(alias);
+            }
+        }
+    }
+    None
+}
+
+fn parse_wallet_bootstrap_line(line: &str) -> Option<String> {
+    if let Some(alias) = parse_named_value(line, &["wallet_bootstrap", "bootstrap_wallet"]) {
+        return Some(alias);
+    }
+
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["wallet bootstrap ", "bootstrap wallet "] {
+        if lower.starts_with(prefix) {
+            let alias = strip_wrapping_quotes(trimmed[prefix.len()..].trim_start());
+            if !alias.is_empty() {
+                return Some(alias);
+            }
+        }
+    }
+    None
+}
+
 fn parse_horizon_line(line: &str) -> Option<String> {
     parse_named_value(line, &["horizon", "horizon_url"])
 }
@@ -2440,6 +2553,18 @@ impl ScriptBuildContext {
 
         if let Some(source) = parse_source_line(line) {
             self.flow_cfg.soroban_source = Some(source);
+            return Ok(());
+        }
+
+        if let Some(alias) = parse_wallet_generate_line(line) {
+            generate_wallet_alias(&self.flow_cfg, &alias)?;
+            self.flow_cfg.soroban_source = Some(alias);
+            return Ok(());
+        }
+
+        if let Some(alias) = parse_wallet_bootstrap_line(line) {
+            let (_public_key, _fund_msg) = bootstrap_wallet_alias(&self.flow_cfg, &alias)?;
+            self.flow_cfg.soroban_source = Some(alias);
             return Ok(());
         }
 
@@ -3062,15 +3187,22 @@ fn print_repl_config(
     );
 }
 
-fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) -> bool {
+fn print_repl_active_settings(
+    cfg: &NetworkConfig,
+    runtime: &RuntimeSettings,
+    debug: bool,
+    include_asset_allowlist: bool,
+) -> bool {
     let mut any = false;
-    if let Some(assets) = runtime
-        .allowlist_assets
-        .as_deref()
-        .filter(|v| !v.trim().is_empty())
-    {
-        println!("- asset_allowlist: {assets}");
-        any = true;
+    if include_asset_allowlist {
+        if let Some(assets) = runtime
+            .allowlist_assets
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+        {
+            println!("- asset_allowlist: {assets}");
+            any = true;
+        }
     }
     if let Some(contracts) = runtime
         .allowlist_contracts
@@ -3115,12 +3247,37 @@ fn print_repl_active_settings(cfg: &NetworkConfig, runtime: &RuntimeSettings, de
     any
 }
 
+fn print_repl_current_asset_allowlist(runtime: &RuntimeSettings) -> bool {
+    if let Some(assets) = runtime
+        .allowlist_assets
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+    {
+        println!("Current asset_allowlist: {assets}");
+        return true;
+    }
+    false
+}
+
 fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) {
+    const HELP_COL_WIDTH: usize = 46;
     println!("Soroban REPL quick start:");
     let quick_rows = [
         ("AI: \"models/intent_stellar/model.onnx\"", ""),
         ("network: testnet", ""),
         ("wallet: nc-testnet", ""),
+        (
+            "wallet_generate: demo-alias",
+            "(create key alias + set wallet)",
+        ),
+        (
+            "wallet_bootstrap: demo-alias",
+            "(generate key + friendbot fund + set wallet)",
+        ),
+        (
+            "asset_allowlist: XLM,USDC:GISSUER",
+            "(change allowed assets; default startup is XLM)",
+        ),
         ("txrep", "(optional preview on)"),
         ("allowlist_enforce", "(optional hard-fail on allowlist)"),
         ("contract_policy: <path>", "(optional policy file)"),
@@ -3135,7 +3292,7 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: 
             "(classify prompt -> ActionPlan)",
         ),
         (
-            "soroban.contract.deploy alias=\"demo\" wasm=\"./demo.wasm\"",
+            "soroban.contract.deploy alias=\"...\" wasm=\"...\"",
             "(manual deploy action)",
         ),
         ("help all", "(show every command)"),
@@ -3149,22 +3306,26 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: 
         if desc.is_empty() {
             println!("- {command}");
         } else {
-            println!("- {:<34} {}", command, desc);
+            println!("- {:<HELP_COL_WIDTH$} {}", command, desc);
         }
     }
     println!("- Toggle commands are listed in `help all` under Toggles (on/off).");
+    println!(
+        "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
+    );
     println!("- restart with --no-flow if you want plan-only REPL");
     println!();
     println!("Enabled optional settings:");
-    if !print_repl_active_settings(cfg, runtime, debug) {
+    if !print_repl_active_settings(cfg, runtime, debug, true) {
         println!("- (none)");
     }
 }
 
 fn print_repl_help_section(title: &str, rows: &[(&str, &str)]) {
+    const HELP_COL_WIDTH: usize = 46;
     println!("{title}:");
     for (command, description) in rows {
-        println!("- {:<42} {}", command, description);
+        println!("- {:<HELP_COL_WIDTH$} {}", command, description);
     }
     println!();
 }
@@ -3295,6 +3456,14 @@ fn print_repl_help_all() {
             "wallet: <stellar-key-alias>",
             "set active source wallet alias",
         ),
+        (
+            "wallet_generate: <alias>",
+            "generate a local stellar key alias",
+        ),
+        (
+            "wallet_bootstrap: <alias>",
+            "generate key alias and friendbot-fund it",
+        ),
         ("horizon: https://...", "set Horizon URL override"),
         (
             "friendbot: https://...|off",
@@ -3320,6 +3489,10 @@ fn print_repl_help_all() {
         ),
     ];
     print_repl_help_section("Core setup (value required)", &core_setup);
+    println!(
+        "Note: REPL startup default is `asset_allowlist: XLM`; override with `asset_allowlist: ...`."
+    );
+    println!();
 
     let toggles = [
         ("txrep", "enable txrep preview in flow"),
@@ -3400,6 +3573,9 @@ fn run_repl(
     // REPL is wallet-explicit: do not preload wallet/source from env on startup.
     flow_cfg.soroban_source = None;
     let mut runtime_settings = runtime_settings_from_env();
+    if runtime_settings.allowlist_assets.is_none() {
+        runtime_settings.allowlist_assets = Some("XLM".to_string());
+    }
 
     println!("NeuroChain Stellar REPL (intent -> action).");
     print_repl_divider();
@@ -3411,6 +3587,7 @@ fn run_repl(
         "Current wallet/source: {}",
         flow_cfg.soroban_source.as_deref().unwrap_or("(not set)")
     );
+    let _ = print_repl_current_asset_allowlist(&runtime_settings);
     println!(
         "Flow mode: {}",
         if flow {
@@ -3419,7 +3596,7 @@ fn run_repl(
             "disabled"
         }
     );
-    if print_repl_active_settings(&flow_cfg, &runtime_settings, debug) {
+    if print_repl_active_settings(&flow_cfg, &runtime_settings, debug, false) {
         println!();
     }
     print_repl_divider();
@@ -3427,7 +3604,7 @@ fn run_repl(
     print_repl_divider();
 
     loop {
-        println!("Enter Soroban prompt/code (finish with an empty line):");
+        println!("Enter Stellar prompt/code (finish with an empty line):");
         let mut block = String::new();
         loop {
             print!("... ");
@@ -3477,7 +3654,7 @@ fn run_repl(
                 );
                 println!("- flow_mode: {}", if flow { "on" } else { "off" });
                 println!("- enabled optional settings:");
-                if !print_repl_active_settings(&flow_cfg, &runtime_settings, debug) {
+                if !print_repl_active_settings(&flow_cfg, &runtime_settings, debug, true) {
                     println!("- (none)");
                 }
                 continue;
@@ -3557,6 +3734,39 @@ fn run_repl(
                     "Wallet/source set to: {}",
                     flow_cfg.soroban_source.as_deref().unwrap_or("")
                 );
+                continue;
+            }
+
+            if let Some(alias) = parse_wallet_generate_line(&line) {
+                match generate_wallet_alias(&flow_cfg, &alias) {
+                    Ok(public_key) => {
+                        flow_cfg.soroban_source = Some(alias.to_string());
+                        println!("Wallet key alias generated: {alias}");
+                        println!("Public key/address: {public_key}");
+                        println!(
+                            "Wallet/source set to: {}",
+                            flow_cfg.soroban_source.as_deref().unwrap_or("")
+                        );
+                    }
+                    Err(err) => eprintln!("wallet_generate failed for `{alias}`: {err}"),
+                }
+                continue;
+            }
+
+            if let Some(alias) = parse_wallet_bootstrap_line(&line) {
+                match bootstrap_wallet_alias(&flow_cfg, &alias) {
+                    Ok((public_key, fund_msg)) => {
+                        flow_cfg.soroban_source = Some(alias.to_string());
+                        println!("Wallet key alias generated: {alias}");
+                        println!("Public key/address: {public_key}");
+                        println!("Friendbot: {fund_msg}");
+                        println!(
+                            "Wallet/source set to: {}",
+                            flow_cfg.soroban_source.as_deref().unwrap_or("")
+                        );
+                    }
+                    Err(err) => eprintln!("wallet_bootstrap failed for `{alias}`: {err}"),
+                }
                 continue;
             }
 

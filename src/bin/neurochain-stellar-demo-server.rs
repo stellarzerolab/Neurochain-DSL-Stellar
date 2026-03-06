@@ -1,22 +1,41 @@
-use std::{env, net::SocketAddr, sync::OnceLock};
+use std::{
+    env,
+    net::SocketAddr,
+    process::Stdio,
+    sync::{Arc, OnceLock},
+};
 
 use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Query, State,
+    },
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::post,
-    Json, Router,
+    routing::get,
+    Router,
 };
-use neurochain::{
-    banner,
-    server_stellar_demo::{
-        handle_contract_deploy, handle_contract_invoke, handle_tx_status, handle_workspace_create,
-        handle_workspace_fund, handle_workspace_status, StellarDemoDeployReq, StellarDemoInvokeReq,
-        StellarDemoResp, StellarDemoState, StellarDemoTxStatusReq, StellarDemoWorkspaceCreateReq,
-        StellarDemoWorkspaceReq,
-    },
+use neurochain::banner;
+use serde::Deserialize;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    process::Command,
+    sync::{mpsc, Semaphore},
+    time::{timeout, Duration},
 };
-use tokio::task;
 use tower_http::cors::{Any, CorsLayer};
+
+#[derive(Clone)]
+struct AppState {
+    repl_sem: Arc<Semaphore>,
+    allow_flow: bool,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct StellarReplWsReq {
+    #[serde(default)]
+    debug: Option<String>,
+}
 
 static REQUIRED_API_KEY: OnceLock<Option<String>> = OnceLock::new();
 
@@ -66,324 +85,246 @@ fn secure_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-fn demo_auth_failed(headers: &HeaderMap, logs: &mut Vec<String>) -> bool {
-    if let Some(required) = required_api_key() {
-        let ok = provided_api_key(headers)
-            .map(|got| secure_eq(got, required))
-            .unwrap_or(false);
-        if !ok {
-            logs.push("auth: missing or invalid api key".into());
-            return true;
-        }
+fn parse_bool_value(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn demo_allow_flow() -> bool {
+    let primary = env::var("NC_DEMO_ALLOW_FLOW")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let fallback = env::var("NC_STELLAR_DEMO_ALLOW_FLOW")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    if let Some(raw) = primary.as_deref().or(fallback.as_deref()) {
+        return parse_bool_value(raw).unwrap_or(false);
     }
     false
 }
 
-fn demo_error_json(
-    error: impl Into<String>,
-    logs: Vec<String>,
-    state: StellarDemoState,
-) -> (StatusCode, Json<StellarDemoResp>) {
-    (
-        StatusCode::OK,
-        Json(StellarDemoResp {
-            ok: false,
-            error: Some(error.into()),
-            state,
-            logs,
-        }),
-    )
-}
-
-fn demo_ok_json(state: StellarDemoState, logs: Vec<String>) -> (StatusCode, Json<StellarDemoResp>) {
-    (
-        StatusCode::OK,
-        Json(StellarDemoResp {
-            ok: true,
-            error: None,
-            state,
-            logs,
-        }),
-    )
-}
-
-async fn api_stellar_demo_workspace_create(
-    headers: HeaderMap,
-    Json(req): Json<StellarDemoWorkspaceCreateReq>,
-) -> impl IntoResponse {
-    let mut logs = vec!["demo_op=workspace_create".to_string()];
-    if demo_auth_failed(&headers, &mut logs) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(StellarDemoResp {
-                ok: false,
-                error: Some("unauthorized".to_string()),
-                state: StellarDemoState::default(),
-                logs,
-            }),
-        );
+fn default_repl_bin_path() -> String {
+    if let Some(path) = env::var("NC_STELLAR_REPL_BIN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        return path;
     }
 
-    let alias_prefix = req.alias_prefix.clone();
-    let task = task::spawn_blocking(move || handle_workspace_create(alias_prefix)).await;
+    let fallback_name = if cfg!(windows) {
+        "neurochain-stellar.exe"
+    } else {
+        "neurochain-stellar"
+    };
+    if let Ok(current) = env::current_exe() {
+        if let Some(dir) = current.parent() {
+            let sibling = dir.join(fallback_name);
+            if sibling.exists() {
+                return sibling.to_string_lossy().to_string();
+            }
+        }
+    }
 
-    match task {
-        Ok(Ok((state, op_logs))) => {
-            logs.extend(op_logs);
-            demo_ok_json(state, logs)
+    "neurochain-stellar".to_string()
+}
+
+fn ws_text_message(text: impl Into<String>) -> Message {
+    Message::Text(text.into().into())
+}
+
+async fn stream_child_output<R>(mut reader: R, tx: mpsc::UnboundedSender<String>)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    let mut buf = [0u8; 4096];
+    loop {
+        match reader.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => {
+                let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                if tx.send(chunk).is_err() {
+                    break;
+                }
+            }
+            Err(err) => {
+                let _ = tx.send(format!("\r\n[repl] stream read error: {err}\r\n"));
+                break;
+            }
         }
-        Ok(Err(err)) => {
-            logs.push(format!("error: {err:#}"));
-            demo_error_json(err.to_string(), logs, StellarDemoState::default())
+    }
+}
+
+async fn handle_stellar_repl_socket(mut socket: WebSocket, state: Arc<AppState>, debug: bool) {
+    let _permit = match state.repl_sem.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            let _ = socket
+                .send(ws_text_message(
+                    "[repl] server is shutting down, cannot open REPL session\r\n",
+                ))
+                .await;
+            return;
         }
+    };
+
+    let repl_bin = default_repl_bin_path();
+    let mut cmd = Command::new(&repl_bin);
+    cmd.arg("--repl");
+    if !state.allow_flow {
+        cmd.arg("--no-flow");
+    }
+    if debug {
+        cmd.arg("--debug");
+    }
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
         Err(err) => {
-            logs.push(format!("join error: {err}"));
-            demo_error_json(
-                "internal join error in demo workspace create",
-                logs,
-                StellarDemoState::default(),
-            )
+            let _ = socket
+                .send(ws_text_message(format!(
+                    "[repl] failed to start `{repl_bin}`: {err}\r\n"
+                )))
+                .await;
+            return;
+        }
+    };
+
+    let mut child_stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => {
+            let _ = socket
+                .send(ws_text_message(
+                    "[repl] failed: child stdin not available\r\n",
+                ))
+                .await;
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return;
+        }
+    };
+    let child_stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = socket
+                .send(ws_text_message(
+                    "[repl] failed: child stdout not available\r\n",
+                ))
+                .await;
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return;
+        }
+    };
+    let child_stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            let _ = socket
+                .send(ws_text_message(
+                    "[repl] failed: child stderr not available\r\n",
+                ))
+                .await;
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return;
+        }
+    };
+
+    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
+    tokio::spawn(stream_child_output(child_stdout, out_tx.clone()));
+    tokio::spawn(stream_child_output(child_stderr, out_tx));
+
+    loop {
+        tokio::select! {
+            maybe_chunk = out_rx.recv() => {
+                if let Some(chunk) = maybe_chunk {
+                    if socket.send(ws_text_message(chunk)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            child_status = child.wait() => {
+                match child_status {
+                    Ok(status) => {
+                        let _ = socket
+                            .send(ws_text_message(format!("\r\n[repl] process exited ({status})\r\n")))
+                            .await;
+                    }
+                    Err(err) => {
+                        let _ = socket
+                            .send(ws_text_message(format!("\r\n[repl] process wait error: {err}\r\n")))
+                            .await;
+                    }
+                }
+                break;
+            }
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(Message::Text(text))) => {
+                        let payload = text.to_string();
+                        if payload.is_empty() {
+                            continue;
+                        }
+                        if child_stdin.write_all(payload.as_bytes()).await.is_err() {
+                            break;
+                        }
+                        let _ = child_stdin.flush().await;
+                    }
+                    Some(Ok(Message::Binary(bytes))) => {
+                        if child_stdin.write_all(&bytes).await.is_err() {
+                            break;
+                        }
+                        let _ = child_stdin.flush().await;
+                    }
+                    Some(Ok(Message::Close(_))) | None => {
+                        break;
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(err)) => {
+                        let _ = socket
+                            .send(ws_text_message(format!("\r\n[repl] websocket error: {err}\r\n")))
+                            .await;
+                        break;
+                    }
+                }
+            }
         }
     }
+
+    let _ = child.start_kill();
+    let _ = timeout(Duration::from_secs(1), child.wait()).await;
 }
 
-async fn api_stellar_demo_workspace_fund(
+async fn api_stellar_repl_ws(
+    State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(req): Json<StellarDemoWorkspaceReq>,
+    Query(req): Query<StellarReplWsReq>,
+    ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let alias = req.alias.trim().to_string();
-    let contract_id = req.contract_id.clone();
-    let tx_hash = req.tx_hash.clone();
-    let mut logs = vec!["demo_op=workspace_fund".to_string()];
-    if demo_auth_failed(&headers, &mut logs) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(StellarDemoResp {
-                ok: false,
-                error: Some("unauthorized".to_string()),
-                state: StellarDemoState::default(),
-                logs,
-            }),
-        );
-    }
-    if alias.is_empty() {
-        return demo_error_json("missing alias", logs, StellarDemoState::default());
-    }
-
-    let task =
-        task::spawn_blocking(move || handle_workspace_fund(alias, contract_id, tx_hash)).await;
-
-    match task {
-        Ok(Ok((state, op_logs))) => {
-            logs.extend(op_logs);
-            demo_ok_json(state, logs)
-        }
-        Ok(Err(err)) => {
-            logs.push(format!("error: {err:#}"));
-            demo_error_json(err.to_string(), logs, StellarDemoState::default())
-        }
-        Err(err) => {
-            logs.push(format!("join error: {err}"));
-            demo_error_json(
-                "internal join error in demo workspace fund",
-                logs,
-                StellarDemoState::default(),
-            )
+    if let Some(required) = required_api_key() {
+        let ok = provided_api_key(&headers)
+            .map(|got| secure_eq(got, required))
+            .unwrap_or(false);
+        if !ok {
+            return StatusCode::UNAUTHORIZED.into_response();
         }
     }
-}
 
-async fn api_stellar_demo_workspace_status(
-    headers: HeaderMap,
-    Json(req): Json<StellarDemoWorkspaceReq>,
-) -> impl IntoResponse {
-    let alias = req.alias.trim().to_string();
-    let contract_id = req.contract_id.clone();
-    let tx_hash = req.tx_hash.clone();
-    let mut logs = vec!["demo_op=workspace_status".to_string()];
-    if demo_auth_failed(&headers, &mut logs) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(StellarDemoResp {
-                ok: false,
-                error: Some("unauthorized".to_string()),
-                state: StellarDemoState::default(),
-                logs,
-            }),
-        );
-    }
-    if alias.is_empty() {
-        return demo_error_json("missing alias", logs, StellarDemoState::default());
-    }
-
-    let task =
-        task::spawn_blocking(move || handle_workspace_status(alias, contract_id, tx_hash)).await;
-
-    match task {
-        Ok(Ok((state, op_logs))) => {
-            logs.extend(op_logs);
-            demo_ok_json(state, logs)
-        }
-        Ok(Err(err)) => {
-            logs.push(format!("error: {err:#}"));
-            demo_error_json(err.to_string(), logs, StellarDemoState::default())
-        }
-        Err(err) => {
-            logs.push(format!("join error: {err}"));
-            demo_error_json(
-                "internal join error in demo workspace status",
-                logs,
-                StellarDemoState::default(),
-            )
-        }
-    }
-}
-
-async fn api_stellar_demo_contract_deploy(
-    headers: HeaderMap,
-    Json(req): Json<StellarDemoDeployReq>,
-) -> impl IntoResponse {
-    let alias = req.alias.trim().to_string();
-    let contract_alias = req
-        .contract_alias
+    let debug = req
+        .debug
         .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
-    let wasm = req
-        .wasm
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string);
-    let mut logs = vec!["demo_op=contract_deploy".to_string()];
-    if demo_auth_failed(&headers, &mut logs) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(StellarDemoResp {
-                ok: false,
-                error: Some("unauthorized".to_string()),
-                state: StellarDemoState::default(),
-                logs,
-            }),
-        );
-    }
-    if alias.is_empty() {
-        return demo_error_json("missing alias", logs, StellarDemoState::default());
-    }
-
-    let task =
-        task::spawn_blocking(move || handle_contract_deploy(alias, contract_alias, wasm)).await;
-
-    match task {
-        Ok(Ok((state, op_logs))) => {
-            logs.extend(op_logs);
-            demo_ok_json(state, logs)
-        }
-        Ok(Err(err)) => {
-            logs.push(format!("error: {err:#}"));
-            demo_error_json(err.to_string(), logs, StellarDemoState::default())
-        }
-        Err(err) => {
-            logs.push(format!("join error: {err}"));
-            demo_error_json(
-                "internal join error in demo contract deploy",
-                logs,
-                StellarDemoState::default(),
-            )
-        }
-    }
-}
-
-async fn api_stellar_demo_contract_invoke(
-    headers: HeaderMap,
-    Json(req): Json<StellarDemoInvokeReq>,
-) -> impl IntoResponse {
-    let alias = req.alias.trim().to_string();
-    let contract_id = req.contract_id.trim().to_string();
-    let mut logs = vec!["demo_op=contract_invoke".to_string()];
-    if demo_auth_failed(&headers, &mut logs) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(StellarDemoResp {
-                ok: false,
-                error: Some("unauthorized".to_string()),
-                state: StellarDemoState::default(),
-                logs,
-            }),
-        );
-    }
-    if alias.is_empty() || contract_id.is_empty() {
-        return demo_error_json(
-            "missing alias or contract_id",
-            logs,
-            StellarDemoState::default(),
-        );
-    }
-
-    let task = task::spawn_blocking(move || handle_contract_invoke(alias, contract_id)).await;
-
-    match task {
-        Ok(Ok((state, op_logs))) => {
-            logs.extend(op_logs);
-            demo_ok_json(state, logs)
-        }
-        Ok(Err(err)) => {
-            logs.push(format!("error: {err:#}"));
-            demo_error_json(err.to_string(), logs, StellarDemoState::default())
-        }
-        Err(err) => {
-            logs.push(format!("join error: {err}"));
-            demo_error_json(
-                "internal join error in demo contract invoke",
-                logs,
-                StellarDemoState::default(),
-            )
-        }
-    }
-}
-
-async fn api_stellar_demo_tx_status(
-    headers: HeaderMap,
-    Json(req): Json<StellarDemoTxStatusReq>,
-) -> impl IntoResponse {
-    let hash = req.hash.trim().to_string();
-    let mut logs = vec!["demo_op=tx_status".to_string()];
-    if demo_auth_failed(&headers, &mut logs) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(StellarDemoResp {
-                ok: false,
-                error: Some("unauthorized".to_string()),
-                state: StellarDemoState::default(),
-                logs,
-            }),
-        );
-    }
-    if hash.is_empty() {
-        return demo_error_json("missing hash", logs, StellarDemoState::default());
-    }
-
-    let task = task::spawn_blocking(move || handle_tx_status(hash)).await;
-
-    match task {
-        Ok(Ok((state, op_logs))) => {
-            logs.extend(op_logs);
-            demo_ok_json(state, logs)
-        }
-        Ok(Err(err)) => {
-            logs.push(format!("error: {err:#}"));
-            demo_error_json(err.to_string(), logs, StellarDemoState::default())
-        }
-        Err(err) => {
-            logs.push(format!("join error: {err}"));
-            demo_error_json(
-                "internal join error in demo tx status",
-                logs,
-                StellarDemoState::default(),
-            )
-        }
-    }
+        .and_then(parse_bool_value)
+        .unwrap_or(false);
+    ws.on_upgrade(move |socket| handle_stellar_repl_socket(socket, state, debug))
 }
 
 #[tokio::main]
@@ -405,29 +346,20 @@ async fn main() {
         .or_else(|| env::var("PORT").ok())
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(8082);
+    let max_repl_sessions: usize = env::var("NC_MAX_REPL_SESSIONS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+
+    let state = Arc::new(AppState {
+        repl_sem: Arc::new(Semaphore::new(max_repl_sessions)),
+        allow_flow: demo_allow_flow(),
+    });
+    let allow_flow = state.allow_flow;
 
     let api = Router::new()
-        .route(
-            "/stellar/demo/workspace/create",
-            post(api_stellar_demo_workspace_create),
-        )
-        .route(
-            "/stellar/demo/workspace/fund",
-            post(api_stellar_demo_workspace_fund),
-        )
-        .route(
-            "/stellar/demo/workspace/status",
-            post(api_stellar_demo_workspace_status),
-        )
-        .route(
-            "/stellar/demo/contract/deploy",
-            post(api_stellar_demo_contract_deploy),
-        )
-        .route(
-            "/stellar/demo/contract/invoke",
-            post(api_stellar_demo_contract_invoke),
-        )
-        .route("/stellar/demo/tx/status", post(api_stellar_demo_tx_status));
+        .route("/stellar/repl/ws", get(api_stellar_repl_ws))
+        .with_state(state);
 
     let app = Router::new().nest("/api", api).layer(
         CorsLayer::new()
@@ -443,7 +375,10 @@ async fn main() {
         .await
         .expect("bind demo server listener");
 
-    println!("NeuroChain Stellar demo server listening on http://{addr}");
+    println!(
+        "NeuroChain Stellar demo server listening on http://{addr} (demo_flow={})",
+        if allow_flow { "on" } else { "off" }
+    );
 
     axum::serve(listener, app).await.expect("serve demo server");
 }

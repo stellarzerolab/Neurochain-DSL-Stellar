@@ -1,7 +1,12 @@
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::PathBuf;
+use std::thread;
+use tempfile::TempDir;
 
 fn assert_contains_in_order(haystack: &str, needles: &[&str]) {
     let mut pos = 0usize;
@@ -14,7 +19,71 @@ fn assert_contains_in_order(haystack: &str, needles: &[&str]) {
 }
 
 fn help_row(command: &str, description: &str) -> String {
-    format!("- {:<42} {}", command, description)
+    format!("- {:<46} {}", command, description)
+}
+
+fn create_fake_stellar_cli() -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir for fake stellar cli");
+    #[cfg(windows)]
+    let cli_path = dir.path().join("stellar.cmd");
+    #[cfg(not(windows))]
+    let cli_path = dir.path().join("stellar");
+
+    #[cfg(windows)]
+    let script = "@echo off\r\nif \"%1\"==\"keys\" if \"%2\"==\"generate\" (echo generated alias %3& exit /b 0)\r\nif \"%1\"==\"keys\" if \"%2\"==\"address\" (echo GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX& exit /b 0)\r\necho unexpected args %* 1>&2\r\nexit /b 1\r\n";
+    #[cfg(not(windows))]
+    let script = "#!/usr/bin/env sh\nif [ \"$1\" = \"keys\" ] && [ \"$2\" = \"generate\" ]; then\n  echo \"generated alias $3\"\n  exit 0\nfi\nif [ \"$1\" = \"keys\" ] && [ \"$2\" = \"address\" ]; then\n  echo \"GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX\"\n  exit 0\nfi\necho \"unexpected args: $@\" >&2\nexit 1\n";
+
+    fs::write(&cli_path, script).expect("write fake stellar cli");
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&cli_path)
+            .expect("metadata for fake stellar cli")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cli_path, perms).expect("chmod fake stellar cli");
+    }
+
+    (dir, cli_path)
+}
+
+fn spawn_friendbot_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind friendbot test server");
+    let addr = listener
+        .local_addr()
+        .expect("friendbot test server local addr");
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut buf = [0u8; 2048];
+            let n = match stream.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if n == 0 {
+                continue;
+            }
+            let req = String::from_utf8_lossy(&buf[..n]);
+            let path = req
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+
+            let (status, body) = if path.starts_with("/friendbot") {
+                ("200 OK", r#"{"result":"ok"}"#)
+            } else {
+                ("404 Not Found", r#"{"error":"not found"}"#)
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    format!("http://{}/friendbot", addr)
 }
 
 #[test]
@@ -68,6 +137,47 @@ fn stellar_repl_accepts_network_and_wallet_commands() {
         .stdout(contains("Network set to: testnet"))
         .stdout(contains("Wallet/source set to: nc-testnet"))
         .stdout(contains("Exiting"));
+}
+
+#[test]
+fn stellar_repl_wallet_generate_creates_alias_and_sets_source() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli();
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.write_stdin(format!(
+        "stellar_cli: \"{}\"\n\nwallet_generate: demo-alias\n\nshow setup\n\nexit\n\n",
+        fake_cli.to_string_lossy()
+    ))
+    .assert()
+    .success()
+    .stdout(contains("Wallet key alias generated: demo-alias"))
+    .stdout(contains(
+        "Public key/address: GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+    ))
+    .stdout(contains("Wallet/source set to: demo-alias"))
+    .stdout(contains("- wallet/source: demo-alias"));
+}
+
+#[test]
+fn stellar_repl_wallet_bootstrap_generates_funds_and_sets_source() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli();
+    let friendbot_url = spawn_friendbot_server();
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.write_stdin(format!(
+        "stellar_cli: \"{}\"\n\nfriendbot: \"{}\"\n\nwallet_bootstrap: demo-boot\n\nshow setup\n\nexit\n\n",
+        fake_cli.to_string_lossy(),
+        friendbot_url
+    ))
+    .assert()
+    .success()
+    .stdout(contains("Wallet key alias generated: demo-boot"))
+    .stdout(contains(
+        "Public key/address: GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+    ))
+    .stdout(contains("Friendbot: friendbot funded account"))
+    .stdout(contains("Wallet/source set to: demo-boot"))
+    .stdout(contains("- wallet/source: demo-boot"));
 }
 
 #[test]
@@ -146,6 +256,14 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "network: testnet|mainnet|public",
         "set active network for flow",
     );
+    let wallet_generate_row = help_row(
+        "wallet_generate: <alias>",
+        "generate a local stellar key alias",
+    );
+    let wallet_bootstrap_row = help_row(
+        "wallet_bootstrap: <alias>",
+        "generate key alias and friendbot-fund it",
+    );
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
     let enforce_row = help_row("allowlist_enforce", "enable allowlist enforce");
     let policy_row = help_row(
@@ -176,6 +294,8 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&ai_row));
     assert!(stdout.contains(&threshold_row));
     assert!(stdout.contains(&network_row));
+    assert!(stdout.contains(&wallet_generate_row));
+    assert!(stdout.contains(&wallet_bootstrap_row));
     assert!(stdout.contains(&txrep_row));
     assert!(stdout.contains(&enforce_row));
     assert!(stdout.contains(&policy_row));
@@ -359,6 +479,17 @@ fn stellar_repl_starts_without_wallet_even_when_env_source_is_set() {
         .assert()
         .success()
         .stdout(contains("Current wallet/source: (not set)"));
+}
+
+#[test]
+fn stellar_repl_defaults_asset_allowlist_to_xlm() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.env_remove("NC_ASSET_ALLOWLIST")
+        .write_stdin("exit\n\n")
+        .assert()
+        .success()
+        .stdout(contains("Current asset_allowlist: XLM"));
 }
 
 #[test]

@@ -12,7 +12,7 @@ tract-onnx   = "0.21.13"
 anyhow       = "1.0"
 tokenizers   = { version = "0.19.1", default-features = false, features = ["onig", "esaxx_fast"] }
 regex        = "1.10"
-axum         = "0.7"
+axum         = { version = "0.7", features = ["ws"] }
 tokio        = { version = "1.37", features = ["full"] }
 tower-http   = { version = "0.5", features = ["cors"] }
 reqwest      = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }

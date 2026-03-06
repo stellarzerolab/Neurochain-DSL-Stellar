@@ -170,6 +170,8 @@ Suositus: laita nämä **heti alkuun** (AI -> network -> wallet -> muut asetukse
 - `NC_STELLAR_HORIZON_URL` -> `horizon: https://horizon-testnet.stellar.org`
 - `NC_FRIENDBOT_URL` -> `friendbot: https://friendbot.stellar.org` tai `friendbot: off`
 - `NC_SOROBAN_SOURCE` / `NC_STELLAR_SOURCE` -> `wallet: nc-testnet` (tai `source: nc-testnet`)
+- key alias creation (dev setup) -> `wallet_generate: demo-alias`
+- one-liner testnet wallet bootstrap -> `wallet_bootstrap: demo-alias`
 - `NC_STELLAR_CLI` -> `stellar_cli: stellar`
 - `NC_SOROBAN_SIMULATE_FLAG` -> `simulate_flag: "--send no"`
 - `NC_TXREP_PREVIEW=1` -> `txrep` / `txrep on` (`txrep off` pois päältä)
@@ -262,6 +264,7 @@ Huom (wallet-startup REPLissä):
 - REPL käynnistyy aina tilaan `Current wallet/source: (not set)`.
 - Tämä on tarkoituksella wallet-explicit UX: aseta lompakko itse komennolla `wallet: <alias>` (tai `source: <alias>`).
 - `setup testnet` ei aseta walletia automaattisesti.
+- REPLin oletus `asset_allowlist` on `XLM` (näkyy startupissa, ellei overridea envista tai komennolla).
 
 REPL-komennot (`help all`) jaoteltuna:
 
@@ -270,6 +273,8 @@ Core setup (value required):
 - `intent_threshold: <f32>` -> set intent confidence threshold
 - `network: testnet|mainnet|public` -> set active network for flow
 - `wallet: <stellar-key-alias>` -> set active source wallet alias
+- `wallet_generate: <alias>` -> generate a local stellar key alias
+- `wallet_bootstrap: <alias>` -> generate alias + friendbot-fund it
 - `horizon: https://...` -> set Horizon URL override
 - `friendbot: https://...|off` -> set Friendbot URL or disable it
 - `stellar_cli: <bin>` -> set stellar CLI binary path/name
