@@ -38,6 +38,7 @@ struct StellarReplWsReq {
 }
 
 static REQUIRED_API_KEY: OnceLock<Option<String>> = OnceLock::new();
+static ALLOWED_ORIGINS: OnceLock<Vec<String>> = OnceLock::new();
 
 fn required_api_key() -> Option<&'static str> {
     REQUIRED_API_KEY
@@ -83,6 +84,55 @@ fn secure_eq(a: &str, b: &str) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+fn normalize_origin(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_ascii_lowercase())
+}
+
+fn allowed_origins() -> &'static [String] {
+    ALLOWED_ORIGINS.get_or_init(|| {
+        let from_env = env::var("NC_STELLAR_DEMO_ALLOWED_ORIGINS")
+            .ok()
+            .map(|raw| {
+                raw.split(',')
+                    .filter_map(normalize_origin)
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+
+        if !from_env.is_empty() {
+            return from_env;
+        }
+
+        vec![
+            "https://stellarzerolab.art".to_string(),
+            "https://www.stellarzerolab.art".to_string(),
+        ]
+    })
+}
+
+fn origin_allowed(headers: &HeaderMap) -> bool {
+    let allowlist = allowed_origins();
+    if allowlist.iter().any(|v| v == "*") {
+        return true;
+    }
+
+    let provided = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .and_then(normalize_origin);
+
+    // Browser WS includes Origin. For non-browser clients, missing origin is allowed.
+    let Some(origin) = provided else {
+        return true;
+    };
+
+    allowlist.iter().any(|allowed| allowed == &origin)
 }
 
 fn parse_bool_value(raw: &str) -> Option<bool> {
@@ -183,6 +233,8 @@ async fn handle_stellar_repl_socket(mut socket: WebSocket, state: Arc<AppState>,
     if debug {
         cmd.arg("--debug");
     }
+    cmd.env_remove("NO_COLOR");
+    cmd.env("CLICOLOR_FORCE", "1");
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -310,6 +362,10 @@ async fn api_stellar_repl_ws(
     Query(req): Query<StellarReplWsReq>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    if !origin_allowed(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
     if let Some(required) = required_api_key() {
         let ok = provided_api_key(&headers)
             .map(|got| secure_eq(got, required))
@@ -379,6 +435,7 @@ async fn main() {
         "NeuroChain Stellar demo server listening on http://{addr} (demo_flow={})",
         if allow_flow { "on" } else { "off" }
     );
+    println!("Allowed WS origins: {}", allowed_origins().join(", "));
 
     axum::serve(listener, app).await.expect("serve demo server");
 }
