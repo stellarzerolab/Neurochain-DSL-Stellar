@@ -108,6 +108,7 @@ If you build in both PowerShell and WSL, you need to clean in both environments.
 ## Documentation
 
 - `docs/getting_started.md` — end-to-end: run scripts, CLI, server, tests
+- `docs/stellar_actions_guide.md` — NeuroChain Stellar technical reference
 - `docs/language.md` — DSL language guide (syntax + semantics)
 - `docs/macros.md` — MacroIntent (macro → DSL → run) + best practices
 - `docs/models.md` — AI models, labels, and multi-model scripts

@@ -223,6 +223,7 @@ These scripts act as end-to-end regression suites:
 
 ## 8) See also
 
+- `docs/stellar_actions_guide.md` – NeuroChain Stellar technical reference (deep guide)
 - `docs/language.md` – DSL syntax basics
 - `docs/macros.md` – MacroIntent (macro → DSL → run)
 - `docs/models.md` – AI models and `set x from AI:` usage

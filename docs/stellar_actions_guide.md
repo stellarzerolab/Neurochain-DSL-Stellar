@@ -1,6 +1,8 @@
 # NeuroChain Stellar — Stellar Actions Guide
 
-Tämä on **elävä käyttöohje** NeuroChain‑Stellarin CLI‑polulle. Päivitetään tätä dokumenttia aina, kun uusia actioneita, preview‑tietoja tai guardrailseja lisätään.
+Tämä tiedosto on **tekninen viite** NeuroChain‑Stellarin CLI‑polulle.
+
+Tätä dokumenttia pidetään edelleen ajan tasalla syväteknisenä viitteenä (edge caset, laajemmat esimerkit, parity-huomiot).
 
 ## Mikä tämä on?
 
@@ -8,7 +10,7 @@ Tämä on **elävä käyttöohje** NeuroChain‑Stellarin CLI‑polulle. Päivit
 
 **simulate → preview → confirm → submit**
 
-MVP‑vaiheessa tuettuja toimintoja:
+Nykyisessä toteutuksessa tuettuja toimintoja:
 
 - **FundTestnet** (Friendbot)
 - **BalanceQuery** (Horizon)
@@ -16,9 +18,8 @@ MVP‑vaiheessa tuettuja toimintoja:
 - **ChangeTrust** (stellar CLI)
 - **Payment** (stellar CLI, XLM + issued assets)
 - **TxStatus** (Horizon)
+- **Soroban deploy** (stellar CLI)
 - **Soroban invoke** (stellar CLI)
-
-Muut Classic‑actionit (payment/change_trust/create_account) ovat seuraavassa vaiheessa.
 
 ---
 
