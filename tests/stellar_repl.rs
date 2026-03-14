@@ -94,7 +94,7 @@ fn stellar_repl_help_and_exit_work() {
         .assert()
         .success()
         .stdout(contains("NeuroChain Stellar REPL"))
-        .stdout(contains("Soroban REPL quick start"))
+        .stdout(contains("Stellar REPL quick start"))
         .stdout(contains("help dsl"))
         .stdout(contains(
             "Toggle commands are listed in `help all` under Toggles (on/off).",
@@ -218,7 +218,7 @@ fn stellar_repl_supports_help_all_show_config_and_setup_testnet() {
     )
     .assert()
     .success()
-    .stdout(contains("Soroban REPL commands (all)"))
+    .stdout(contains("Stellar REPL commands (all)"))
     .stdout(contains("Current REPL config:"))
     .stdout(contains(
         "Applied testnet baseline (network+horizon+friendbot).",
@@ -242,7 +242,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert_contains_in_order(
         &stdout,
         &[
-            "Soroban REPL commands (all):",
+            "Stellar REPL commands (all):",
             "Core setup (value required):",
             "Toggles (on/off):",
             "Prompt/Action commands:",

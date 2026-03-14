@@ -3187,6 +3187,59 @@ fn print_repl_config(
     );
 }
 
+fn repl_enabled_toggles(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) -> String {
+    let mut toggles: Vec<&str> = Vec::new();
+    if cfg.txrep_preview {
+        toggles.push("txrep");
+    }
+    if allowlist_enforced(runtime.allowlist_enforce) {
+        toggles.push("allowlist_enforce");
+    }
+    if policy_enforced(runtime.contract_policy_enforce) {
+        toggles.push("contract_policy_enforce");
+    }
+    if debug {
+        toggles.push("debug");
+    }
+    if toggles.is_empty() {
+        "(none)".to_string()
+    } else {
+        toggles.join(", ")
+    }
+}
+
+fn print_repl_setup(
+    model_path: &str,
+    threshold: f32,
+    debug: bool,
+    cfg: &NetworkConfig,
+    runtime: &RuntimeSettings,
+    flow: bool,
+) {
+    println!("Current REPL setup:");
+    println!("- model: {model_path}");
+    println!("- intent_threshold: {threshold:.2}");
+    println!("- intent_debug: {}", if debug { "on" } else { "off" });
+    println!("- network: {}", cfg.soroban_network);
+    println!(
+        "- wallet/source: {}",
+        cfg.soroban_source.as_deref().unwrap_or("(not set)")
+    );
+    println!("- flow_mode: {}", if flow { "on" } else { "off" });
+    println!(
+        "- asset_allowlist: {}",
+        runtime
+            .allowlist_assets
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or("(env/default)")
+    );
+    println!(
+        "- enabled_toggles: {}",
+        repl_enabled_toggles(cfg, runtime, debug)
+    );
+}
+
 fn print_repl_active_settings(
     cfg: &NetworkConfig,
     runtime: &RuntimeSettings,
@@ -3259,9 +3312,9 @@ fn print_repl_current_asset_allowlist(runtime: &RuntimeSettings) -> bool {
     false
 }
 
-fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: bool) {
+fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debug: bool) {
     const HELP_COL_WIDTH: usize = 46;
-    println!("Soroban REPL quick start:");
+    println!("Stellar REPL quick start:");
     let quick_rows = [
         ("AI: \"models/intent_stellar/model.onnx\"", ""),
         ("network: testnet", ""),
@@ -3314,11 +3367,6 @@ fn print_repl_help_quick(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: 
         "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
     );
     println!("- restart with --no-flow if you want plan-only REPL");
-    println!();
-    println!("Enabled optional settings:");
-    if !print_repl_active_settings(cfg, runtime, debug, true) {
-        println!("- (none)");
-    }
 }
 
 fn print_repl_help_section(title: &str, rows: &[(&str, &str)]) {
@@ -3442,7 +3490,7 @@ fn print_repl_hint_line() {
 }
 
 fn print_repl_help_all() {
-    println!("Soroban REPL commands (all):");
+    println!("Stellar REPL commands (all):");
     println!();
 
     let core_setup = [
@@ -3643,20 +3691,14 @@ fn run_repl(
                 continue;
             }
             "show setup" => {
-                println!("Current REPL setup:");
-                println!("- model: {model_path}");
-                println!("- intent_threshold: {threshold:.2}");
-                println!("- intent_debug: {}", if debug { "on" } else { "off" });
-                println!("- network: {}", flow_cfg.soroban_network);
-                println!(
-                    "- wallet/source: {}",
-                    flow_cfg.soroban_source.as_deref().unwrap_or("(not set)")
+                print_repl_setup(
+                    &model_path,
+                    threshold,
+                    debug,
+                    &flow_cfg,
+                    &runtime_settings,
+                    flow,
                 );
-                println!("- flow_mode: {}", if flow { "on" } else { "off" });
-                println!("- enabled optional settings:");
-                if !print_repl_active_settings(&flow_cfg, &runtime_settings, debug, true) {
-                    println!("- (none)");
-                }
                 continue;
             }
             "show config" => {
@@ -3670,7 +3712,13 @@ fn run_repl(
                 horizon_from_env = false;
                 friendbot_from_env = false;
                 println!("Applied testnet baseline (network+horizon+friendbot).");
-                print_repl_config(&model_path, threshold, debug, &flow_cfg, &runtime_settings);
+                println!("- network: {}", flow_cfg.soroban_network);
+                println!("- horizon: {}", flow_cfg.horizon_url);
+                println!(
+                    "- friendbot: {}",
+                    flow_cfg.friendbot_url.as_deref().unwrap_or("(disabled)")
+                );
+                println!("Tip: run `show config` for full details.");
                 continue;
             }
             _ => {}
