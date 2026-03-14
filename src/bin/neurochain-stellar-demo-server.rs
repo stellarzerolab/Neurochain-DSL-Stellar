@@ -186,7 +186,7 @@ fn default_repl_bin_path() -> String {
 }
 
 fn ws_text_message(text: impl Into<String>) -> Message {
-    Message::Text(text.into().into())
+    Message::Text(text.into())
 }
 
 async fn stream_child_output<R>(mut reader: R, tx: mpsc::UnboundedSender<String>)
