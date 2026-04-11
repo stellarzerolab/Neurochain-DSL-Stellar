@@ -185,7 +185,7 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin(
-        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\ncontract_policy: contracts/demo/policy.json\n\ncontract_policy_dir: contracts\n\nallowlist_enforce\n\ncontract_policy_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\ncontract_policy_enforce off\n\nallowlist_enforce\n\nexit\n\n",
+        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nx402\n\nx402 off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\ncontract_policy: contracts/demo/policy.json\n\ncontract_policy_dir: contracts\n\nallowlist_enforce\n\ncontract_policy_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\ncontract_policy_enforce off\n\nallowlist_enforce\n\nexit\n\n",
     )
     .assert()
     .success()
@@ -196,6 +196,8 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     .stdout(contains("Soroban simulate flag set to: --send no"))
     .stdout(contains("Txrep preview: enabled"))
     .stdout(contains("Txrep preview: disabled"))
+    .stdout(contains("x402 mode: enabled"))
+    .stdout(contains("x402 mode: disabled"))
     .stdout(contains("Asset allowlist set to: XLM"))
     .stdout(contains("Soroban allowlist set to: CTEST:transfer"))
     .stdout(contains("Contract policy file: contracts/demo/policy.json"))
@@ -265,6 +267,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "generate key alias and friendbot-fund it",
     );
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
+    let x402_row = help_row("x402", "enable x402-lite flow commands");
     let enforce_row = help_row("allowlist_enforce", "enable allowlist enforce");
     let policy_row = help_row(
         "contract_policy: <path>",
@@ -288,6 +291,14 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "set <var> from AI: \"...\"",
         "predict with active model -> store variable",
     );
+    let x402_request_row = help_row(
+        "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
+        "create x402-lite payment challenge",
+    );
+    let x402_finalize_row = help_row(
+        "x402.finalize challenge_id=\"last\"",
+        "finalize challenge -> execute typed stellar_payment",
+    );
     let setup_row = help_row("show setup", "print active setup");
     let help_dsl_row = help_row("help dsl", "show normal NeuroChain DSL language help");
 
@@ -297,12 +308,15 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&wallet_generate_row));
     assert!(stdout.contains(&wallet_bootstrap_row));
     assert!(stdout.contains(&txrep_row));
+    assert!(stdout.contains(&x402_row));
     assert!(stdout.contains(&enforce_row));
     assert!(stdout.contains(&policy_row));
     assert!(stdout.contains(&policy_dir_row));
     assert!(stdout.contains(&policy_enforce_row));
     assert!(stdout.contains(&debug_row));
     assert!(stdout.contains(&set_var_row));
+    assert!(stdout.contains(&x402_request_row));
+    assert!(stdout.contains(&x402_finalize_row));
     assert!(stdout.contains(&intent_row));
     assert!(stdout.contains(&deploy_row));
     assert!(stdout.contains(&help_dsl_row));
@@ -325,12 +339,39 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(!core_section.contains("txrep"));
 
     assert!(toggle_section.contains("txrep"));
+    assert!(toggle_section.contains("x402"));
     assert!(toggle_section.contains("allowlist_enforce"));
     assert!(toggle_section.contains("contract_policy_enforce"));
     assert!(toggle_section.contains("debug"));
     assert!(!toggle_section.contains("intent_threshold: <f32>"));
 
     assert!(prompt_section.contains("set stellar intent from AI: \"...\""));
+    assert!(prompt_section.contains("x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\""));
+}
+
+#[test]
+fn stellar_repl_x402_request_finalize_and_replay_block_work() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .arg("--no-flow")
+        .write_stdin(
+            "x402\n\nx402.request to=\"GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\" amount=\"1\" asset_code=\"XLM\"\n\nx402.finalize challenge_id=\"last\"\n\nx402.finalize challenge_id=\"last\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl x402 lite flow");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("x402 mode: enabled"));
+    assert!(combined.contains("x402 challenge created: x402c0001"));
+    assert!(combined.contains("x402 finalize: challenge `x402c0001`"));
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+    assert!(combined.contains("x402 finalize blocked: challenge `x402c0001` already finalized"));
 }
 
 #[test]

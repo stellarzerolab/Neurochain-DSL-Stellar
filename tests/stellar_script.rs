@@ -1107,3 +1107,94 @@ set mood from AI: "This is wonderful!"
 
     let _ = fs::remove_file(tmp);
 }
+
+#[test]
+fn nc_script_x402_request_and_finalize_adds_typed_payment_action() {
+    let tmp = std::env::temp_dir().join("nc_script_x402_finalize_ok.nc");
+    let script = r#"
+x402
+x402.request to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" amount="1" asset_code="XLM"
+x402.finalize challenge_id="last"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar x402 script");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("x402 challenge created: x402c0001"));
+    assert!(combined.contains("x402 finalize queued: challenge x402c0001"));
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+    assert!(combined.contains("\"asset_code\": \"XLM\""));
+    assert!(combined.contains("- x402: on"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_x402_replay_finalize_is_blocked() {
+    let tmp = std::env::temp_dir().join("nc_script_x402_finalize_replay_block.nc");
+    let script = r#"
+x402
+x402.request to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" amount="1" asset_code="XLM"
+x402.finalize challenge_id="last"
+x402.finalize challenge_id="last"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar x402 replay script");
+
+    assert_eq!(output.status.code(), Some(1));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("x402 finalize blocked: challenge `x402c0001` already finalized"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn example_dorahacks_x402_lite_flow_builds_payment_action() {
+    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("_private")
+        .join("dorahacks_x402_lite_flow.nc");
+    if !script_path.exists() {
+        eprintln!("skipping test; missing example: {}", script_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(script_path.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar x402 example");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("dorahacks_x402_lite_flow.nc"));
+    assert!(combined.contains("x402 challenge created: x402c0001"));
+    assert!(combined.contains("x402 finalize queued: challenge x402c0001"));
+    assert!(combined.contains("\"kind\": \"stellar_payment\""));
+}

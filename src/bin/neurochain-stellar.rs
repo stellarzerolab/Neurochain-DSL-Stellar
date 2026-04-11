@@ -31,7 +31,7 @@ fn print_usage() {
         "Manual .nc lines can start with 'stellar.' or 'soroban.' (comment lines are ignored)."
     );
     eprintln!(
-        ".nc files also support: AI/network/wallet + txrep/horizon/friendbot/stellar_cli/simulate_flag/intent_threshold."
+        ".nc files also support: AI/network/wallet + txrep/x402/horizon/friendbot/stellar_cli/simulate_flag/intent_threshold."
     );
     eprintln!("Run `help` in REPL to see all in-CLI/.nc config commands (env equivalents).");
     eprintln!("--intent-text enables IntentStellar -> ActionPlan mode.");
@@ -199,6 +199,13 @@ fn policy_enforced(override_value: Option<bool>) -> bool {
         .unwrap_or(false)
 }
 
+fn x402_enabled(override_value: Option<bool>) -> bool {
+    if let Some(value) = override_value {
+        return value;
+    }
+    parse_bool_value(&std::env::var("NC_X402").unwrap_or_default()).unwrap_or(false)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ArgSchema {
     #[serde(default)]
@@ -246,6 +253,7 @@ struct RuntimeSettings {
     contract_policy: Option<String>,
     contract_policy_dir: Option<String>,
     contract_policy_enforce: Option<bool>,
+    x402: Option<bool>,
 }
 
 impl RuntimeSettings {
@@ -280,6 +288,7 @@ fn runtime_settings_from_env() -> RuntimeSettings {
         contract_policy_enforce: parse_bool_value(
             &env::var("NC_CONTRACT_POLICY_ENFORCE").unwrap_or_default(),
         ),
+        x402: parse_bool_value(&env::var("NC_X402").unwrap_or_default()),
     }
 }
 
@@ -2190,6 +2199,223 @@ fn parse_debug_line(line: &str) -> Result<Option<bool>> {
         .ok_or_else(|| anyhow!("invalid debug value `{value}` (use on/off/true/false)"))
 }
 
+fn parse_x402_line(line: &str) -> Result<Option<bool>> {
+    if line.trim().eq_ignore_ascii_case("x402") {
+        return Ok(Some(true));
+    }
+    let Some(value) = parse_named_value(line, &["x402"]) else {
+        return Ok(None);
+    };
+    parse_bool_value(&value)
+        .map(Some)
+        .ok_or_else(|| anyhow!("invalid x402 value `{value}` (use x402, x402 on, x402 off)"))
+}
+
+fn parse_key_value_tokens(raw: &str) -> Result<HashMap<String, String>> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+
+    for ch in raw.chars() {
+        if let Some(active_quote) = quote {
+            current.push(ch);
+            if ch == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            current.push(ch);
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(current.clone());
+                current.clear();
+            }
+            continue;
+        }
+        current.push(ch);
+    }
+    if quote.is_some() {
+        return Err(anyhow!("unterminated quoted value in x402 command"));
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    let mut out = HashMap::new();
+    for token in tokens {
+        let Some((name, value_raw)) = token.split_once('=') else {
+            return Err(anyhow!(
+                "invalid x402 argument `{token}` (use key=\"value\")"
+            ));
+        };
+        let name = name.trim().to_ascii_lowercase();
+        if name.is_empty() {
+            return Err(anyhow!("invalid x402 argument key in `{token}`"));
+        }
+        let value = strip_wrapping_quotes(value_raw);
+        if value.is_empty() {
+            return Err(anyhow!("invalid x402 argument `{name}`: empty value"));
+        }
+        out.insert(name, value);
+    }
+    Ok(out)
+}
+
+fn parse_x402_request_line(line: &str) -> Result<Option<Action>> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let mut rest: Option<&str> = None;
+    for prefix in ["x402.request", "x402 request"] {
+        if lower.starts_with(prefix) {
+            rest = Some(trimmed[prefix.len()..].trim_start());
+            break;
+        }
+    }
+    let Some(rest) = rest else {
+        return Ok(None);
+    };
+    if rest.is_empty() {
+        return Err(anyhow!(
+            "x402.request requires payment fields (example: x402.request to=\"G...\" amount=\"1\" asset_code=\"XLM\")"
+        ));
+    }
+    let args = parse_key_value_tokens(rest)?;
+    let to = args
+        .get("to")
+        .cloned()
+        .ok_or_else(|| anyhow!("x402.request missing required field: to"))?;
+    let amount = args
+        .get("amount")
+        .cloned()
+        .ok_or_else(|| anyhow!("x402.request missing required field: amount"))?;
+    let mut asset_code = args
+        .get("asset_code")
+        .cloned()
+        .or_else(|| args.get("asset").cloned())
+        .ok_or_else(|| anyhow!("x402.request missing required field: asset_code (or asset)"))?;
+    let mut asset_issuer = args
+        .get("asset_issuer")
+        .cloned()
+        .or_else(|| args.get("issuer").cloned());
+    if !asset_code.eq_ignore_ascii_case("XLM") {
+        let parsed_code_and_issuer = asset_code
+            .split_once(':')
+            .map(|(code, issuer)| (code.trim().to_string(), issuer.trim().to_string()));
+        if let Some((code, issuer)) = parsed_code_and_issuer {
+            if !code.is_empty() && !issuer.is_empty() {
+                asset_code = code;
+                if asset_issuer.is_none() {
+                    asset_issuer = Some(issuer);
+                }
+            }
+        }
+    } else {
+        asset_issuer = None;
+    }
+    Ok(Some(Action::StellarPayment {
+        to,
+        amount,
+        asset_code,
+        asset_issuer,
+    }))
+}
+
+fn parse_x402_finalize_line(line: &str) -> Result<Option<String>> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let mut rest: Option<&str> = None;
+    for prefix in ["x402.finalize", "x402 finalize"] {
+        if lower.starts_with(prefix) {
+            rest = Some(trimmed[prefix.len()..].trim_start());
+            break;
+        }
+    }
+    let Some(rest) = rest else {
+        return Ok(None);
+    };
+    if rest.is_empty() {
+        return Ok(Some("last".to_string()));
+    }
+    if rest.eq_ignore_ascii_case("last") {
+        return Ok(Some("last".to_string()));
+    }
+    let args = parse_key_value_tokens(rest)?;
+    if let Some(challenge_id) = args
+        .get("challenge_id")
+        .cloned()
+        .or_else(|| args.get("id").cloned())
+    {
+        return Ok(Some(challenge_id));
+    }
+    Err(anyhow!(
+        "invalid x402.finalize syntax (use x402.finalize challenge_id=\"last\" or challenge_id=\"x402c0001\")"
+    ))
+}
+
+#[derive(Debug, Clone)]
+struct X402Challenge {
+    payment: Action,
+    finalized: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct X402State {
+    next_id: u64,
+    last_challenge_id: Option<String>,
+    challenges: HashMap<String, X402Challenge>,
+}
+
+impl X402State {
+    fn create_challenge(&mut self, payment: Action) -> String {
+        self.next_id += 1;
+        let challenge_id = format!("x402c{:04}", self.next_id);
+        self.challenges.insert(
+            challenge_id.clone(),
+            X402Challenge {
+                payment,
+                finalized: false,
+            },
+        );
+        self.last_challenge_id = Some(challenge_id.clone());
+        challenge_id
+    }
+
+    fn resolve_challenge_id(&self, requested: &str) -> Option<String> {
+        if requested.eq_ignore_ascii_case("last") {
+            self.last_challenge_id.clone()
+        } else if self.challenges.contains_key(requested) {
+            Some(requested.to_string())
+        } else {
+            None
+        }
+    }
+}
+
+fn describe_stellar_payment(action: &Action) -> Option<String> {
+    match action {
+        Action::StellarPayment {
+            to,
+            amount,
+            asset_code,
+            asset_issuer,
+        } => {
+            let asset = if asset_code.eq_ignore_ascii_case("XLM") {
+                "XLM".to_string()
+            } else if let Some(issuer) = asset_issuer.as_deref() {
+                format!("{asset_code}:{issuer}")
+            } else {
+                asset_code.to_string()
+            };
+            Some(format!("{amount} {asset} -> {to}"))
+        }
+        _ => None,
+    }
+}
+
 fn parse_set_from_ai_assignment(line: &str) -> Option<(String, String)> {
     let trimmed = line.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -2478,6 +2704,7 @@ struct ScriptBuildContext {
     plan: ActionPlan,
     intent_mode: bool,
     debug: bool,
+    x402_state: X402State,
 }
 
 impl ScriptBuildContext {
@@ -2501,6 +2728,7 @@ impl ScriptBuildContext {
             plan: ActionPlan::default(),
             intent_mode: false,
             debug,
+            x402_state: X402State::default(),
         }
     }
 
@@ -2632,6 +2860,53 @@ impl ScriptBuildContext {
 
         if let Some(debug) = parse_debug_line(line)? {
             self.debug = debug;
+            return Ok(());
+        }
+
+        if let Some(enabled) = parse_x402_line(line)? {
+            self.runtime_settings.x402 = Some(enabled);
+            return Ok(());
+        }
+
+        if let Some(payment) = parse_x402_request_line(line)? {
+            if !x402_enabled(self.runtime_settings.x402) {
+                return Err(anyhow!(
+                    "x402 is disabled; enable with `x402` before x402.request"
+                ));
+            }
+            let challenge_id = self.x402_state.create_challenge(payment);
+            self.plan
+                .warnings
+                .push(format!("x402 challenge created: {challenge_id}"));
+            return Ok(());
+        }
+
+        if let Some(requested_id) = parse_x402_finalize_line(line)? {
+            if !x402_enabled(self.runtime_settings.x402) {
+                return Err(anyhow!(
+                    "x402 is disabled; enable with `x402` before x402.finalize"
+                ));
+            }
+            let Some(challenge_id) = self.x402_state.resolve_challenge_id(&requested_id) else {
+                return Err(anyhow!(
+                    "x402 finalize failed: challenge `{requested_id}` not found"
+                ));
+            };
+            let Some(challenge) = self.x402_state.challenges.get_mut(&challenge_id) else {
+                return Err(anyhow!(
+                    "x402 finalize failed: challenge `{challenge_id}` not found"
+                ));
+            };
+            if challenge.finalized {
+                return Err(anyhow!(
+                    "x402 finalize blocked: challenge `{challenge_id}` already finalized (replay blocked)"
+                ));
+            }
+            self.plan.actions.push(challenge.payment.clone());
+            challenge.finalized = true;
+            self.plan
+                .warnings
+                .push(format!("x402 finalize queued: challenge {challenge_id}"));
             return Ok(());
         }
 
@@ -3138,6 +3413,14 @@ fn print_repl_config(
         if cfg.txrep_preview { "on" } else { "off" }
     );
     println!(
+        "- x402: {}",
+        if x402_enabled(runtime.x402) {
+            "on"
+        } else {
+            "off"
+        }
+    );
+    println!(
         "- asset_allowlist: {}",
         runtime
             .allowlist_assets
@@ -3197,6 +3480,9 @@ fn repl_enabled_toggles(cfg: &NetworkConfig, runtime: &RuntimeSettings, debug: b
     }
     if policy_enforced(runtime.contract_policy_enforce) {
         toggles.push("contract_policy_enforce");
+    }
+    if x402_enabled(runtime.x402) {
+        toggles.push("x402");
     }
     if debug {
         toggles.push("debug");
@@ -3293,6 +3579,10 @@ fn print_repl_active_settings(
         println!("- contract_policy_enforce");
         any = true;
     }
+    if x402_enabled(runtime.x402) {
+        println!("- x402");
+        any = true;
+    }
     if debug {
         println!("- debug");
         any = true;
@@ -3332,9 +3622,18 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
             "(change allowed assets; default startup is XLM)",
         ),
         ("txrep", "(optional preview on)"),
+        ("x402", "(optional x402-lite mode on)"),
         ("allowlist_enforce", "(optional hard-fail on allowlist)"),
         ("contract_policy: <path>", "(optional policy file)"),
         ("contract_policy_enforce", "(optional hard-fail on policy)"),
+        (
+            "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
+            "(create x402-lite challenge)",
+        ),
+        (
+            "x402.finalize challenge_id=\"last\"",
+            "(finalize latest challenge -> typed payment plan)",
+        ),
         ("debug", "(optional intent trace on)"),
         (
             "set <var> from AI: \"...\"",
@@ -3472,6 +3771,14 @@ fn print_script_setup(
                 "off"
             }
         );
+        eprintln!(
+            "- x402: {}",
+            if x402_enabled(runtime.x402) {
+                "on"
+            } else {
+                "off"
+            }
+        );
     }
     print_script_divider_stderr();
 }
@@ -3545,6 +3852,8 @@ fn print_repl_help_all() {
     let toggles = [
         ("txrep", "enable txrep preview in flow"),
         ("txrep off", "disable txrep preview in flow"),
+        ("x402", "enable x402-lite flow commands"),
+        ("x402 off", "disable x402-lite flow commands"),
         ("allowlist_enforce", "enable allowlist enforce"),
         ("allowlist_enforce off", "disable allowlist enforce"),
         ("contract_policy_enforce", "enable contract policy enforce"),
@@ -3569,6 +3878,14 @@ fn print_repl_help_all() {
         (
             "soroban.contract.deploy alias=\"...\" wasm=\"...\"",
             "manual deploy action",
+        ),
+        (
+            "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
+            "create x402-lite payment challenge",
+        ),
+        (
+            "x402.finalize challenge_id=\"last\"",
+            "finalize challenge -> execute typed stellar_payment",
         ),
         (
             "macro from AI: \"...\"",
@@ -3624,6 +3941,7 @@ fn run_repl(
     if runtime_settings.allowlist_assets.is_none() {
         runtime_settings.allowlist_assets = Some("XLM".to_string());
     }
+    let mut x402_state = X402State::default();
 
     println!("NeuroChain Stellar REPL (intent -> action).");
     print_repl_divider();
@@ -3952,6 +4270,91 @@ fn run_repl(
                         "Intent debug trace: {}",
                         if enabled { "enabled" } else { "disabled" }
                     );
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            match parse_x402_line(&line) {
+                Ok(Some(enabled)) => {
+                    runtime_settings.x402 = Some(enabled);
+                    println!(
+                        "x402 mode: {}",
+                        if enabled { "enabled" } else { "disabled" }
+                    );
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            match parse_x402_request_line(&line) {
+                Ok(Some(payment)) => {
+                    if !x402_enabled(runtime_settings.x402) {
+                        eprintln!("x402 is disabled; run `x402` first.");
+                        continue;
+                    }
+                    let payment_desc = describe_stellar_payment(&payment)
+                        .unwrap_or_else(|| "stellar payment".to_string());
+                    let challenge_id = x402_state.create_challenge(payment);
+                    println!("x402 challenge created: {challenge_id}");
+                    println!("- payment: {payment_desc}");
+                    println!("- finalize with: x402.finalize challenge_id=\"{challenge_id}\"");
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            match parse_x402_finalize_line(&line) {
+                Ok(Some(requested_id)) => {
+                    if !x402_enabled(runtime_settings.x402) {
+                        eprintln!("x402 is disabled; run `x402` first.");
+                        continue;
+                    }
+                    let Some(challenge_id) = x402_state.resolve_challenge_id(&requested_id) else {
+                        eprintln!("x402 finalize failed: challenge `{requested_id}` not found");
+                        continue;
+                    };
+                    let Some(challenge) = x402_state.challenges.get(&challenge_id) else {
+                        eprintln!("x402 finalize failed: challenge `{challenge_id}` not found");
+                        continue;
+                    };
+                    if challenge.finalized {
+                        eprintln!(
+                            "x402 finalize blocked: challenge `{challenge_id}` already finalized (replay blocked)"
+                        );
+                        continue;
+                    }
+                    let mut plan = ActionPlan::default();
+                    plan.source = Some("repl.x402.finalize".to_string());
+                    plan.actions.push(challenge.payment.clone());
+                    println!("x402 finalize: challenge `{challenge_id}`");
+                    let code = execute_plan(
+                        plan,
+                        flow,
+                        auto_yes,
+                        false,
+                        Some(&flow_cfg),
+                        Some(&runtime_settings),
+                        debug,
+                    );
+                    if code != 0 {
+                        eprintln!("repl step returned code {code}");
+                    } else if let Some(challenge_mut) = x402_state.challenges.get_mut(&challenge_id)
+                    {
+                        challenge_mut.finalized = true;
+                    }
                     continue;
                 }
                 Ok(None) => {}
