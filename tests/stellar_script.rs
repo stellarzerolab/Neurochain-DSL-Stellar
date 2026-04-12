@@ -865,7 +865,7 @@ fn nc_script_policy_settings_can_enforce_without_env() {
 
     let tmp = std::env::temp_dir().join("nc_script_policy_settings_enforce.nc");
     let script = format!(
-        "contract_policy: {}\ncontract_policy_enforce\nAI: \"models/intent_stellar/model.onnx\"\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello\"\n",
+        "contract_policy: {}\ncontract_policy_enforce\nsoroban.contract.invoke contract_id=\"CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\" function=\"hello\"\n",
         policy_path.to_string_lossy()
     );
     fs::write(&tmp, script).expect("write temp nc script");
@@ -873,8 +873,6 @@ fn nc_script_policy_settings_can_enforce_without_env() {
     let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_string_lossy().to_string())
-        .arg("--intent-threshold")
-        .arg("0.00")
         .output()
         .expect("run neurochain-stellar script mode with policy settings");
 
