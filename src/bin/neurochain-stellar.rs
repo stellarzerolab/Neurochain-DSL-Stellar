@@ -1134,6 +1134,19 @@ fn bootstrap_wallet_alias(cfg: &NetworkConfig, alias: &str) -> Result<(String, S
     Ok((public_key, fund_msg))
 }
 
+fn resolve_horizon_account_from_source(cfg: &NetworkConfig, source: &str) -> Option<String> {
+    let source = source.trim();
+    if source.is_empty() {
+        return None;
+    }
+    if source.starts_with('G') && is_strkey(source) {
+        return Some(source.to_string());
+    }
+
+    let addr_output = run_stellar_cli_capture(cfg, &["keys", "address", source]).ok()?;
+    extract_strkey_with_prefixes(&addr_output, &['G'])
+}
+
 fn stellar_tx_new(cfg: &NetworkConfig, args: &[String]) -> Result<String> {
     let source = cfg
         .soroban_source
@@ -1742,10 +1755,14 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                         let mut tx_hash = extract_tx_hash(&output);
                         if tx_hash.is_none() {
                             if let Some(source) = cfg.soroban_source.as_deref() {
-                                if let Ok(latest) =
-                                    fetch_latest_tx_hash(&client, &cfg.horizon_url, source)
+                                if let Some(account) =
+                                    resolve_horizon_account_from_source(cfg, source)
                                 {
-                                    tx_hash = Some(latest);
+                                    if let Ok(latest) =
+                                        fetch_latest_tx_hash(&client, &cfg.horizon_url, &account)
+                                    {
+                                        tx_hash = Some(latest);
+                                    }
                                 }
                             }
                         }
@@ -1775,11 +1792,14 @@ fn submit_plan(plan: &ActionPlan, cfg: &NetworkConfig) -> Vec<String> {
                     let mut note = None;
                     if hash.is_none() {
                         if let Some(source) = cfg.soroban_source.as_deref() {
-                            if let Ok(latest) =
-                                fetch_latest_tx_hash(&client, &cfg.horizon_url, source)
+                            if let Some(account) = resolve_horizon_account_from_source(cfg, source)
                             {
-                                hash = Some(latest);
-                                note = Some("latest");
+                                if let Ok(latest) =
+                                    fetch_latest_tx_hash(&client, &cfg.horizon_url, &account)
+                                {
+                                    hash = Some(latest);
+                                    note = Some("latest");
+                                }
                             }
                         }
                     }
@@ -4336,9 +4356,11 @@ fn run_repl(
                         );
                         continue;
                     }
-                    let mut plan = ActionPlan::default();
-                    plan.source = Some("repl.x402.finalize".to_string());
-                    plan.actions.push(challenge.payment.clone());
+                    let plan = ActionPlan {
+                        source: Some("repl.x402.finalize".to_string()),
+                        actions: vec![challenge.payment.clone()],
+                        ..ActionPlan::default()
+                    };
                     println!("x402 finalize: challenge `{challenge_id}`");
                     let code = execute_plan(
                         plan,

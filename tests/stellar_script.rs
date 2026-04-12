@@ -79,6 +79,74 @@ fn spawn_friendbot_server() -> (String, Arc<AtomicBool>) {
     (format!("http://{}/friendbot", addr), seen_friendbot)
 }
 
+fn create_fake_stellar_cli_with_soroban_invoke() -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir for fake stellar cli");
+    #[cfg(windows)]
+    let cli_path = dir.path().join("stellar.cmd");
+    #[cfg(not(windows))]
+    let cli_path = dir.path().join("stellar");
+
+    #[cfg(windows)]
+    let script = "@echo off\r\nif \"%1\"==\"keys\" if \"%2\"==\"address\" (echo GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX& exit /b 0)\r\nif \"%1\"==\"contract\" if \"%2\"==\"invoke\" (echo [\"Hello\",\"World\"]& exit /b 0)\r\necho unexpected args %* 1>&2\r\nexit /b 1\r\n";
+    #[cfg(not(windows))]
+    let script = "#!/usr/bin/env sh\nif [ \"$1\" = \"keys\" ] && [ \"$2\" = \"address\" ]; then\n  echo \"GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX\"\n  exit 0\nfi\nif [ \"$1\" = \"contract\" ] && [ \"$2\" = \"invoke\" ]; then\n  echo '[\"Hello\",\"World\"]'\n  exit 0\nfi\necho \"unexpected args: $@\" >&2\nexit 1\n";
+
+    fs::write(&cli_path, script).expect("write fake stellar cli");
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&cli_path)
+            .expect("metadata for fake stellar cli")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cli_path, perms).expect("chmod fake stellar cli");
+    }
+
+    (dir, cli_path)
+}
+
+fn spawn_horizon_tx_server(expected_account: &str, tx_hash: &str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind horizon test server");
+    let addr = listener
+        .local_addr()
+        .expect("horizon test server local addr");
+    let expected_prefix = format!("/accounts/{expected_account}/transactions");
+    let body_ok = format!(r#"{{"_embedded":{{"records":[{{"hash":"{tx_hash}"}}]}}}}"#);
+
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut buf = [0u8; 2048];
+            let n = match stream.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if n == 0 {
+                continue;
+            }
+            let req = String::from_utf8_lossy(&buf[..n]);
+            let path = req
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+
+            let (status, body) = if path.starts_with(&expected_prefix) {
+                ("200 OK", body_ok.as_str())
+            } else {
+                ("404 Not Found", r#"{"error":"not found"}"#)
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    format!("http://{addr}")
+}
+
 #[test]
 fn nc_script_supports_ai_network_wallet_and_intent_lines() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -189,6 +257,46 @@ fn nc_script_wallet_bootstrap_sets_wallet_source_and_calls_friendbot() {
         seen_friendbot.load(Ordering::SeqCst),
         "expected wallet_bootstrap to call friendbot endpoint"
     );
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_soroban_submit_resolves_alias_for_latest_hash_fallback() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli_with_soroban_invoke();
+    let tx_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let horizon_url = spawn_horizon_tx_server(account, tx_hash);
+
+    let tmp = std::env::temp_dir().join("nc_script_soroban_submit_latest_hash_from_alias.nc");
+    let script = format!(
+        "stellar_cli: \"{}\"\nhorizon: \"{}\"\nnetwork: testnet\nwallet: nc-testnet\nsoroban.contract.invoke contract_id=\"CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\" function=\"hello\" args={{\"to\":\"World\"}}\n",
+        fake_cli.to_string_lossy(),
+        horizon_url
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .arg("--flow")
+        .arg("--yes")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Submit results:"));
+    assert!(combined.contains(
+        "soroban submit CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ:hello | status=ok"
+    ));
+    assert!(combined.contains(&format!("tx_hash={tx_hash}")));
+    assert!(combined.contains("return=[\"Hello\",\"World\"] (latest)"));
 
     let _ = fs::remove_file(tmp);
 }
