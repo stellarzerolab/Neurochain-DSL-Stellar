@@ -78,7 +78,7 @@ if cmd == "StopCommand":
     neuro "Stopping process"
 ```
 
-### IntentStellar (Stellar/Soroban intent)
+### IntentStellar (Stellar intent)
 - Path: `models/intent_stellar/model.onnx`
 - Labels: `BalanceQuery`, `CreateAccount`, `ChangeTrust`, `TransferXLM`, `TransferAsset`, `FundTestnet`, `TxStatus`, `ContractInvoke`, `Unknown`
 - Training data: in-house dataset created for NeuroChain (not distributed)

@@ -24,7 +24,7 @@ cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
 
 Note: `cargo test` includes AI model smoke tests (`src/ai/model/tests.rs`). These tests auto-skip if the referenced ONNX files are missing (useful if you clone without `models/`). For end-to-end validation, run the example scripts that load models (see `docs/getting_started.md` and `examples/`).
 
-Runtime safety note (Stellar/Soroban path): in addition to toolchain checks, `neurochain-stellar` enforces runtime guardrails (allowlist, contract policy, intent safety). Typed policy mismatches for Soroban invoke args (`address` / `bytes` / `symbol` / `u64`) are treated as `slot_type_error -> Unknown -> safe no-submit` in intent mode (blocked flow / API plan execution path).
+Runtime safety note (Stellar path): in addition to toolchain checks, `neurochain-stellar` enforces runtime guardrails (allowlist, contract policy, intent safety). Typed policy mismatches for Soroban invoke args (`address` / `bytes` / `symbol` / `u64`) are treated as `slot_type_error -> Unknown -> safe no-submit` in intent mode (blocked flow / API plan execution path).
 
 RustSec note: `RUSTSEC-2026-0097` is currently transitive (`rand 0.8.5` via `tokenizers`/`tract`/`axum` stack) and is tracked in the ignore list until upstream-compatible updates are available.
 

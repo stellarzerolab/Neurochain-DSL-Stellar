@@ -1,4 +1,4 @@
-# IntentStellar (Stellar/Soroban intent)
+# IntentStellar (Stellar intent)
 
 Expected files after downloading the Stellar model pack:
 

@@ -6,7 +6,7 @@ If you just want end-to-end runnable scripts, start here:
 - `docs/getting_started.md`
 - `docs/macros.md`
 - `docs/models.md`
-- Stellar/Soroban actions: `docs/stellar_actions_guide.md`
+- Stellar actions: `docs/stellar_actions_guide.md`
 
 ## Quick cheat sheet
 

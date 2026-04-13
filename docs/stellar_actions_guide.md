@@ -28,7 +28,7 @@ Currently supported actions:
 ### Required Tools
 
 - Rust + Cargo
-- `stellar` CLI for Stellar/Soroban commands
+- `stellar` CLI for Stellar commands
 
 ### Cargo Argument Syntax
 
