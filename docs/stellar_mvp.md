@@ -1,7 +1,7 @@
 # Stellar MVP (NeuroChain DSL -> Stellar Actions)
 
 This document is a **step-by-step execution plan** for the Stellar MVP.
-It distills the core ideas from `docs/soroban_integration.md` into a concrete build order.
+It distills the current Stellar action path into a concrete build order. For the maintained technical reference, see `docs/stellar_actions_guide.md`.
 
 ## MVP goal (1 sentence)
 

@@ -685,21 +685,24 @@ For the receiver step, set `NC_SOROBAN_SOURCE=<receiver-alias>` and keep only th
 
 For the sender step, set `NC_SOROBAN_SOURCE=<sender-alias>` and keep only the payment line active.
 
-You can also use separate files:
+Use the tracked TESTUSD examples instead of non-public USDC placeholders:
 
-- `examples/stellar_usdc_trustline.nc` -> receiver
-- `examples/stellar_usdc_payment.nc` -> sender
+- `examples/stellar_testasset_trustline.nc` -> receiver trustline
+- `examples/stellar_testasset_issue.nc` -> issuer funds the distribution account
+- `examples/stellar_testasset_payment.nc` -> distribution account sends TESTUSD
+- `examples/stellar_testasset_user_trustline.nc` -> end-user trustline
+- `examples/stellar_testasset_user_payment.nc` -> end-user TESTUSD payment
 
 Usage commands:
 
 ```powershell
 # Receiver trustline
 $env:NC_SOROBAN_SOURCE="nc-new"
-cargo run --bin neurochain-stellar -- examples\stellar_usdc_trustline.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_trustline.nc --flow
 
-# Sender USDC payment
+# Sender TESTUSD payment
 $env:NC_SOROBAN_SOURCE="nc-testnet"
-cargo run --bin neurochain-stellar -- examples\stellar_usdc_payment.nc --flow
+cargo run --bin neurochain-stellar -- examples\stellar_testasset_payment.nc --flow
 ```
 
 Test-asset flow with your own issuer:
