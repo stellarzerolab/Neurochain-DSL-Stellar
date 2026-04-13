@@ -24,8 +24,14 @@ if [[ -z "${url}" || "${url}" == *"<OWNER>"* || "${url}" == *"<REPO>"* ]]; then
   exit 1
 fi
 
+if [[ -z "${sha256}" || "${sha256}" == "TODO" ]]; then
+  echo "ERROR: models_zip_sha256 is not set in ${manifest}."
+  echo "Publish the Stellar model pack release asset, compute its SHA256, and update the manifest."
+  exit 1
+fi
+
 tmp_dir="$(mktemp -d)"
-zip_path="${tmp_dir}/neurochain-models.zip"
+zip_path="${tmp_dir}/neurochain-stellar-models.zip"
 sha256sums_path="${tmp_dir}/SHA256SUMS"
 sha256sig_path="${tmp_dir}/SHA256SUMS.sig"
 sha256pem_path="${tmp_dir}/SHA256SUMS.pem"
@@ -62,11 +68,6 @@ sha256_file() {
 echo "Downloading model pack..."
 echo "  url: ${url}"
 download_file "${url}" "${zip_path}"
-
-if [[ -z "${sha256}" || "${sha256}" == "TODO" ]]; then
-  echo "ERROR: models_zip_sha256 is not set in ${manifest}."
-  exit 1
-fi
 
 echo "Verifying SHA256 (manifest)..."
 if ! got="$(sha256_file "${zip_path}")"; then
@@ -169,6 +170,7 @@ required=(
   "models/toxic_quantized/model.onnx"
   "models/factcheck/model.onnx"
   "models/intent/model.onnx"
+  "models/intent_stellar/model.onnx"
 )
 
 for f in "${required[@]}"; do

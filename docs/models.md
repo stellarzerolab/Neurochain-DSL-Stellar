@@ -93,9 +93,9 @@ if intent == "TransferXLM":
 Quick smoke test:
 
 ```bash
-cargo run --bin neurochain -- examples/intent_stellar_smoke.nc
+cargo run --bin neurochain-stellar -- examples/intent_stellar_smoke.nc
 # or (faster runtime)
-cargo run --release --bin neurochain -- examples/intent_stellar_smoke.nc
+cargo run --release --bin neurochain-stellar -- examples/intent_stellar_smoke.nc
 ```
 
 ### MacroIntent (macro intent classification)
@@ -136,12 +136,12 @@ Note: the model directory must also contain `tokenizer.json` (NeuroChain uses it
 
 ## Maintainers: publish the model pack (GitHub Releases)
 
-This repo keeps model binaries out of Git. The recommended distribution is a GitHub Release asset zip.
+This repo keeps model binaries out of Git. The recommended distribution is one atomic Stellar GitHub Release asset zip.
 
 Checklist:
 
-1) Create `neurochain-models-<version>.zip` with a top-level `models/` directory.
-2) Include model folders (ONNX + tokenizers, and any config/labels you ship).
+1) Create `neurochain-stellar-models-<version>.zip` with a top-level `models/` directory.
+2) Include the base model folders plus `models/intent_stellar/` (ONNX + tokenizers, and any config/labels you ship).
 3) Include `models/LICENSE` and `models/THIRD_PARTY_NOTICES.md` in the zip (so offline users keep the notices).
 4) Exclude `models/manifest.json` from the zip (to avoid overwriting local manifests on extract).
 5) Compute SHA256 for the zip and update `models/manifest.json`:
@@ -159,7 +159,7 @@ They also require signed release checksums (`SHA256SUMS` + `SHA256SUMS.sig` + `S
 
 For manual verification, download these release assets into the **same folder**:
 
-- `neurochain-models-<version>.zip`
+- `neurochain-stellar-models-<version>.zip`
 - `SHA256SUMS`
 - `SHA256SUMS.sig`
 - `SHA256SUMS.pem`
@@ -209,7 +209,7 @@ Linux / WSL:
 ```bash
 sha256sum -c SHA256SUMS
 # Or compute directly and compare to the release page / manifest:
-sha256sum neurochain-models-<version>.zip
+sha256sum neurochain-stellar-models-<version>.zip
 ```
 
 macOS:
@@ -217,14 +217,14 @@ macOS:
 ```bash
 shasum -a 256 -c SHA256SUMS
 # Or compute directly and compare to the release page / manifest:
-shasum -a 256 neurochain-models-<version>.zip
+shasum -a 256 neurochain-stellar-models-<version>.zip
 ```
 
 Windows PowerShell:
 
 ```powershell
-$expected = (Get-Content .\SHA256SUMS | Select-String 'neurochain-models-<version>.zip').ToString().Split()[0]
-$got = (Get-FileHash -Algorithm SHA256 .\neurochain-models-<version>.zip).Hash.ToLowerInvariant()
+$expected = (Get-Content .\SHA256SUMS | Select-String 'neurochain-stellar-models-<version>.zip').ToString().Split()[0]
+$got = (Get-FileHash -Algorithm SHA256 .\neurochain-stellar-models-<version>.zip).Hash.ToLowerInvariant()
 "expected=$expected"
 "got     =$got"
 if ($expected -eq $got) { "OK" } else { "MISMATCH" }

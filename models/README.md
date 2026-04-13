@@ -2,10 +2,12 @@
 
 NeuroChain loads ONNX models from `models/` by default (see `docs/models.md`).
 
-This repository intentionally does **not** commit the binary model files (they are large). Instead, the recommended distribution is:
+This repository intentionally does **not** commit the binary model files (they are large). Instead, the recommended distribution is one atomic Stellar model pack:
 
 - source code in Git
-- model pack as a GitHub Release asset (zip)
+- `neurochain-stellar-models-<version>.zip` as a GitHub Release asset
+
+The Stellar pack should contain the base NeuroChain models plus `models/intent_stellar/`.
 
 ## Licensing and attribution
 
@@ -31,7 +33,7 @@ The `models/manifest.json` file contains the URL + SHA256 for the model pack.
 - If the release includes `SHA256SUMS.sig` + `SHA256SUMS.pem`, you can also verify the signed checksums with cosign (recommended).
 - Commands and maintainer guidance: see `docs/models.md` (“Verify the download”).
 
-Another option is to download the model pack from the release page and extract the zip, then copy the `models/` folder into the repo root (same level as `Cargo.toml`), replacing the existing `models/` folder.
+Another option is to download the Stellar model pack from the release page and extract the zip, then copy the `models/` folder into the repo root (same level as `Cargo.toml`), replacing the existing `models/` folder.
 Release: https://github.com/stellarzerolab/Neurochain-DSL-Stellar/releases/tag/v0.1.0
 
 After downloading and extracting, you should have folders like:
@@ -42,6 +44,7 @@ models/toxic_quantized/model.onnx
 models/factcheck/model.onnx
 models/intent/model.onnx
 models/intent_macro/model.onnx
+models/intent_stellar/model.onnx
 ```
 
 ## Notes

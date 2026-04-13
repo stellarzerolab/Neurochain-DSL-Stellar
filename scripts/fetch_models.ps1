@@ -27,9 +27,13 @@ if ([string]::IsNullOrWhiteSpace($Url) -or $Url.Contains("<OWNER>") -or $Url.Con
   Fail "models_zip_url is not set. Edit $ManifestPath and point it to your GitHub Release asset URL."
 }
 
-$TempDir = Join-Path $env:TEMP ("neurochain-models-" + [guid]::NewGuid().ToString())
+if ([string]::IsNullOrWhiteSpace($Sha) -or $Sha -eq "TODO") {
+  Fail "models_zip_sha256 is not set in $ManifestPath. Publish the Stellar model pack release asset, compute its SHA256, and update the manifest."
+}
+
+$TempDir = Join-Path $env:TEMP ("neurochain-stellar-models-" + [guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
-$ZipPath = Join-Path $TempDir "neurochain-models.zip"
+$ZipPath = Join-Path $TempDir "neurochain-stellar-models.zip"
 $ShaSumsPath = Join-Path $TempDir "SHA256SUMS"
 $ShaSigPath = Join-Path $TempDir "SHA256SUMS.sig"
 $ShaPemPath = Join-Path $TempDir "SHA256SUMS.pem"
@@ -38,9 +42,6 @@ Write-Host "Downloading model pack..."
 Write-Host "  url: $Url"
 Invoke-WebRequest -Uri $Url -OutFile $ZipPath -UseBasicParsing
 
-if ([string]::IsNullOrWhiteSpace($Sha) -or $Sha -eq "TODO") {
-  Fail "models_zip_sha256 is not set in $ManifestPath."
-}
 Write-Host "Verifying SHA256 (manifest)..."
 $Got = (Get-FileHash -Algorithm SHA256 $ZipPath).Hash.ToLowerInvariant()
 $Expected = $Sha.ToLowerInvariant()
@@ -114,7 +115,8 @@ $Required = @(
   "models\distilbert-sst2\model.onnx",
   "models\toxic_quantized\model.onnx",
   "models\factcheck\model.onnx",
-  "models\intent\model.onnx"
+  "models\intent\model.onnx",
+  "models\intent_stellar\model.onnx"
 )
 
 foreach ($Rel in $Required) {

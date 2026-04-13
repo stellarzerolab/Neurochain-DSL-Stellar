@@ -51,11 +51,11 @@ Suggested reference (verify the exact dataset you used):
 
 If you redistribute this model pack, keep these notices and review the dataset terms you trained on.
 
-## intent / intent_macro (first-party fine-tunes)
+## intent / intent_macro / intent_stellar (first-party fine-tunes)
 
 These models are first-party fine-tunes, but they are based on a third-party base model.
 
-- Paths: `models/intent/`, `models/intent_macro/`
+- Paths: `models/intent/`, `models/intent_macro/`, `models/intent_stellar/`
 - Base model: `distilbert/distilbert-base-uncased` (Apache-2.0)
   - https://huggingface.co/distilbert/distilbert-base-uncased
 - Training data: in-house dataset created for NeuroChain (not distributed as part of the model pack)
