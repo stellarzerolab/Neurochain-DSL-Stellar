@@ -6,6 +6,7 @@ If you just want end-to-end runnable scripts, start here:
 - `docs/getting_started.md`
 - `docs/macros.md`
 - `docs/models.md`
+- Stellar/Soroban actions: `docs/stellar_actions_guide.md`
 
 ## Quick cheat sheet
 
@@ -42,22 +43,24 @@ A NeuroChain script is a plain text file executed line-by-line: commands, variab
 Note: NeuroChain also has a REST server. See `docs/getting_started.md` for how to run:
 - `cargo run --bin neurochain-server`
 
-IntentStellar to ActionPlan (Soroban CLI path):
+IntentStellar to ActionPlan (`neurochain-stellar` path):
 - `cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..."`
 - `cargo run --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..." --flow --yes`
 - `cargo run --bin neurochain-stellar` (interactive REPL mode)
 
 In `--intent-text` mode, low-confidence or slot-missing plans are blocked before submit for safety.
-In Soroban REPL mode you can also set runtime context inside CLI:
+In `neurochain-stellar` REPL mode you can also set runtime context inside CLI:
 - `network: testnet`
 - `wallet: nc-testnet`
-The same context/meta lines are supported inside Soroban `.nc` files:
+The same context/meta lines are supported inside `neurochain-stellar` `.nc` files:
 - `AI: "models/intent_stellar/model.onnx"`
 - `network: testnet`
 - `wallet: nc-testnet`
 
-Interactive commands:
+Core interactive commands (`neurochain`):
 `help`, `about`, `version`, `exit`.
+
+For the full `neurochain-stellar` REPL command list, see `docs/stellar_actions_guide.md`.
 
 ### Comments
 

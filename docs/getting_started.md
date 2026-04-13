@@ -1,5 +1,7 @@
 # 🚀 NeuroChain – Getting Started (End-to-End)
 
+For the detailed Stellar/Soroban instructions for this repository, see [`docs/stellar_actions_guide.md`](stellar_actions_guide.md).
+
 This is a short “do this” guide to run a NeuroChain script from start to finish. The goal is to get a quick feel for the language: `neuro`, `set`, arithmetic, and `if/else`.
 
 ## 0) Prerequisites
