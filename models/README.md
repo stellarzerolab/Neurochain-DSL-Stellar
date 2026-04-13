@@ -34,7 +34,7 @@ The `models/manifest.json` file contains the URL + SHA256 for the model pack.
 - Commands and maintainer guidance: see `docs/models.md` (“Verify the download”).
 
 Another option is to download the Stellar model pack from the release page and extract the zip, then copy the `models/` folder into the repo root (same level as `Cargo.toml`), replacing the existing `models/` folder.
-Release: https://github.com/stellarzerolab/Neurochain-DSL-Stellar/releases/tag/v0.1.0
+Release: https://github.com/stellarzerolab/Neurochain-DSL-Stellar/releases/tag/v0.1.1
 
 After downloading and extracting, you should have folders like:
 
