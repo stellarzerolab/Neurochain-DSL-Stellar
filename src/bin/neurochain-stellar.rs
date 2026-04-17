@@ -3623,7 +3623,7 @@ fn print_repl_current_asset_allowlist(runtime: &RuntimeSettings) -> bool {
 }
 
 fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debug: bool) {
-    const HELP_COL_WIDTH: usize = 46;
+    const HELP_COL_WIDTH: usize = 58;
     println!("Stellar REPL quick start:");
     let quick_rows = [
         ("AI: \"models/intent_stellar/model.onnx\"", ""),
@@ -3689,7 +3689,7 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
 }
 
 fn print_repl_help_section(title: &str, rows: &[(&str, &str)]) {
-    const HELP_COL_WIDTH: usize = 46;
+    const HELP_COL_WIDTH: usize = 58;
     println!("{title}:");
     for (command, description) in rows {
         println!("- {:<HELP_COL_WIDTH$} {}", command, description);

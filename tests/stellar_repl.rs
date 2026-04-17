@@ -19,7 +19,7 @@ fn assert_contains_in_order(haystack: &str, needles: &[&str]) {
 }
 
 fn help_row(command: &str, description: &str) -> String {
-    format!("- {:<46} {}", command, description)
+    format!("- {:<58} {}", command, description)
 }
 
 fn create_fake_stellar_cli() -> (TempDir, PathBuf) {
