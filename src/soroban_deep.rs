@@ -60,6 +60,18 @@ pub struct TemplateExpansionReport {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PolicyTypedV2Report {
+    pub converted: usize,
+    pub normalized_args: usize,
+}
+
+#[derive(Default)]
+struct PolicyTypedV2Outcome {
+    errors: Vec<String>,
+    normalized_args: usize,
+}
+
 pub fn apply_contract_intent_templates(
     prompt: &str,
     plan: &mut ActionPlan,
@@ -140,6 +152,154 @@ pub fn apply_contract_intent_templates(
     }
 }
 
+pub fn apply_policy_typed_templates_v2(
+    plan: &mut ActionPlan,
+    policies: &[ContractPolicy],
+) -> PolicyTypedV2Report {
+    if policies.is_empty() {
+        return PolicyTypedV2Report::default();
+    }
+
+    let mut policy_map: HashMap<&str, &ContractPolicy> = HashMap::new();
+    for policy in policies {
+        policy_map.insert(policy.contract_id.as_str(), policy);
+    }
+
+    let mut report = PolicyTypedV2Report::default();
+    for action in &mut plan.actions {
+        let outcome = match action {
+            Action::SorobanContractInvoke {
+                contract_id,
+                function,
+                args,
+            } => {
+                let Some(policy) = policy_map.get(contract_id.as_str()) else {
+                    continue;
+                };
+                let Some(schema) = policy.args_schema.get(function) else {
+                    continue;
+                };
+
+                apply_policy_typed_schema_to_args(contract_id, function, args, schema)
+            }
+            _ => PolicyTypedV2Outcome::default(),
+        };
+        report.normalized_args += outcome.normalized_args;
+
+        if let Some(reason) = outcome.errors.first().cloned() {
+            *action = Action::Unknown {
+                reason: reason.clone(),
+            };
+            for err in outcome.errors {
+                plan.warnings.push(format!("intent_error: {err}"));
+            }
+            report.converted += 1;
+        }
+    }
+
+    report
+}
+
+pub fn validate_contract_policies(
+    plan: &ActionPlan,
+    policies: &[ContractPolicy],
+) -> (Vec<String>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+    if policies.is_empty() {
+        return (warnings, errors);
+    }
+
+    let mut map: HashMap<&str, &ContractPolicy> = HashMap::new();
+    for policy in policies {
+        map.insert(policy.contract_id.as_str(), policy);
+    }
+
+    for action in &plan.actions {
+        if let Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } = action
+        {
+            let Some(policy) = map.get(contract_id.as_str()) else {
+                errors.push(format!(
+                    "policy_missing: no policy for contract_id {contract_id}"
+                ));
+                continue;
+            };
+            if !policy.allowed_functions.is_empty()
+                && !policy.allowed_functions.iter().any(|f| f == function)
+            {
+                errors.push(format!(
+                    "policy_function_denied: {contract_id}:{function} not allowed"
+                ));
+                continue;
+            }
+
+            if let Some(schema) = policy.args_schema.get(function) {
+                let args_obj = args.as_object();
+                if args_obj.is_none() {
+                    errors.push(format!(
+                        "policy_args_invalid: {contract_id}:{function} args must be object"
+                    ));
+                    continue;
+                }
+                let args_obj = args_obj.expect("checked is_some above");
+
+                for (key, ty) in &schema.required {
+                    match args_obj.get(key) {
+                        Some(val) => {
+                            if !validate_arg_type(val, ty) {
+                                errors.push(format!(
+                                    "policy_args_type: {contract_id}:{function} {key} expected {ty}"
+                                ));
+                            }
+                        }
+                        None => errors.push(format!(
+                            "policy_args_missing: {contract_id}:{function} missing {key}"
+                        )),
+                    }
+                }
+
+                for (key, ty) in &schema.optional {
+                    if let Some(val) = args_obj.get(key) {
+                        if !validate_arg_type(val, ty) {
+                            errors.push(format!(
+                                "policy_args_type: {contract_id}:{function} {key} expected {ty}"
+                            ));
+                        }
+                    }
+                }
+
+                for key in args_obj.keys() {
+                    if !schema.required.contains_key(key) && !schema.optional.contains_key(key) {
+                        warnings.push(format!(
+                            "policy_args_unknown: {contract_id}:{function} unexpected arg {key}"
+                        ));
+                    }
+                }
+            }
+
+            if let Some(limits) = &policy.resource_limits {
+                if !limits.is_object() {
+                    warnings.push(format!(
+                        "policy_resource_limits_invalid: {contract_id} resource_limits must be object"
+                    ));
+                }
+            }
+
+            if let Some(max_fee) = policy.max_fee_stroops {
+                warnings.push(format!(
+                    "policy_hint: {contract_id}:{function} max_fee_stroops={max_fee}"
+                ));
+            }
+        }
+    }
+
+    (warnings, errors)
+}
+
 fn plan_is_template_expandable(plan: &ActionPlan) -> bool {
     let only_unknown_actions = !plan.actions.is_empty()
         && plan
@@ -214,6 +374,80 @@ fn build_template_args(
     Ok(args)
 }
 
+fn apply_policy_typed_schema_to_args(
+    contract_id: &str,
+    function: &str,
+    args: &mut Value,
+    schema: &ArgSchema,
+) -> PolicyTypedV2Outcome {
+    let Some(args_obj) = args.as_object() else {
+        return PolicyTypedV2Outcome::default();
+    };
+    let mut outcome = PolicyTypedV2Outcome::default();
+    let mut updates: Vec<(String, Value)> = Vec::new();
+
+    for (key, ty_raw) in &schema.required {
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !is_typed_template_v2_type(ty.as_str()) {
+            continue;
+        }
+        if let Some(value) = args_obj.get(key) {
+            let mut normalized = value.clone();
+            match normalize_typed_slot_value(&mut normalized, ty.as_str()) {
+                Ok(changed) => {
+                    if !validate_arg_type(&normalized, ty.as_str()) {
+                        outcome.errors.push(format!(
+                            "slot_type_error: ContractInvoke {key} expected {ty} (policy {contract_id}:{function})"
+                        ));
+                        continue;
+                    }
+                    if changed && &normalized != value {
+                        updates.push((key.clone(), normalized));
+                    }
+                }
+                Err(detail) => outcome.errors.push(format!(
+                    "slot_type_error: ContractInvoke {key} {detail} (policy {contract_id}:{function})"
+                )),
+            }
+        }
+    }
+
+    for (key, ty_raw) in &schema.optional {
+        let ty = ty_raw.trim().to_ascii_lowercase();
+        if !is_typed_template_v2_type(ty.as_str()) {
+            continue;
+        }
+        if let Some(value) = args_obj.get(key) {
+            let mut normalized = value.clone();
+            match normalize_typed_slot_value(&mut normalized, ty.as_str()) {
+                Ok(changed) => {
+                    if !validate_arg_type(&normalized, ty.as_str()) {
+                        outcome.errors.push(format!(
+                            "slot_type_error: ContractInvoke {key} expected {ty} (policy {contract_id}:{function})"
+                        ));
+                        continue;
+                    }
+                    if changed && &normalized != value {
+                        updates.push((key.clone(), normalized));
+                    }
+                }
+                Err(detail) => outcome.errors.push(format!(
+                    "slot_type_error: ContractInvoke {key} {detail} (policy {contract_id}:{function})"
+                )),
+            }
+        }
+    }
+
+    if let Some(args_obj_mut) = args.as_object_mut() {
+        for (key, value) in updates {
+            args_obj_mut.insert(key, value);
+            outcome.normalized_args += 1;
+        }
+    }
+
+    outcome
+}
+
 fn resolve_template_arg(prompt: &str, arg: &TemplateArg) -> Option<Value> {
     if let Some(value) = &arg.value {
         return Some(value.clone());
@@ -285,4 +519,218 @@ fn first_contract_re() -> &'static Regex {
 fn first_number_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"\b\d+(?:\.\d+)?\b").expect("number regex"))
+}
+
+fn is_base32_char(c: char) -> bool {
+    matches!(c, 'A'..='Z' | '2'..='7')
+}
+
+fn is_strkey(value: &str) -> bool {
+    if value.len() != 56 {
+        return false;
+    }
+    let first = value.chars().next().unwrap_or('\0');
+    if first != 'G' && first != 'C' {
+        return false;
+    }
+    value.chars().all(is_base32_char)
+}
+
+fn is_symbol(value: &str) -> bool {
+    let len = value.len();
+    if len == 0 || len > 32 {
+        return false;
+    }
+    value
+        .chars()
+        .all(|c| c.is_ascii() && !c.is_control() && !c.is_whitespace())
+}
+
+fn is_hex_bytes(value: &str) -> bool {
+    if !value.starts_with("0x") {
+        return false;
+    }
+    let hex = &value[2..];
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
+        return false;
+    }
+    hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn is_u64_value(value: &Value) -> bool {
+    if value.as_u64().is_some() {
+        return true;
+    }
+    value
+        .as_str()
+        .map(|s| s.trim().parse::<u64>().is_ok())
+        .unwrap_or(false)
+}
+
+fn typed_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(n) => {
+            if n.is_i64() {
+                "i64"
+            } else if n.is_u64() {
+                "u64"
+            } else {
+                "number"
+            }
+        }
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn typed_value_preview(value: &Value) -> String {
+    let mut rendered = value.to_string();
+    if rendered.len() > 96 {
+        rendered.truncate(93);
+        rendered.push_str("...");
+    }
+    rendered
+}
+
+fn validate_arg_type(value: &Value, ty: &str) -> bool {
+    match ty {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "bool" => value.is_boolean(),
+        "address" => value.as_str().map(is_strkey).unwrap_or(false),
+        "symbol" => value.as_str().map(is_symbol).unwrap_or(false),
+        "bytes" => value.as_str().map(is_hex_bytes).unwrap_or(false),
+        "u64" => is_u64_value(value),
+        _ => false,
+    }
+}
+
+fn is_typed_template_v2_type(ty: &str) -> bool {
+    matches!(ty, "address" | "bytes" | "symbol" | "u64")
+}
+
+fn normalize_typed_slot_value(value: &mut Value, ty: &str) -> Result<bool, String> {
+    match ty {
+        "address" => {
+            let Some(raw) = value.as_str() else {
+                return Err(format!(
+                    "expected address got {} value={}",
+                    typed_value_kind(value),
+                    typed_value_preview(value)
+                ));
+            };
+            let normalized = raw.trim().to_ascii_uppercase();
+            if !is_strkey(&normalized) {
+                return Err(format!(
+                    "expected address got string value={}",
+                    typed_value_preview(&Value::String(raw.to_string()))
+                ));
+            }
+            let changed = normalized != raw;
+            if changed {
+                *value = Value::String(normalized);
+            }
+            Ok(changed)
+        }
+        "bytes" => {
+            let Some(raw) = value.as_str() else {
+                return Err(format!(
+                    "expected bytes got {} value={}",
+                    typed_value_kind(value),
+                    typed_value_preview(value)
+                ));
+            };
+            let trimmed = raw.trim();
+            let (had_prefix, body) = if let Some(rest) = trimmed.strip_prefix("0x") {
+                (true, rest)
+            } else if let Some(rest) = trimmed.strip_prefix("0X") {
+                (true, rest)
+            } else {
+                (false, trimmed)
+            };
+            let compact: String = body
+                .chars()
+                .filter(|c| !(c.is_ascii_whitespace() || matches!(c, '_' | '-')))
+                .collect();
+            let mut normalized = if had_prefix {
+                format!("0x{compact}")
+            } else {
+                compact.clone()
+            };
+            if !had_prefix
+                && !compact.is_empty()
+                && compact.len().is_multiple_of(2)
+                && compact.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                normalized = format!("0x{compact}");
+            }
+            if normalized.starts_with("0x") {
+                let lower_hex = normalized[2..].to_ascii_lowercase();
+                normalized = format!("0x{lower_hex}");
+            }
+            if !is_hex_bytes(&normalized) {
+                return Err(format!(
+                    "expected bytes got string value={}",
+                    typed_value_preview(&Value::String(raw.to_string()))
+                ));
+            }
+            let changed = normalized != raw;
+            if changed {
+                *value = Value::String(normalized);
+            }
+            Ok(changed)
+        }
+        "symbol" => {
+            let Some(raw) = value.as_str() else {
+                return Err(format!(
+                    "expected symbol got {} value={}",
+                    typed_value_kind(value),
+                    typed_value_preview(value)
+                ));
+            };
+            let normalized = raw.trim().to_string();
+            if !is_symbol(&normalized) {
+                return Err(format!(
+                    "expected symbol got string value={}",
+                    typed_value_preview(&Value::String(raw.to_string()))
+                ));
+            }
+            let changed = normalized != raw;
+            if changed {
+                *value = Value::String(normalized);
+            }
+            Ok(changed)
+        }
+        "u64" => {
+            if value.as_u64().is_some() {
+                return Ok(false);
+            }
+            if let Some(raw) = value.as_str() {
+                let trimmed = raw.trim();
+                let compact: String = trimmed
+                    .chars()
+                    .filter(|c| !matches!(c, '_' | ','))
+                    .collect();
+                let parsed = compact.parse::<u64>().map_err(|_| {
+                    format!(
+                        "expected u64 got string value={}",
+                        typed_value_preview(&Value::String(raw.to_string()))
+                    )
+                })?;
+                let new_value = Value::Number(parsed.into());
+                let changed = *value != new_value;
+                *value = new_value;
+                return Ok(changed);
+            }
+            Err(format!(
+                "expected u64 got {} value={}",
+                typed_value_kind(value),
+                typed_value_preview(value)
+            ))
+        }
+        _ => Ok(false),
+    }
 }
