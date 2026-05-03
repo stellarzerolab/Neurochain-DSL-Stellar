@@ -21,7 +21,8 @@ use neurochain::{
         has_intent_blocking_issue, resolve_model_path as resolve_intent_model_path,
         threshold_from_env as intent_threshold_from_env, DEFAULT_INTENT_STELLAR_THRESHOLD,
     },
-    interpreter,
+    interpreter, soroban_deep,
+    soroban_deep::{ArgSchema, ContractPolicy},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -83,27 +84,6 @@ struct StellarIntentPlanResp {
     error: Option<String>,
     plan: ActionPlan,
     logs: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ArgSchema {
-    #[serde(default)]
-    required: HashMap<String, String>,
-    #[serde(default)]
-    optional: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ContractPolicy {
-    contract_id: String,
-    #[serde(default)]
-    allowed_functions: Vec<String>,
-    #[serde(default)]
-    args_schema: HashMap<String, ArgSchema>,
-    #[serde(default)]
-    max_fee_stroops: Option<u64>,
-    #[serde(default)]
-    resource_limits: Option<Value>,
 }
 
 static REQUIRED_API_KEY: OnceLock<Option<String>> = OnceLock::new();
@@ -984,11 +964,20 @@ async fn api_stellar_intent_plan(
         }
     };
 
+    let policies = load_contract_policies();
     let mut plan = build_intent_action_plan(&prompt, &decision);
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
-
-    let policies = load_contract_policies();
+    let template_report =
+        soroban_deep::apply_contract_intent_templates(&prompt, &mut plan, &policies);
+    logs.push(format!(
+        "soroban_deep_template: expanded={} template={} contract_id={} function={} reason={}",
+        template_report.expanded,
+        template_report.template_name.as_deref().unwrap_or("(none)"),
+        template_report.contract_id.as_deref().unwrap_or("(none)"),
+        template_report.function.as_deref().unwrap_or("(none)"),
+        template_report.reason.as_deref().unwrap_or("(none)")
+    ));
     let (typed_v2_converted, typed_v2_normalized_args) =
         apply_policy_typed_templates_v2(&mut plan, &policies);
     logs.push(format!(

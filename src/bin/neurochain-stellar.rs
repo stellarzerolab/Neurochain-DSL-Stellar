@@ -16,8 +16,8 @@ use neurochain::intent_stellar::{
     has_intent_blocking_issue, resolve_model_path as resolve_intent_model_path,
     threshold_from_env as intent_threshold_from_env, DEFAULT_INTENT_STELLAR_THRESHOLD,
 };
+use neurochain::soroban_deep::{self, ArgSchema, ContractPolicy};
 use reqwest::blocking::Client;
-use serde::Deserialize;
 use serde_json::Value;
 
 fn print_usage() {
@@ -204,27 +204,6 @@ fn x402_enabled(override_value: Option<bool>) -> bool {
         return value;
     }
     parse_bool_value(&std::env::var("NC_X402").unwrap_or_default()).unwrap_or(false)
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ArgSchema {
-    #[serde(default)]
-    required: HashMap<String, String>,
-    #[serde(default)]
-    optional: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ContractPolicy {
-    contract_id: String,
-    #[serde(default)]
-    allowed_functions: Vec<String>,
-    #[serde(default)]
-    args_schema: HashMap<String, ArgSchema>,
-    #[serde(default)]
-    max_fee_stroops: Option<u64>,
-    #[serde(default)]
-    resource_limits: Option<Value>,
 }
 
 #[derive(Debug)]
@@ -2782,8 +2761,14 @@ impl ScriptBuildContext {
 
     fn append_intent_prompt(&mut self, prompt: &str) -> Result<()> {
         self.intent_mode = true;
-        let prompt_plan =
-            build_plan_from_intent_prompt(prompt, &self.model_path, self.threshold, self.debug)?;
+        let policies = load_contract_policies(Some(&self.runtime_settings));
+        let prompt_plan = build_plan_from_intent_prompt(
+            prompt,
+            &self.model_path,
+            self.threshold,
+            &policies,
+            self.debug,
+        )?;
         merge_action_plans(&mut self.plan, prompt_plan);
         Ok(())
     }
@@ -3081,6 +3066,7 @@ fn build_plan_from_intent_prompt(
     prompt: &str,
     model_path: &str,
     threshold: f32,
+    policies: &[ContractPolicy],
     debug: bool,
 ) -> Result<ActionPlan> {
     let decision = classify_intent_stellar(prompt, model_path, threshold)?;
@@ -3101,6 +3087,20 @@ fn build_plan_from_intent_prompt(
     let mut plan = build_intent_action_plan(prompt, &decision);
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
+    let template_report =
+        soroban_deep::apply_contract_intent_templates(prompt, &mut plan, policies);
+    intent_debug_log(
+        debug,
+        "soroban-deep-template",
+        format!(
+            "expanded={} template={} contract_id={} function={} reason={}",
+            template_report.expanded,
+            template_report.template_name.as_deref().unwrap_or("(none)"),
+            template_report.contract_id.as_deref().unwrap_or("(none)"),
+            template_report.function.as_deref().unwrap_or("(none)"),
+            template_report.reason.as_deref().unwrap_or("(none)")
+        ),
+    );
 
     let action_kinds = if plan.actions.is_empty() {
         "(none)".to_string()
@@ -4388,7 +4388,14 @@ fn run_repl(
 
             if let Some((name, prompt)) = parse_set_from_ai_assignment(&line) {
                 if is_intent_assignment_name(&name) {
-                    match build_plan_from_intent_prompt(&prompt, &model_path, threshold, debug) {
+                    let policies = load_contract_policies(Some(&runtime_settings));
+                    match build_plan_from_intent_prompt(
+                        &prompt,
+                        &model_path,
+                        threshold,
+                        &policies,
+                        debug,
+                    ) {
                         Ok(plan) => {
                             let code = execute_plan(
                                 plan,
@@ -4432,7 +4439,8 @@ fn run_repl(
             }
 
             let prompt = strip_wrapping_quotes(&line);
-            match build_plan_from_intent_prompt(&prompt, &model_path, threshold, debug) {
+            let policies = load_contract_policies(Some(&runtime_settings));
+            match build_plan_from_intent_prompt(&prompt, &model_path, threshold, &policies, debug) {
                 Ok(plan) => {
                     let code = execute_plan(
                         plan,
@@ -4495,7 +4503,9 @@ fn main() {
             }
         };
         let model_path = cli.intent_model.unwrap_or_else(resolve_intent_model_path);
-        match build_plan_from_intent_prompt(&prompt, &model_path, threshold, debug) {
+        let runtime_settings = RuntimeSettings::default();
+        let policies = load_contract_policies(Some(&runtime_settings));
+        match build_plan_from_intent_prompt(&prompt, &model_path, threshold, &policies, debug) {
             Ok(plan) => plan,
             Err(err) => {
                 eprintln!("Error: {err}");

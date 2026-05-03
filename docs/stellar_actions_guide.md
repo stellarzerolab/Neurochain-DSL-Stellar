@@ -264,7 +264,54 @@ Typed template v2, policy-backed:
   - `policy_args_missing`
   - with enforce mode, it blocks with exit code `4`
 
----
+Soroban deep templates v2, policy-backed:
+
+- `policy.json` can define `intent_templates` for a contract.
+- A template maps high-level wording such as `say hello to World` into a deterministic `soroban.contract.invoke` plan.
+- This removes the need for the prompt to always contain `contract_id`, `function`, `args`, and `arg_types`.
+- The template still runs through the same allowlist, policy, typed-slot, simulate/preview, and flow rules.
+- Low-confidence intent warnings are not bypassed.
+
+Minimal policy shape:
+
+```json
+{
+  "contract_id": "C...",
+  "allowed_functions": ["hello"],
+  "args_schema": {
+    "hello": {
+      "required": {
+        "to": "symbol"
+      },
+      "optional": {}
+    }
+  },
+  "intent_templates": {
+    "hello": {
+      "aliases": ["say hello", "hello contract", "greet"],
+      "function": "hello",
+      "args": {
+        "to": {
+          "source": "after_to",
+          "type": "symbol",
+          "default": "World"
+        }
+      }
+    }
+  }
+}
+```
+
+Template arg sources currently supported:
+
+- `after_to`
+- `after_for`
+- `quoted` / `first_quoted`
+- `first_account`
+- `first_contract`
+- `first_number`
+
+--- 
 
 ## 3) Usage: JSON ActionPlan Only
 
@@ -523,12 +570,28 @@ Example `hello` contract policy:
       "optional": {}
     }
   },
+  "intent_templates": {
+    "hello": {
+      "aliases": ["say hello", "hello contract", "greet"],
+      "function": "hello",
+      "args": {
+        "to": {
+          "source": "after_to",
+          "type": "symbol",
+          "default": "World"
+        }
+      }
+    }
+  },
   "max_fee_stroops": 1000
 }
 ```
 
 ```powershell
 cargo run --bin neurochain-stellar -- examples\stellar_actions_example.nc --flow --yes
+
+$env:NC_CONTRACT_POLICY="contracts\CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\policy.json"
+cargo run --bin neurochain-stellar -- --intent-text "Please say hello to World" --intent-threshold 0.00
 ```
 
 Policy typed v2 fail/pass examples:

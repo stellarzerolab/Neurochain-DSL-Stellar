@@ -2,6 +2,7 @@ use neurochain::actions::Action;
 use neurochain::intent_stellar::{
     build_action_plan, has_intent_blocking_issue, IntentDecision, IntentStellarLabel,
 };
+use neurochain::soroban_deep::{apply_contract_intent_templates, ContractPolicy};
 
 fn decision(label: IntentStellarLabel) -> IntentDecision {
     IntentDecision {
@@ -274,6 +275,153 @@ fn intent_stellar_contract_invoke_typed_validation_blocks_type_errors() {
         .warnings
         .iter()
         .any(|w| w.starts_with("intent_error: slot_type_error:")));
+}
+
+#[test]
+fn soroban_deep_template_expands_high_level_contract_intent() {
+    let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "hello": {{
+      "aliases": ["say hello", "greet"],
+      "function": "hello",
+      "args": {{
+        "to": {{
+          "source": "after_to",
+          "type": "symbol",
+          "default": "World"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = "Please say hello to World";
+    let mut plan = build_action_plan(prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(prompt, &mut plan, &[policy]);
+    assert!(report.expanded, "template should expand: {report:?}");
+    assert!(!has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w.contains("soroban_deep_template: template=hello")));
+    assert!(plan
+        .warnings
+        .iter()
+        .all(|w| !w.contains("ContractInvoke missing contract_id")));
+
+    match &plan.actions[0] {
+        Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } => {
+            assert_eq!(contract_id, contract);
+            assert_eq!(function, "hello");
+            assert_eq!(args["to"].as_str(), Some("World"));
+        }
+        other => panic!("unexpected action: {other:?}"),
+    }
+}
+
+#[test]
+fn soroban_deep_template_can_expand_policy_alias_from_unknown_label() {
+    let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "hello": {{
+      "aliases": ["say hello"],
+      "function": "hello",
+      "args": {{
+        "to": {{
+          "source": "after_to",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = "Please say hello to World";
+    let mut plan = build_action_plan(prompt, &decision(IntentStellarLabel::Unknown));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(prompt, &mut plan, &[policy]);
+    assert!(report.expanded, "template should expand: {report:?}");
+    assert!(!has_intent_blocking_issue(&plan));
+    assert_eq!(plan.actions[0].kind(), "soroban.contract.invoke");
+    assert!(plan
+        .warnings
+        .iter()
+        .all(|w| !w.contains("Unknown intent has no action mapping")));
+}
+
+#[test]
+fn soroban_deep_template_leaves_unmatched_intent_blocking() {
+    let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "hello": {{
+      "aliases": ["say hello"],
+      "function": "hello",
+      "args": {{
+        "to": {{
+          "source": "after_to",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = "Please run some unknown contract action";
+    let mut plan = build_action_plan(prompt, &decision(IntentStellarLabel::ContractInvoke));
+    let report = apply_contract_intent_templates(prompt, &mut plan, &[policy]);
+
+    assert!(!report.expanded);
+    assert!(has_intent_blocking_issue(&plan));
+    assert!(matches!(plan.actions[0], Action::Unknown { .. }));
 }
 
 #[test]

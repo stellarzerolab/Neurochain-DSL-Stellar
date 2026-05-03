@@ -417,6 +417,50 @@ fn stellar_repl_policy_settings_can_enforce_without_env() {
 }
 
 #[test]
+fn stellar_repl_soroban_deep_template_expands_high_level_prompt() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .arg("--no-flow")
+        .write_stdin(format!(
+            "contract_policy: {}\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Please say hello to World\"\n\nexit\n\n",
+            policy_path.to_string_lossy()
+        ))
+        .output()
+        .expect("run repl soroban deep template");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains("\"function\": \"hello\""));
+    assert!(combined.contains("\"to\": \"World\""));
+    assert!(combined.contains("soroban_deep_template: template=hello"));
+    assert!(!combined.contains("Unknown intent has no action mapping"));
+}
+
+#[test]
 fn stellar_repl_set_var_from_ai_does_not_trigger_intent_flow() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

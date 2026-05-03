@@ -891,6 +891,54 @@ fn nc_script_policy_settings_can_enforce_without_env() {
 }
 
 #[test]
+fn nc_script_soroban_deep_template_expands_high_level_prompt() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let tmp = std::env::temp_dir().join("nc_script_soroban_deep_template_ok.nc");
+    let script = format!(
+        "contract_policy: {}\nAI: \"models/intent_stellar/model.onnx\"\nintent_threshold: 0.00\nset stellar intent from AI: \"Please say hello to World\"\n",
+        policy_path.to_string_lossy()
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar script mode with soroban deep template");
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains("\"function\": \"hello\""));
+    assert!(combined.contains("\"to\": \"World\""));
+    assert!(combined.contains("soroban_deep_template: template=hello"));
+    assert!(!combined.contains("Unknown intent has no action mapping"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
 fn nc_script_intent_safety_blocks_flow_with_exit_5() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

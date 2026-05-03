@@ -7,6 +7,7 @@ pub mod intent_stellar;
 pub mod interpreter;
 pub mod lexer;
 pub mod parser;
+pub mod soroban_deep;
 
 pub use engine::analyze;
 pub use lexer::tokenize;

@@ -11,5 +11,18 @@
       "optional": {}
     }
   },
+  "intent_templates": {
+    "hello": {
+      "aliases": ["say hello", "hello contract", "greet"],
+      "function": "hello",
+      "args": {
+        "to": {
+          "source": "after_to",
+          "type": "symbol",
+          "default": "World"
+        }
+      }
+    }
+  },
   "max_fee_stroops": 1000
 }

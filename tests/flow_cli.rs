@@ -382,6 +382,51 @@ fn intent_mode_policy_typed_v2_normalizes_address_bytes_symbol_u64() {
 }
 
 #[test]
+fn intent_mode_soroban_deep_template_expands_high_level_prompt() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("contracts")
+        .join("CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ")
+        .join("policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg("Please say hello to World")
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .env(
+            "NC_CONTRACT_POLICY",
+            policy_path.to_string_lossy().to_string(),
+        )
+        .output()
+        .expect("run neurochain-stellar with soroban deep template");
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains("\"function\": \"hello\""));
+    assert!(combined.contains("\"to\": \"World\""));
+    assert!(combined.contains("soroban_deep_template: template=hello"));
+    assert!(!combined.contains("Unknown intent has no action mapping"));
+}
+
+#[test]
 fn intent_mode_policy_typed_v2_reports_multiple_arg_errors() {
     let model_path = intent_model_path();
     if !model_path.exists() {
