@@ -427,6 +427,54 @@ fn intent_mode_soroban_deep_template_expands_high_level_prompt() {
 }
 
 #[test]
+fn intent_mode_soroban_deposit_template_missing_amount_blocks_with_exit_5() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("soroban_deposit_template_policy.json");
+    if !policy_path.exists() {
+        eprintln!("skipping test; missing policy: {}", policy_path.display());
+        return;
+    }
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(format!(
+            "Invoke contract deposit function deposit for wallet {account}"
+        ))
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .arg("--flow")
+        .arg("--yes")
+        .env(
+            "NC_CONTRACT_POLICY",
+            policy_path.to_string_lossy().to_string(),
+        )
+        .output()
+        .expect("run neurochain-stellar with deposit template missing amount");
+
+    assert_eq!(output.status.code(), Some(5));
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("slot_missing"));
+    assert!(combined.contains("template deposit missing arg amount"));
+    assert!(combined.contains("Intent safety guard blocked flow"));
+    assert!(!combined.contains("=== Preview ==="));
+}
+
+#[test]
 fn intent_mode_policy_typed_v2_reports_multiple_arg_errors() {
     let model_path = intent_model_path();
     if !model_path.exists() {

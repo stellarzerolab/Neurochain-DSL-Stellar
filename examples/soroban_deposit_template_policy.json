@@ -1,0 +1,35 @@
+{
+  "contract_id": "CFLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+  "allowed_functions": ["deposit"],
+  "args_schema": {
+    "deposit": {
+      "required": {
+        "account": "address",
+        "amount": "u64",
+        "asset": "symbol"
+      },
+      "optional": {}
+    }
+  },
+  "intent_templates": {
+    "deposit": {
+      "aliases": ["deposit", "vault deposit", "add liquidity"],
+      "function": "deposit",
+      "args": {
+        "account": {
+          "source": "first_account",
+          "type": "address"
+        },
+        "amount": {
+          "source": "first_number",
+          "type": "u64"
+        },
+        "asset": {
+          "value": "USDC",
+          "type": "symbol"
+        }
+      }
+    }
+  },
+  "max_fee_stroops": 3000
+}

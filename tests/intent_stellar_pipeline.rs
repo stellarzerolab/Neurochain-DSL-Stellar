@@ -460,6 +460,140 @@ fn soroban_deep_template_keeps_claim_rewards_missing_account_blocking() {
 }
 
 #[test]
+fn soroban_deep_template_expands_deposit_use_case() {
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let contract = "CFLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["deposit"],
+  "args_schema": {{
+    "deposit": {{
+      "required": {{
+        "account": "address",
+        "amount": "u64",
+        "asset": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "deposit": {{
+      "aliases": ["deposit", "vault deposit", "add liquidity"],
+      "function": "deposit",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }},
+        "amount": {{
+          "source": "first_number",
+          "type": "u64"
+        }},
+        "asset": {{
+          "value": "USDC",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = format!("Invoke contract deposit function deposit 100 for wallet {account}");
+    let mut plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(&prompt, &mut plan, std::slice::from_ref(&policy));
+    assert!(report.expanded, "template should expand: {report:?}");
+    assert_eq!(report.template_name.as_deref(), Some("deposit"));
+
+    let typed_report = apply_policy_typed_templates_v2(&mut plan, std::slice::from_ref(&policy));
+    assert_eq!(typed_report.converted, 0);
+    assert_eq!(typed_report.normalized_args, 1);
+    assert!(!has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w.contains("soroban_deep_template: template=deposit")));
+
+    match &plan.actions[0] {
+        Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } => {
+            assert_eq!(contract_id, contract);
+            assert_eq!(function, "deposit");
+            assert_eq!(args["account"].as_str(), Some(account));
+            assert_eq!(args["amount"].as_u64(), Some(100));
+            assert_eq!(args["asset"].as_str(), Some("USDC"));
+        }
+        other => panic!("unexpected action: {other:?}"),
+    }
+}
+
+#[test]
+fn soroban_deep_template_keeps_deposit_missing_amount_blocking() {
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let contract = "CFLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["deposit"],
+  "args_schema": {{
+    "deposit": {{
+      "required": {{
+        "account": "address",
+        "amount": "u64",
+        "asset": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "deposit": {{
+      "aliases": ["deposit"],
+      "function": "deposit",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }},
+        "amount": {{
+          "source": "first_number",
+          "type": "u64"
+        }},
+        "asset": {{
+          "value": "USDC",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = format!("Invoke contract deposit function deposit for wallet {account}");
+    let mut plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(&prompt, &mut plan, std::slice::from_ref(&policy));
+    assert!(!report.expanded);
+    assert_eq!(
+        report.reason.as_deref(),
+        Some("slot_missing: ContractInvoke template deposit missing arg amount")
+    );
+    assert!(has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w.contains("slot_missing: ContractInvoke template deposit missing arg amount")));
+}
+
+#[test]
 fn soroban_deep_template_can_expand_policy_alias_from_unknown_label() {
     let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
     let policy: ContractPolicy = serde_json::from_str(&format!(
