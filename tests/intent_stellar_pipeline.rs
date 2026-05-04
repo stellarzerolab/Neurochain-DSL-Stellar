@@ -3,7 +3,8 @@ use neurochain::intent_stellar::{
     build_action_plan, has_intent_blocking_issue, IntentDecision, IntentStellarLabel,
 };
 use neurochain::soroban_deep::{
-    apply_contract_intent_templates, apply_policy_typed_templates_v2, ContractPolicy,
+    apply_contract_intent_templates, apply_policy_typed_templates_v2,
+    validate_contract_policy_templates, ContractPolicy,
 };
 
 fn decision(label: IntentStellarLabel) -> IntentDecision {
@@ -751,6 +752,80 @@ fn soroban_deep_template_keeps_swap_missing_min_out_blocking() {
         .warnings
         .iter()
         .any(|w| w.contains("slot_missing: ContractInvoke template swap missing arg min_out")));
+}
+
+#[test]
+fn soroban_deep_policy_template_validator_accepts_current_swap_example() {
+    let policy: ContractPolicy = serde_json::from_str(include_str!(
+        "../examples/soroban_swap_template_policy.json"
+    ))
+    .expect("parse policy");
+
+    let (warnings, errors) = validate_contract_policy_templates(&[policy]);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn soroban_deep_policy_template_validator_reports_invalid_templates() {
+    let contract = "CGLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["deposit"],
+  "args_schema": {{
+    "deposit": {{
+      "required": {{
+        "account": "address",
+        "amount": "u64",
+        "asset": "symbol",
+        "min_out": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "deposit": {{
+      "aliases": ["deposit"],
+      "function": "deposit",
+      "args": {{
+        "account": {{
+          "source": "wallet address",
+          "type": "address"
+        }},
+        "amount": {{
+          "source": "after_amount",
+          "type": "symbol"
+        }},
+        "asset": {{
+          "type": "symbol"
+        }},
+        "route": {{
+          "source": "after_route",
+          "type": "symbol"
+        }}
+      }}
+    }},
+    "bad_swap": {{
+      "aliases": ["swap"],
+      "function": "swap",
+      "args": {{}}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let (warnings, errors) = validate_contract_policy_templates(&[policy]);
+    let warning_text = warnings.join(" | ");
+    let error_text = errors.join(" | ");
+
+    assert!(warning_text.contains("arg route is not declared"));
+    assert!(error_text.contains("arg min_out"));
+    assert!(error_text.contains("unsupported source wallet address"));
+    assert!(error_text.contains("amount type symbol does not match schema type u64"));
+    assert!(error_text.contains("asset needs source, value, or default"));
+    assert!(error_text.contains("bad_swap function swap is not in allowed_functions"));
 }
 
 #[test]

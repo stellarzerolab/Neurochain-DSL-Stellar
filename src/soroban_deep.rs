@@ -300,6 +300,168 @@ pub fn validate_contract_policies(
     (warnings, errors)
 }
 
+pub fn validate_contract_policy_templates(
+    policies: &[ContractPolicy],
+) -> (Vec<String>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    for policy in policies {
+        validate_contract_policy_template(policy, &mut warnings, &mut errors);
+    }
+
+    (warnings, errors)
+}
+
+fn validate_contract_policy_template(
+    policy: &ContractPolicy,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    let contract_id = policy.contract_id.trim();
+    let policy_name = if contract_id.is_empty() {
+        "(missing-contract-id)"
+    } else {
+        contract_id
+    };
+
+    if contract_id.is_empty() {
+        errors.push("template_policy_invalid: contract_id is required".to_string());
+    }
+
+    for function in &policy.allowed_functions {
+        if function.trim().is_empty() {
+            errors.push(format!(
+                "template_policy_invalid: {policy_name} allowed_functions contains empty function"
+            ));
+        }
+    }
+
+    for (function, schema) in &policy.args_schema {
+        let function = function.trim();
+        if function.is_empty() {
+            errors.push(format!(
+                "template_policy_invalid: {policy_name} args_schema contains empty function"
+            ));
+        }
+
+        for (arg, ty) in schema.required.iter().chain(schema.optional.iter()) {
+            let ty = ty.trim().to_ascii_lowercase();
+            if !is_policy_schema_type(&ty) {
+                errors.push(format!(
+                    "template_policy_invalid: {policy_name}:{function} arg {arg} has unsupported type {ty}"
+                ));
+            }
+        }
+    }
+
+    for (template_name, template) in &policy.intent_templates {
+        validate_intent_template(
+            policy,
+            policy_name,
+            template_name,
+            template,
+            warnings,
+            errors,
+        );
+    }
+}
+
+fn validate_intent_template(
+    policy: &ContractPolicy,
+    policy_name: &str,
+    template_name: &str,
+    template: &ContractIntentTemplate,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    let template_name = template_name.trim();
+    if template_name.is_empty() {
+        errors.push(format!(
+            "template_policy_invalid: {policy_name} intent_templates contains empty template name"
+        ));
+    }
+
+    let function = template.function.trim();
+    if function.is_empty() {
+        errors.push(format!(
+            "template_policy_invalid: {policy_name}:{template_name} template function is required"
+        ));
+        return;
+    }
+
+    if !policy.allowed_functions.is_empty()
+        && !policy
+            .allowed_functions
+            .iter()
+            .any(|allowed| allowed.trim() == function)
+    {
+        errors.push(format!(
+            "template_policy_invalid: {policy_name}:{template_name} function {function} is not in allowed_functions"
+        ));
+    }
+
+    let Some(schema) = policy.args_schema.get(function) else {
+        warnings.push(format!(
+            "template_policy_warning: {policy_name}:{template_name} function {function} has no args_schema"
+        ));
+        return;
+    };
+
+    for required in schema.required.keys() {
+        if !template.args.contains_key(required) {
+            errors.push(format!(
+                "template_policy_invalid: {policy_name}:{template_name} missing template arg {required} required by {function}"
+            ));
+        }
+    }
+
+    for (arg_name, arg) in &template.args {
+        if !schema.required.contains_key(arg_name) && !schema.optional.contains_key(arg_name) {
+            warnings.push(format!(
+                "template_policy_warning: {policy_name}:{template_name} arg {arg_name} is not declared in args_schema for {function}"
+            ));
+        }
+
+        if let Some(source) = arg.source.as_deref() {
+            let source = source.trim().to_ascii_lowercase();
+            if !is_template_source_allowed(&source) {
+                errors.push(format!(
+                    "template_policy_invalid: {policy_name}:{template_name} arg {arg_name} has unsupported source {source}"
+                ));
+            }
+        }
+
+        if let Some(template_ty) = arg.ty.as_deref() {
+            let template_ty = template_ty.trim().to_ascii_lowercase();
+            if !is_policy_schema_type(&template_ty) {
+                errors.push(format!(
+                    "template_policy_invalid: {policy_name}:{template_name} arg {arg_name} has unsupported template type {template_ty}"
+                ));
+            }
+
+            if let Some(schema_ty) = schema
+                .required
+                .get(arg_name)
+                .or_else(|| schema.optional.get(arg_name))
+            {
+                let schema_ty = schema_ty.trim().to_ascii_lowercase();
+                if schema_ty != template_ty {
+                    errors.push(format!(
+                        "template_policy_invalid: {policy_name}:{template_name} arg {arg_name} type {template_ty} does not match schema type {schema_ty}"
+                    ));
+                }
+            }
+        }
+
+        if arg.source.is_none() && arg.value.is_none() && arg.default.is_none() {
+            errors.push(format!(
+                "template_policy_invalid: {policy_name}:{template_name} arg {arg_name} needs source, value, or default"
+            ));
+        }
+    }
+}
+
 fn plan_is_template_expandable(plan: &ActionPlan) -> bool {
     let only_unknown_actions = !plan.actions.is_empty()
         && plan
@@ -487,6 +649,28 @@ fn is_safe_source_keyword(keyword: &str) -> bool {
         && keyword
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+fn is_template_source_allowed(source: &str) -> bool {
+    matches!(
+        source,
+        "after_to"
+            | "after_for"
+            | "quoted"
+            | "first_quoted"
+            | "first_account"
+            | "first_contract"
+            | "first_number"
+    ) || source
+        .strip_prefix("after_")
+        .is_some_and(is_safe_source_keyword)
+}
+
+fn is_policy_schema_type(ty: &str) -> bool {
+    matches!(
+        ty,
+        "string" | "number" | "bool" | "address" | "symbol" | "bytes" | "u64"
+    )
 }
 
 fn extract_after_keyword(prompt: &str, keyword: &str) -> Option<String> {

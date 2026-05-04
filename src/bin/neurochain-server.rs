@@ -523,6 +523,20 @@ async fn api_stellar_intent_plan(
     let mut plan = build_intent_action_plan(&prompt, &decision);
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
+    let (template_warnings, template_errors) =
+        soroban_deep::validate_contract_policy_templates(&policies);
+    logs.push(format!(
+        "policy_template: warnings={} errors={}",
+        template_warnings.len(),
+        template_errors.len()
+    ));
+    for warning in &template_warnings {
+        plan.warnings
+            .push(format!("policy_template warning: {warning}"));
+    }
+    for err in &template_errors {
+        plan.warnings.push(format!("policy_template error: {err}"));
+    }
     let template_report =
         soroban_deep::apply_contract_intent_templates(&prompt, &mut plan, &policies);
     logs.push(format!(

@@ -523,6 +523,80 @@ fn intent_mode_soroban_swap_template_missing_min_out_blocks_with_exit_5() {
 }
 
 #[test]
+fn intent_mode_policy_template_validation_warnings_surface_in_plan() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let contract = "CILFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let tmp_policy = std::env::temp_dir().join("nc_policy_template_invalid.json");
+    let policy = format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["deposit"],
+  "args_schema": {{
+    "deposit": {{
+      "required": {{
+        "account": "address",
+        "amount": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "deposit": {{
+      "aliases": ["deposit"],
+      "function": "deposit",
+      "args": {{
+        "account": {{
+          "source": "wallet address",
+          "type": "address"
+        }},
+        "amount": {{
+          "source": "after_amount",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    );
+    fs::write(&tmp_policy, policy).expect("write temp policy");
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(format!(
+            "Invoke contract deposit function deposit amount 100 for wallet {account}"
+        ))
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .env(
+            "NC_CONTRACT_POLICY",
+            tmp_policy.to_string_lossy().to_string(),
+        )
+        .output()
+        .expect("run neurochain-stellar with invalid template policy");
+
+    let _ = fs::remove_file(&tmp_policy);
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("policy_template error"));
+    assert!(combined.contains("unsupported source wallet address"));
+    assert!(combined.contains("amount type symbol does not match schema type u64"));
+}
+
+#[test]
 fn intent_mode_policy_typed_v2_reports_multiple_arg_errors() {
     let model_path = intent_model_path();
     if !model_path.exists() {
