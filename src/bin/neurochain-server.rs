@@ -1,14 +1,16 @@
 use std::{
+    collections::{HashMap, HashSet},
     env, fs,
     net::SocketAddr,
     panic::{catch_unwind, AssertUnwindSafe},
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
@@ -24,6 +26,7 @@ use neurochain::{
     soroban_deep::ContractPolicy,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::{
     sync::Semaphore,
     task,
@@ -34,6 +37,7 @@ use tower_http::cors::{Any, CorsLayer};
 #[derive(Clone)]
 struct AppState {
     inference_sem: Arc<Semaphore>,
+    x402_stellar: Arc<Mutex<X402StellarState>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -84,7 +88,82 @@ struct StellarIntentPlanResp {
     logs: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct X402StellarChallenge {
+    expires_at: u64,
+    finalized: bool,
+}
+
+#[derive(Debug, Default)]
+struct X402StellarState {
+    next_id: u64,
+    challenges: HashMap<String, X402StellarChallenge>,
+    used_signatures: HashSet<String>,
+}
+
+impl X402StellarState {
+    fn create_challenge(&mut self) -> (String, u64) {
+        self.next_id += 1;
+        let challenge_id = format!("x402s{:04}", self.next_id);
+        let expires_at = now_unix_secs().saturating_add(x402_stellar_ttl_secs());
+        self.challenges.insert(
+            challenge_id.clone(),
+            X402StellarChallenge {
+                expires_at,
+                finalized: false,
+            },
+        );
+        (challenge_id, expires_at)
+    }
+}
+
 static REQUIRED_API_KEY: OnceLock<Option<String>> = OnceLock::new();
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn x402_stellar_ttl_secs() -> u64 {
+    env::var("NC_X402_STELLAR_TTL_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(300)
+}
+
+fn x402_stellar_amount() -> String {
+    env::var("NC_X402_STELLAR_AMOUNT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "0.01".to_string())
+}
+
+fn x402_stellar_asset() -> String {
+    env::var("NC_X402_STELLAR_ASSET")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "USDC".to_string())
+}
+
+fn x402_stellar_network() -> String {
+    env::var("NC_X402_STELLAR_NETWORK")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "stellar:testnet".to_string())
+}
+
+fn x402_stellar_receiver() -> String {
+    env::var("NC_X402_STELLAR_RECEIVER")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "mock-receiver".to_string())
+}
 
 fn required_api_key() -> Option<&'static str> {
     REQUIRED_API_KEY
@@ -119,6 +198,55 @@ fn provided_api_key(headers: &HeaderMap) -> Option<&str> {
     }
 
     None
+}
+
+fn x402_payment_signature(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("payment-signature")
+        .or_else(|| headers.get("x-payment"))
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn x402_challenge_from_signature(signature: &str) -> Option<&str> {
+    signature.trim().strip_prefix("paid:").map(str::trim)
+}
+
+fn x402_payment_required_response(challenge_id: String, expires_at: u64) -> Response {
+    (
+        StatusCode::PAYMENT_REQUIRED,
+        Json(json!({
+            "ok": false,
+            "error": "payment_required",
+            "challenge_id": challenge_id,
+            "amount": x402_stellar_amount(),
+            "asset": x402_stellar_asset(),
+            "network": x402_stellar_network(),
+            "receiver": x402_stellar_receiver(),
+            "expires_at": expires_at,
+            "payment_header": "PAYMENT-SIGNATURE",
+            "mock_signature": format!("paid:{challenge_id}"),
+            "logs": [
+                "x402: payment required",
+                "x402: retry with PAYMENT-SIGNATURE=paid:<challenge_id>"
+            ]
+        })),
+    )
+        .into_response()
+}
+
+fn x402_error_response(status: StatusCode, error: &str, logs: Vec<String>) -> Response {
+    (
+        status,
+        Json(json!({
+            "ok": false,
+            "error": error,
+            "logs": logs
+        })),
+    )
+        .into_response()
 }
 
 fn secure_eq(a: &str, b: &str) -> bool {
@@ -243,11 +371,16 @@ async fn main() {
 
     let state = Arc::new(AppState {
         inference_sem: Arc::new(Semaphore::new(max_infer)),
+        x402_stellar: Arc::new(Mutex::new(X402StellarState::default())),
     });
 
     let api = Router::new()
         .route("/analyze", post(api_analyze))
         .route("/stellar/intent-plan", post(api_stellar_intent_plan))
+        .route(
+            "/x402/stellar/intent-plan",
+            post(api_x402_stellar_intent_plan),
+        )
         .with_state(state);
 
     let app = Router::new().nest("/api", api).layer(
@@ -448,6 +581,89 @@ async fn api_stellar_intent_plan(
         }
     }
 
+    build_stellar_intent_plan_response(req, logs)
+}
+
+async fn api_x402_stellar_intent_plan(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<StellarIntentPlanReq>,
+) -> Response {
+    let mut logs: Vec<String> = vec!["x402: stellar intent-plan gateway".to_string()];
+
+    if let Some(required) = required_api_key() {
+        let ok = provided_api_key(&headers)
+            .map(|got| secure_eq(got, required))
+            .unwrap_or(false);
+        if !ok {
+            logs.push("auth: missing or invalid api key".to_string());
+            return x402_error_response(StatusCode::UNAUTHORIZED, "unauthorized", logs);
+        }
+    }
+
+    let Some(signature) = x402_payment_signature(&headers) else {
+        let (challenge_id, expires_at) = match state.x402_stellar.lock() {
+            Ok(mut x402) => x402.create_challenge(),
+            Err(_) => {
+                logs.push("x402: state lock poisoned".to_string());
+                return x402_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "x402_state_unavailable",
+                    logs,
+                );
+            }
+        };
+        return x402_payment_required_response(challenge_id, expires_at);
+    };
+
+    let Some(challenge_id) = x402_challenge_from_signature(&signature).map(str::to_string) else {
+        logs.push("x402: invalid payment signature format".to_string());
+        return x402_error_response(StatusCode::PAYMENT_REQUIRED, "invalid_payment", logs);
+    };
+
+    match state.x402_stellar.lock() {
+        Ok(mut x402) => {
+            if x402.used_signatures.contains(&signature) {
+                logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
+                return x402_error_response(StatusCode::CONFLICT, "payment_replay_blocked", logs);
+            }
+
+            let Some(challenge) = x402.challenges.get_mut(&challenge_id) else {
+                logs.push(format!("x402: unknown or missing challenge={challenge_id}"));
+                return x402_error_response(StatusCode::PAYMENT_REQUIRED, "invalid_payment", logs);
+            };
+
+            if challenge.finalized {
+                logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
+                return x402_error_response(StatusCode::CONFLICT, "payment_replay_blocked", logs);
+            }
+
+            if now_unix_secs() >= challenge.expires_at {
+                logs.push(format!("x402: expired challenge={challenge_id}"));
+                return x402_error_response(StatusCode::PAYMENT_REQUIRED, "payment_expired", logs);
+            }
+
+            challenge.finalized = true;
+            x402.used_signatures.insert(signature);
+        }
+        Err(_) => {
+            logs.push("x402: state lock poisoned".to_string());
+            return x402_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "x402_state_unavailable",
+                logs,
+            );
+        }
+    }
+
+    logs.push(format!("x402: finalized challenge={challenge_id}"));
+    build_stellar_intent_plan_response(req, logs).into_response()
+}
+
+fn build_stellar_intent_plan_response(
+    req: StellarIntentPlanReq,
+    mut logs: Vec<String>,
+) -> (StatusCode, Json<StellarIntentPlanResp>) {
     let prompt = req.prompt.trim().to_string();
     if prompt.is_empty() {
         logs.push("warn: empty prompt".into());

@@ -199,6 +199,34 @@ fn intent_stellar_model_path() -> PathBuf {
     base.join("intent_stellar").join("model.onnx")
 }
 
+fn spawn_server(port: u16, extra_env: &[(&str, &str)]) -> Server {
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-server"));
+    command
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("HOST", "127.0.0.1")
+        .env("PORT", port.to_string())
+        .env("NC_MODELS_DIR", models_dir())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+
+    let child = command.spawn().expect("spawn neurochain-server");
+    Server { child }
+}
+
+fn payment_challenge_id(resp_body: &str) -> String {
+    let resp: serde_json::Value = serde_json::from_str(resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["error"], "payment_required");
+    resp["challenge_id"]
+        .as_str()
+        .expect("challenge_id")
+        .to_string()
+}
+
 #[test]
 fn api_analyze_smoke_and_errors() {
     let port = find_free_port();
@@ -713,6 +741,162 @@ fn api_stellar_intent_plan_stage3_typed_v2_parity() {
 
     let _ = fs::remove_file(&policy_path);
     let _ = fs::remove_dir(&policy_dir);
+}
+
+#[test]
+fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[]);
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Check balance for {account} asset XLM"),
+        "threshold": 0.0
+    })
+    .to_string();
+
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 402);
+    let challenge_id = payment_challenge_id(&resp_body);
+    let signature = format!("paid:{challenge_id}");
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "stellar_account_balance"
+    );
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("x402: finalized challenge=")),
+        "expected finalized x402 log"
+    );
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 409);
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["error"], "payment_replay_blocked");
+}
+
+#[test]
+fn api_x402_stellar_intent_plan_payment_does_not_bypass_allowlist_guardrail() {
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_x402_stellar_intent_plan_payment_does_not_bypass_allowlist_guardrail skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[]);
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Send 5 XLM to {account}"),
+        "threshold": 0.20,
+        "allowlist_assets": "USDC:GISSUER",
+        "allowlist_enforce": true
+    })
+    .to_string();
+
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 402);
+    let signature = format!("paid:{}", payment_challenge_id(&resp_body));
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 3);
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("x402: finalized challenge=")),
+        "expected finalized x402 log"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "block: allowlist_enforced"),
+        "expected allowlist block after payment"
+    );
+}
+
+#[test]
+fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[("NC_X402_STELLAR_TTL_SECS", "0")]);
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.0
+    })
+    .to_string();
+
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 402);
+    let signature = format!("paid:{}", payment_challenge_id(&resp_body));
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 402);
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["error"], "payment_expired");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("x402: expired challenge=")),
+        "expected expired x402 log"
+    );
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
