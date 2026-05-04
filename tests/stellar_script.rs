@@ -939,6 +939,44 @@ fn nc_script_soroban_deep_template_expands_high_level_prompt() {
 }
 
 #[test]
+fn nc_script_soroban_claim_rewards_template_example_expands() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let example = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("soroban_claim_rewards_template.nc");
+    if !example.exists() {
+        eprintln!("skipping test; missing example: {}", example.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(example.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar claim rewards template example");
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains("\"function\": \"claim_rewards\""));
+    assert!(combined.contains("\"pool\": \"rewards\""));
+    assert!(combined.contains("soroban_deep_template: template=claim_rewards"));
+    assert!(!combined.contains("ChangeTrust missing"));
+}
+
+#[test]
 fn nc_script_intent_safety_blocks_flow_with_exit_5() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")

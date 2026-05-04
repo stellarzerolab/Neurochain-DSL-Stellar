@@ -1,0 +1,31 @@
+{
+  "contract_id": "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+  "allowed_functions": ["claim_rewards"],
+  "args_schema": {
+    "claim_rewards": {
+      "required": {
+        "account": "address"
+      },
+      "optional": {
+        "pool": "symbol"
+      }
+    }
+  },
+  "intent_templates": {
+    "claim_rewards": {
+      "aliases": ["claim rewards", "collect rewards", "claim yield"],
+      "function": "claim_rewards",
+      "args": {
+        "account": {
+          "source": "first_account",
+          "type": "address"
+        },
+        "pool": {
+          "value": "rewards",
+          "type": "symbol"
+        }
+      }
+    }
+  },
+  "max_fee_stroops": 2000
+}

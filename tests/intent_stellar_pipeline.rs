@@ -2,7 +2,9 @@ use neurochain::actions::Action;
 use neurochain::intent_stellar::{
     build_action_plan, has_intent_blocking_issue, IntentDecision, IntentStellarLabel,
 };
-use neurochain::soroban_deep::{apply_contract_intent_templates, ContractPolicy};
+use neurochain::soroban_deep::{
+    apply_contract_intent_templates, apply_policy_typed_templates_v2, ContractPolicy,
+};
 
 fn decision(label: IntentStellarLabel) -> IntentDecision {
     IntentDecision {
@@ -337,6 +339,124 @@ fn soroban_deep_template_expands_high_level_contract_intent() {
         }
         other => panic!("unexpected action: {other:?}"),
     }
+}
+
+#[test]
+fn soroban_deep_template_expands_claim_rewards_use_case() {
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["claim_rewards"],
+  "args_schema": {{
+    "claim_rewards": {{
+      "required": {{
+        "account": "address"
+      }},
+      "optional": {{
+        "pool": "symbol"
+      }}
+    }}
+  }},
+  "intent_templates": {{
+    "claim_rewards": {{
+      "aliases": ["claim rewards", "collect rewards", "claim yield"],
+      "function": "claim_rewards",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }},
+        "pool": {{
+          "value": "rewards",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = format!("Invoke contract rewards function claim_rewards for wallet {account}");
+    let mut plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(&prompt, &mut plan, std::slice::from_ref(&policy));
+    assert!(report.expanded, "template should expand: {report:?}");
+    assert_eq!(report.template_name.as_deref(), Some("claim_rewards"));
+
+    let typed_report = apply_policy_typed_templates_v2(&mut plan, std::slice::from_ref(&policy));
+    assert_eq!(typed_report.converted, 0);
+    assert!(!has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w.contains("soroban_deep_template: template=claim_rewards")));
+
+    match &plan.actions[0] {
+        Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } => {
+            assert_eq!(contract_id, contract);
+            assert_eq!(function, "claim_rewards");
+            assert_eq!(args["account"].as_str(), Some(account));
+            assert_eq!(args["pool"].as_str(), Some("rewards"));
+        }
+        other => panic!("unexpected action: {other:?}"),
+    }
+}
+
+#[test]
+fn soroban_deep_template_keeps_claim_rewards_missing_account_blocking() {
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["claim_rewards"],
+  "args_schema": {{
+    "claim_rewards": {{
+      "required": {{
+        "account": "address"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "claim_rewards": {{
+      "aliases": ["claim rewards"],
+      "function": "claim_rewards",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = "Claim rewards now";
+    let mut plan = build_action_plan(prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(prompt, &mut plan, std::slice::from_ref(&policy));
+    assert!(!report.expanded);
+    assert_eq!(
+        report.reason.as_deref(),
+        Some("slot_missing: ContractInvoke template claim_rewards missing arg account")
+    );
+    assert!(has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w
+            .contains("slot_missing: ContractInvoke template claim_rewards missing arg account")));
 }
 
 #[test]
