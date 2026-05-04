@@ -1,0 +1,45 @@
+{
+  "contract_id": "CGLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+  "allowed_functions": ["swap"],
+  "args_schema": {
+    "swap": {
+      "required": {
+        "account": "address",
+        "amount": "u64",
+        "from_asset": "symbol",
+        "to_asset": "symbol",
+        "min_out": "u64"
+      },
+      "optional": {}
+    }
+  },
+  "intent_templates": {
+    "swap": {
+      "aliases": ["swap", "trade"],
+      "function": "swap",
+      "args": {
+        "account": {
+          "source": "first_account",
+          "type": "address"
+        },
+        "amount": {
+          "source": "after_amount",
+          "type": "u64"
+        },
+        "from_asset": {
+          "source": "after_from",
+          "type": "symbol"
+        },
+        "to_asset": {
+          "source": "after_to",
+          "type": "symbol"
+        },
+        "min_out": {
+          "source": "after_min_out",
+          "type": "u64"
+        }
+      }
+    }
+  },
+  "max_fee_stroops": 5000
+}

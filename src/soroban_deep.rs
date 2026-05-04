@@ -460,7 +460,8 @@ fn resolve_template_arg(prompt: &str, arg: &TemplateArg) -> Option<Value> {
 }
 
 fn extract_arg_source(prompt: &str, source: &str) -> Option<Value> {
-    match source.trim().to_ascii_lowercase().as_str() {
+    let source = source.trim().to_ascii_lowercase();
+    match source.as_str() {
         "after_to" => extract_after_keyword(prompt, "to").map(Value::String),
         "after_for" => extract_after_keyword(prompt, "for").map(Value::String),
         "quoted" | "first_quoted" => extract_first_quoted(prompt).map(Value::String),
@@ -473,8 +474,19 @@ fn extract_arg_source(prompt: &str, source: &str) -> Option<Value> {
         "first_number" => first_number_re()
             .find(prompt)
             .map(|m| Value::String(m.as_str().to_string())),
-        _ => None,
+        _ => source
+            .strip_prefix("after_")
+            .filter(|keyword| is_safe_source_keyword(keyword))
+            .and_then(|keyword| extract_after_keyword(prompt, keyword))
+            .map(Value::String),
     }
+}
+
+fn is_safe_source_keyword(keyword: &str) -> bool {
+    !keyword.is_empty()
+        && keyword
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 fn extract_after_keyword(prompt: &str, keyword: &str) -> Option<String> {

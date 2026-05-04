@@ -594,6 +594,166 @@ fn soroban_deep_template_keeps_deposit_missing_amount_blocking() {
 }
 
 #[test]
+fn soroban_deep_template_expands_swap_use_case() {
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let contract = "CGLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["swap"],
+  "args_schema": {{
+    "swap": {{
+      "required": {{
+        "account": "address",
+        "amount": "u64",
+        "from_asset": "symbol",
+        "to_asset": "symbol",
+        "min_out": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "swap": {{
+      "aliases": ["swap", "trade"],
+      "function": "swap",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }},
+        "amount": {{
+          "source": "after_amount",
+          "type": "u64"
+        }},
+        "from_asset": {{
+          "source": "after_from",
+          "type": "symbol"
+        }},
+        "to_asset": {{
+          "source": "after_to",
+          "type": "symbol"
+        }},
+        "min_out": {{
+          "source": "after_min_out",
+          "type": "u64"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = format!(
+        "Invoke contract swap function swap amount 100 from USDC to XLM min_out 95 for wallet {account}"
+    );
+    let mut plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(&prompt, &mut plan, std::slice::from_ref(&policy));
+    assert!(report.expanded, "template should expand: {report:?}");
+    assert_eq!(report.template_name.as_deref(), Some("swap"));
+
+    let typed_report = apply_policy_typed_templates_v2(&mut plan, std::slice::from_ref(&policy));
+    assert_eq!(typed_report.converted, 0);
+    assert_eq!(typed_report.normalized_args, 2);
+    assert!(!has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w.contains("soroban_deep_template: template=swap")));
+
+    match &plan.actions[0] {
+        Action::SorobanContractInvoke {
+            contract_id,
+            function,
+            args,
+        } => {
+            assert_eq!(contract_id, contract);
+            assert_eq!(function, "swap");
+            assert_eq!(args["account"].as_str(), Some(account));
+            assert_eq!(args["amount"].as_u64(), Some(100));
+            assert_eq!(args["from_asset"].as_str(), Some("USDC"));
+            assert_eq!(args["to_asset"].as_str(), Some("XLM"));
+            assert_eq!(args["min_out"].as_u64(), Some(95));
+        }
+        other => panic!("unexpected action: {other:?}"),
+    }
+}
+
+#[test]
+fn soroban_deep_template_keeps_swap_missing_min_out_blocking() {
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let contract = "CGLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["swap"],
+  "args_schema": {{
+    "swap": {{
+      "required": {{
+        "account": "address",
+        "amount": "u64",
+        "from_asset": "symbol",
+        "to_asset": "symbol",
+        "min_out": "u64"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "swap": {{
+      "aliases": ["swap"],
+      "function": "swap",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }},
+        "amount": {{
+          "source": "after_amount",
+          "type": "u64"
+        }},
+        "from_asset": {{
+          "source": "after_from",
+          "type": "symbol"
+        }},
+        "to_asset": {{
+          "source": "after_to",
+          "type": "symbol"
+        }},
+        "min_out": {{
+          "source": "after_min_out",
+          "type": "u64"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = format!(
+        "Invoke contract swap function swap amount 100 from USDC to XLM for wallet {account}"
+    );
+    let mut plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert!(has_intent_blocking_issue(&plan));
+
+    let report = apply_contract_intent_templates(&prompt, &mut plan, std::slice::from_ref(&policy));
+    assert!(!report.expanded);
+    assert_eq!(
+        report.reason.as_deref(),
+        Some("slot_missing: ContractInvoke template swap missing arg min_out")
+    );
+    assert!(has_intent_blocking_issue(&plan));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w.contains("slot_missing: ContractInvoke template swap missing arg min_out")));
+}
+
+#[test]
 fn soroban_deep_template_can_expand_policy_alias_from_unknown_label() {
     let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
     let policy: ContractPolicy = serde_json::from_str(&format!(

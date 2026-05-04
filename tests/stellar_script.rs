@@ -1016,6 +1016,47 @@ fn nc_script_soroban_deposit_template_example_expands() {
 }
 
 #[test]
+fn nc_script_soroban_swap_template_example_expands() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let example = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("soroban_swap_template.nc");
+    if !example.exists() {
+        eprintln!("skipping test; missing example: {}", example.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(example.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar swap template example");
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("\"kind\": \"soroban_contract_invoke\""));
+    assert!(combined.contains("\"function\": \"swap\""));
+    assert!(combined.contains("\"amount\": 100"));
+    assert!(combined.contains("\"from_asset\": \"USDC\""));
+    assert!(combined.contains("\"to_asset\": \"XLM\""));
+    assert!(combined.contains("\"min_out\": 95"));
+    assert!(combined.contains("soroban_deep_template: template=swap"));
+    assert!(!combined.contains("slot_type_error"));
+}
+
+#[test]
 fn nc_script_intent_safety_blocks_flow_with_exit_5() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")
