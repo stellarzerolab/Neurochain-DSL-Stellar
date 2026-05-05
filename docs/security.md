@@ -26,6 +26,8 @@ Note: `cargo test` includes AI model smoke tests (`src/ai/model/tests.rs`). Thes
 
 Runtime safety note (Stellar path): in addition to toolchain checks, `neurochain-stellar` enforces runtime guardrails (allowlist, contract policy, intent safety). Typed policy mismatches for Soroban invoke args (`address` / `bytes` / `symbol` / `u64`) are treated as `slot_type_error -> Unknown -> safe no-submit` in intent mode (blocked flow / API plan execution path).
 
+x402 audit safety note (Stellar server path): `/api/x402/stellar/intent-plan` is an access/payment gate in front of the same guardrail pipeline, not a submit path. If `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit rows for payment-required, finalized, blocked, replay, expired, and invalid payment states. Audit rows must not store the raw `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>` signature material.
+
 RustSec note: `RUSTSEC-2026-0097` is currently transitive (`rand 0.8.5` via `tokenizers`/`tract`/`axum` stack) and is tracked in the ignore list until upstream-compatible updates are available.
 
 ## 3. CI/CD Gatekeepers (GitHub Actions Example)

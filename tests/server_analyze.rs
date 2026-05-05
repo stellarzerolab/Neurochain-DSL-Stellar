@@ -10,7 +10,7 @@ use std::{
 };
 
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 
 #[derive(Debug, Deserialize)]
 struct AnalyzeResp {
@@ -236,6 +236,14 @@ fn payment_challenge_id(resp_body: &str) -> String {
         .as_str()
         .expect("challenge_id")
         .to_string()
+}
+
+fn read_jsonl(path: &PathBuf) -> Vec<Value> {
+    fs::read_to_string(path)
+        .expect("read audit jsonl")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("audit json row"))
+        .collect()
 }
 
 #[test]
@@ -767,7 +775,13 @@ fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
 
     let port = find_free_port();
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let _server = spawn_server(port, &[]);
+    let audit_path = std::env::temp_dir().join(format!("nc_x402_stellar_audit_flow_{port}.jsonl"));
+    let _ = fs::remove_file(&audit_path);
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str())],
+    );
     wait_for_listen(addr, Duration::from_secs(3));
 
     let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
@@ -834,6 +848,28 @@ fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
     assert_eq!(resp["decision"]["status"], "blocked");
     assert_eq!(resp["decision"]["blocked"], true);
     assert_eq!(resp["guardrails"]["state"], "not_run");
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["event"], "payment_required");
+    assert_eq!(rows[0]["payment"]["state"], "payment_required");
+    assert_eq!(rows[0]["decision"]["status"], "not_evaluated");
+    assert_eq!(rows[0]["guardrails"]["state"], "not_run");
+    assert_eq!(rows[1]["event"], "approved");
+    assert_eq!(rows[1]["payment"]["state"], "finalized");
+    assert_eq!(rows[1]["decision"]["status"], "approved");
+    assert_eq!(rows[1]["guardrails"]["state"], "passed");
+    assert_eq!(rows[2]["event"], "payment_replay_blocked");
+    assert_eq!(rows[2]["payment"]["state"], "replay_blocked");
+    assert_eq!(rows[2]["decision"]["status"], "blocked");
+    assert_eq!(rows[2]["guardrails"]["state"], "not_run");
+
+    let _ = fs::remove_file(&audit_path);
 }
 
 #[test]
@@ -849,7 +885,14 @@ fn api_x402_stellar_intent_plan_payment_does_not_bypass_allowlist_guardrail() {
 
     let port = find_free_port();
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let _server = spawn_server(port, &[]);
+    let audit_path =
+        std::env::temp_dir().join(format!("nc_x402_stellar_audit_guardrail_{port}.jsonl"));
+    let _ = fs::remove_file(&audit_path);
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str())],
+    );
     wait_for_listen(addr, Duration::from_secs(3));
 
     let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
@@ -899,13 +942,40 @@ fn api_x402_stellar_intent_plan_payment_does_not_bypass_allowlist_guardrail() {
             .any(|log| log == "block: allowlist_enforced"),
         "expected allowlist block after payment"
     );
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["event"], "payment_required");
+    assert_eq!(rows[1]["event"], "blocked");
+    assert_eq!(rows[1]["payment"]["state"], "finalized");
+    assert_eq!(rows[1]["decision"]["status"], "blocked");
+    assert_eq!(rows[1]["decision"]["reason"], "allowlist");
+    assert_eq!(rows[1]["guardrails"]["state"], "blocked");
+    assert_eq!(rows[1]["guardrails"]["exit_code"], 3);
+
+    let _ = fs::remove_file(&audit_path);
 }
 
 #[test]
 fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
     let port = find_free_port();
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let _server = spawn_server(port, &[("NC_X402_STELLAR_TTL_SECS", "0")]);
+    let audit_path =
+        std::env::temp_dir().join(format!("nc_x402_stellar_audit_expired_{port}.jsonl"));
+    let _ = fs::remove_file(&audit_path);
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_X402_STELLAR_TTL_SECS", "0"),
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+        ],
+    );
     wait_for_listen(addr, Duration::from_secs(3));
 
     let body = json!({
@@ -940,6 +1010,21 @@ fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
             .any(|log| log.contains("x402: expired challenge=")),
         "expected expired x402 log"
     );
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["event"], "payment_required");
+    assert_eq!(rows[1]["event"], "payment_expired");
+    assert_eq!(rows[1]["payment"]["state"], "expired");
+    assert_eq!(rows[1]["decision"]["status"], "blocked");
+    assert_eq!(rows[1]["guardrails"]["state"], "not_run");
+
+    let _ = fs::remove_file(&audit_path);
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {

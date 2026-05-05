@@ -862,6 +862,7 @@ Update this guide whenever:
 - new actions are added
 - preview output expands
 - guardrail behavior changes
+- server endpoints or response shapes change
 
 ---
 
@@ -878,6 +879,7 @@ The same binary serves both:
 
 - `/api/analyze`
 - `/api/stellar/intent-plan`
+- `/api/x402/stellar/intent-plan`
 
 Optional environment variables:
 
@@ -886,6 +888,7 @@ $env:HOST="127.0.0.1"
 $env:PORT="8081"
 $env:NC_MODELS_DIR="models"
 $env:NC_API_KEY="your-secret-key"
+$env:NC_X402_STELLAR_AUDIT_PATH="logs/x402_stellar_audit.jsonl"
 cargo run --release --bin neurochain-server
 ```
 
@@ -927,3 +930,102 @@ The endpoint uses the same intent core as the CLI:
 - `build_intent_action_plan`
 
 Guardrail behavior is therefore consistent across REPL, `.nc`, and server paths.
+
+### x402-paid Stellar IntentPlan Gateway
+
+Endpoint:
+
+```http
+POST /api/x402/stellar/intent-plan
+```
+
+This endpoint is an x402-lite access layer in front of the same IntentStellar
+planning engine. It does not submit transactions and it does not bypass
+guardrails.
+
+Unpaid request:
+
+```powershell
+$body = @{
+  model     = "intent_stellar"
+  prompt    = "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM"
+  threshold = 0.0
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8081/api/x402/stellar/intent-plan" -ContentType "application/json" -Body $body
+```
+
+Expected unpaid behavior:
+
+- HTTP `402 Payment Required`
+- `payment.state = "payment_required"`
+- `decision.status = "not_evaluated"`
+- `guardrails.state = "not_run"`
+- response includes `challenge_id`, `expires_at`, amount/asset/network/receiver and a mock `PAYMENT-SIGNATURE` hint
+
+Mock finalized request:
+
+```powershell
+$challengeId = "<challenge_id from the 402 response>"
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8081/api/x402/stellar/intent-plan" `
+  -ContentType "application/json" `
+  -Headers @{ "PAYMENT-SIGNATURE" = "paid:$challengeId" } `
+  -Body $body
+```
+
+Finalized response contains both the old compatibility fields and the newer
+decision model:
+
+- top-level compatibility:
+  - `ok`
+  - `blocked`
+  - `exit_code`
+  - `error`
+  - `plan`
+  - `logs`
+- `audit_id`
+- `payment`
+  - `protocol = "x402"`
+  - `state = "finalized"` / `payment_required` / `replay_blocked` / `expired`
+  - `challenge_id`
+  - amount/asset/network/receiver
+  - `created_at`, `expires_at`, `finalized_at`
+- `decision`
+  - `status = "approved" | "blocked" | "not_evaluated"`
+  - `approved`
+  - `blocked`
+  - `requires_approval`
+  - `reason`
+- `guardrails`
+  - `state = "passed" | "blocked" | "not_run"`
+  - `exit_code`
+  - `reason = "allowlist" | "contract_policy" | "intent_safety" | ...`
+
+Important behavior:
+
+- replayed payment signatures return `409 payment_replay_blocked`
+- expired challenges return `402 payment_expired`
+- paid requests still run the same guardrails:
+  - `3` allowlist
+  - `4` contract policy
+  - `5` intent safety / typed slot error / low confidence
+- `requires_approval` is currently always `false`; a real approval boundary is a later step
+
+Optional x402 server environment variables:
+
+| Env var | Meaning | Default |
+| --- | --- | --- |
+| `NC_X402_STELLAR_AMOUNT` | Mock price amount | `0.01` |
+| `NC_X402_STELLAR_ASSET` | Mock payment asset | `USDC` |
+| `NC_X402_STELLAR_NETWORK` | Payment network label | `stellar:testnet` |
+| `NC_X402_STELLAR_RECEIVER` | Receiver label/account placeholder | `mock-receiver` |
+| `NC_X402_STELLAR_TTL_SECS` | Challenge lifetime | `300` |
+| `NC_X402_STELLAR_AUDIT_PATH` | Optional safe JSONL audit output path | unset |
+
+When `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit
+rows for payment-required, finalized, blocked, replay, expired, and invalid
+payment states. Audit rows intentionally do not store the raw
+`PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>` signature.
