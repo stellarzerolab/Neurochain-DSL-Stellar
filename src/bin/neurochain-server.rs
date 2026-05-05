@@ -5,7 +5,7 @@ use std::{
     io::Write,
     net::SocketAddr,
     panic::{catch_unwind, AssertUnwindSafe},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -40,7 +40,7 @@ use tower_http::cors::{Any, CorsLayer};
 #[derive(Clone)]
 struct AppState {
     inference_sem: Arc<Semaphore>,
-    x402_stellar: Arc<Mutex<X402StellarState>>,
+    x402_stellar: Arc<Mutex<Box<dyn X402ChallengeStore + Send>>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -91,7 +91,7 @@ struct StellarIntentPlanResp {
     logs: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct X402StellarChallenge {
     created_at: u64,
     expires_at: u64,
@@ -100,11 +100,13 @@ struct X402StellarChallenge {
     payment_state: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 struct X402StellarState {
     next_id: u64,
+    #[serde(default)]
     challenges: HashMap<String, X402StellarChallenge>,
-    used_signatures: HashSet<String>,
+    #[serde(default)]
+    used_challenges: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -115,23 +117,169 @@ struct X402PaymentContext<'a> {
     finalized_at: Option<u64>,
 }
 
+#[derive(Debug, Clone)]
+struct X402ChallengeRecord {
+    challenge_id: String,
+    challenge: X402StellarChallenge,
+}
+
+#[derive(Debug, Clone)]
+enum X402FinalizeOutcome {
+    Finalized(X402StellarChallenge),
+    ReplayBlocked(X402StellarChallenge),
+    Expired(X402StellarChallenge),
+    UnknownChallenge,
+}
+
+trait X402ChallengeStore {
+    fn store_kind(&self) -> &'static str;
+    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String>;
+    fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String>;
+}
+
 impl X402StellarState {
-    fn create_challenge(&mut self) -> (String, u64, u64) {
+    fn create_challenge(&mut self) -> X402ChallengeRecord {
         self.next_id += 1;
         let challenge_id = format!("x402s{:04}", self.next_id);
         let created_at = now_unix_secs();
         let expires_at = created_at.saturating_add(x402_stellar_ttl_secs());
-        self.challenges.insert(
-            challenge_id.clone(),
-            X402StellarChallenge {
-                created_at,
-                expires_at,
-                finalized: false,
-                finalized_at: None,
-                payment_state: "payment_required".to_string(),
-            },
-        );
-        (challenge_id, created_at, expires_at)
+        let challenge = X402StellarChallenge {
+            created_at,
+            expires_at,
+            finalized: false,
+            finalized_at: None,
+            payment_state: "payment_required".to_string(),
+        };
+        self.challenges
+            .insert(challenge_id.clone(), challenge.clone());
+        X402ChallengeRecord {
+            challenge_id,
+            challenge,
+        }
+    }
+
+    fn begin_finalize(&mut self, challenge_id: &str) -> X402FinalizeOutcome {
+        let used = self.used_challenges.contains(challenge_id);
+        let Some(challenge) = self.challenges.get_mut(challenge_id) else {
+            return X402FinalizeOutcome::UnknownChallenge;
+        };
+
+        if used || challenge.finalized {
+            challenge.payment_state = "replay_blocked".to_string();
+            return X402FinalizeOutcome::ReplayBlocked(challenge.clone());
+        }
+
+        if now_unix_secs() >= challenge.expires_at {
+            challenge.payment_state = "expired".to_string();
+            return X402FinalizeOutcome::Expired(challenge.clone());
+        }
+
+        let finalized_at = now_unix_secs();
+        challenge.finalized = true;
+        challenge.finalized_at = Some(finalized_at);
+        challenge.payment_state = "finalized".to_string();
+        self.used_challenges.insert(challenge_id.to_string());
+        X402FinalizeOutcome::Finalized(challenge.clone())
+    }
+}
+
+#[derive(Debug, Default)]
+struct InMemoryX402ChallengeStore {
+    state: X402StellarState,
+}
+
+impl X402ChallengeStore for InMemoryX402ChallengeStore {
+    fn store_kind(&self) -> &'static str {
+        "in_memory"
+    }
+
+    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
+        Ok(self.state.create_challenge())
+    }
+
+    fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
+        Ok(self.state.begin_finalize(challenge_id))
+    }
+}
+
+#[derive(Debug)]
+struct FileX402ChallengeStore {
+    path: PathBuf,
+    state: X402StellarState,
+}
+
+impl FileX402ChallengeStore {
+    fn load(path: PathBuf) -> Result<Self, String> {
+        let state = match fs::read_to_string(&path) {
+            Ok(raw) if raw.trim().is_empty() => X402StellarState::default(),
+            Ok(raw) => serde_json::from_str(&raw)
+                .map_err(|err| format!("x402 store parse failed at {}: {err}", path.display()))?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => X402StellarState::default(),
+            Err(err) => {
+                return Err(format!(
+                    "x402 store read failed at {}: {err}",
+                    path.display()
+                ));
+            }
+        };
+
+        Ok(Self { path, state })
+    }
+
+    fn persist(&self) -> Result<(), String> {
+        if let Some(parent) = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "x402 store mkdir failed at {}: {err}",
+                    parent.to_string_lossy()
+                )
+            })?;
+        }
+
+        let raw = serde_json::to_string_pretty(&self.state)
+            .map_err(|err| format!("x402 store serialize failed: {err}"))?;
+        let tmp_path = self.path.with_extension("json.tmp");
+        fs::write(&tmp_path, raw)
+            .map_err(|err| format!("x402 store write failed at {}: {err}", tmp_path.display()))?;
+        if self.path.exists() {
+            fs::remove_file(&self.path).map_err(|err| {
+                format!(
+                    "x402 store replace failed at {}: {err}",
+                    self.path.display()
+                )
+            })?;
+        }
+        fs::rename(&tmp_path, &self.path).map_err(|err| {
+            format!(
+                "x402 store rename failed from {} to {}: {err}",
+                tmp_path.display(),
+                self.path.display()
+            )
+        })
+    }
+}
+
+impl X402ChallengeStore for FileX402ChallengeStore {
+    fn store_kind(&self) -> &'static str {
+        "file"
+    }
+
+    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
+        let record = self.state.create_challenge();
+        self.persist()?;
+        Ok(record)
+    }
+
+    fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
+        let outcome = self.state.begin_finalize(challenge_id);
+        if !matches!(outcome, X402FinalizeOutcome::UnknownChallenge) {
+            self.persist()?;
+        }
+        Ok(outcome)
     }
 }
 
@@ -188,6 +336,28 @@ fn x402_stellar_audit_path() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn x402_stellar_store_path() -> Option<PathBuf> {
+    env::var("NC_X402_STELLAR_STORE_PATH")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn build_x402_challenge_store() -> Box<dyn X402ChallengeStore + Send> {
+    let Some(path) = x402_stellar_store_path() else {
+        return Box::<InMemoryX402ChallengeStore>::default();
+    };
+
+    match FileX402ChallengeStore::load(path.clone()) {
+        Ok(store) => Box::new(store),
+        Err(err) => {
+            eprintln!("WARN: {err}; falling back to in-memory x402 challenge store");
+            Box::<InMemoryX402ChallengeStore>::default()
+        }
+    }
 }
 
 fn required_api_key() -> Option<&'static str> {
@@ -620,7 +790,7 @@ async fn main() {
 
     let state = Arc::new(AppState {
         inference_sem: Arc::new(Semaphore::new(max_infer)),
-        x402_stellar: Arc::new(Mutex::new(X402StellarState::default())),
+        x402_stellar: Arc::new(Mutex::new(build_x402_challenge_store())),
     });
 
     let api = Router::new()
@@ -857,8 +1027,26 @@ async fn api_x402_stellar_intent_plan(
     }
 
     let Some(signature) = x402_payment_signature(&headers) else {
-        let (challenge_id, created_at, expires_at) = match state.x402_stellar.lock() {
-            Ok(mut x402) => x402.create_challenge(),
+        let record = match state.x402_stellar.lock() {
+            Ok(mut store) => {
+                let store_kind = store.store_kind();
+                match store.create_challenge() {
+                    Ok(record) => {
+                        logs.push(format!("x402_store: {store_kind}"));
+                        record
+                    }
+                    Err(err) => {
+                        logs.push(format!("x402: challenge store create failed: {err}"));
+                        return x402_error_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "x402_state_unavailable",
+                            "state_unavailable",
+                            X402PaymentContext::default(),
+                            logs,
+                        );
+                    }
+                }
+            }
             Err(_) => {
                 logs.push("x402: state lock poisoned".to_string());
                 return x402_error_response(
@@ -872,7 +1060,12 @@ async fn api_x402_stellar_intent_plan(
         };
         logs.push("x402: payment required".to_string());
         logs.push("x402: retry with PAYMENT-SIGNATURE=paid:<challenge_id>".to_string());
-        return x402_payment_required_response(challenge_id, created_at, expires_at, logs);
+        return x402_payment_required_response(
+            record.challenge_id,
+            record.challenge.created_at,
+            record.challenge.expires_at,
+            logs,
+        );
     };
 
     let Some(challenge_id) = x402_challenge_from_signature(&signature).map(str::to_string) else {
@@ -887,70 +1080,73 @@ async fn api_x402_stellar_intent_plan(
     };
 
     let (created_at, expires_at, finalized_at, payment_state) = match state.x402_stellar.lock() {
-        Ok(mut x402) => {
-            let is_signature_replay = x402.used_signatures.contains(&signature);
-
-            let Some(challenge) = x402.challenges.get_mut(&challenge_id) else {
-                logs.push(format!("x402: unknown or missing challenge={challenge_id}"));
-                return x402_error_response(
-                    StatusCode::PAYMENT_REQUIRED,
-                    "invalid_payment",
-                    "invalid",
-                    X402PaymentContext {
-                        challenge_id: Some(&challenge_id),
-                        ..X402PaymentContext::default()
-                    },
-                    logs,
-                );
-            };
-
-            let created_at = challenge.created_at;
-            let expires_at = challenge.expires_at;
-            let current_finalized_at = challenge.finalized_at;
-
-            if is_signature_replay || challenge.finalized {
-                challenge.payment_state = "replay_blocked".to_string();
-                let payment_state = challenge.payment_state.clone();
-                logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
-                return x402_error_response(
-                    StatusCode::CONFLICT,
-                    "payment_replay_blocked",
-                    &payment_state,
-                    X402PaymentContext {
-                        challenge_id: Some(&challenge_id),
-                        created_at: Some(created_at),
-                        expires_at: Some(expires_at),
-                        finalized_at: current_finalized_at,
-                    },
-                    logs,
-                );
+        Ok(mut store) => {
+            let store_kind = store.store_kind();
+            logs.push(format!("x402_store: {store_kind}"));
+            match store.begin_finalize(&challenge_id) {
+                Ok(X402FinalizeOutcome::UnknownChallenge) => {
+                    logs.push(format!("x402: unknown or missing challenge={challenge_id}"));
+                    return x402_error_response(
+                        StatusCode::PAYMENT_REQUIRED,
+                        "invalid_payment",
+                        "invalid",
+                        X402PaymentContext {
+                            challenge_id: Some(&challenge_id),
+                            ..X402PaymentContext::default()
+                        },
+                        logs,
+                    );
+                }
+                Ok(X402FinalizeOutcome::ReplayBlocked(challenge)) => {
+                    logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
+                    return x402_error_response(
+                        StatusCode::CONFLICT,
+                        "payment_replay_blocked",
+                        &challenge.payment_state,
+                        X402PaymentContext {
+                            challenge_id: Some(&challenge_id),
+                            created_at: Some(challenge.created_at),
+                            expires_at: Some(challenge.expires_at),
+                            finalized_at: challenge.finalized_at,
+                        },
+                        logs,
+                    );
+                }
+                Ok(X402FinalizeOutcome::Expired(challenge)) => {
+                    logs.push(format!("x402: expired challenge={challenge_id}"));
+                    return x402_error_response(
+                        StatusCode::PAYMENT_REQUIRED,
+                        "payment_expired",
+                        &challenge.payment_state,
+                        X402PaymentContext {
+                            challenge_id: Some(&challenge_id),
+                            created_at: Some(challenge.created_at),
+                            expires_at: Some(challenge.expires_at),
+                            finalized_at: challenge.finalized_at,
+                        },
+                        logs,
+                    );
+                }
+                Ok(X402FinalizeOutcome::Finalized(challenge)) => (
+                    challenge.created_at,
+                    challenge.expires_at,
+                    challenge.finalized_at.unwrap_or_else(now_unix_secs),
+                    challenge.payment_state,
+                ),
+                Err(err) => {
+                    logs.push(format!("x402: challenge store finalize failed: {err}"));
+                    return x402_error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "x402_state_unavailable",
+                        "state_unavailable",
+                        X402PaymentContext {
+                            challenge_id: Some(&challenge_id),
+                            ..X402PaymentContext::default()
+                        },
+                        logs,
+                    );
+                }
             }
-
-            if now_unix_secs() >= challenge.expires_at {
-                challenge.payment_state = "expired".to_string();
-                let payment_state = challenge.payment_state.clone();
-                logs.push(format!("x402: expired challenge={challenge_id}"));
-                return x402_error_response(
-                    StatusCode::PAYMENT_REQUIRED,
-                    "payment_expired",
-                    &payment_state,
-                    X402PaymentContext {
-                        challenge_id: Some(&challenge_id),
-                        created_at: Some(created_at),
-                        expires_at: Some(expires_at),
-                        finalized_at: current_finalized_at,
-                    },
-                    logs,
-                );
-            }
-
-            let finalized_at = now_unix_secs();
-            challenge.finalized = true;
-            challenge.finalized_at = Some(finalized_at);
-            challenge.payment_state = "finalized".to_string();
-            let payment_state = challenge.payment_state.clone();
-            x402.used_signatures.insert(signature);
-            (created_at, expires_at, finalized_at, payment_state)
         }
         Err(_) => {
             logs.push("x402: state lock poisoned".to_string());

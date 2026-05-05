@@ -1027,6 +1027,123 @@ fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
     let _ = fs::remove_file(&audit_path);
 }
 
+#[test]
+fn api_x402_stellar_file_store_persists_challenge_and_replay_state() {
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_x402_stellar_file_store_persists_challenge_and_replay_state skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let store_path = std::env::temp_dir().join("nc_x402_stellar_challenge_store_persist_test.json");
+    let audit_path = std::env::temp_dir().join("nc_x402_stellar_audit_store_persist_test.jsonl");
+    let _ = fs::remove_file(&store_path);
+    let _ = fs::remove_file(&audit_path);
+    let store_path_s = store_path.to_string_lossy().to_string();
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.0
+    })
+    .to_string();
+
+    let port1 = find_free_port();
+    let addr1: SocketAddr = format!("127.0.0.1:{port1}").parse().unwrap();
+    let server1 = spawn_server(
+        port1,
+        &[
+            ("NC_X402_STELLAR_STORE_PATH", store_path_s.as_str()),
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr1, Duration::from_secs(3));
+
+    let (status, resp_body) = http_post_json(addr1, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 402);
+    let challenge_id = payment_challenge_id(&resp_body);
+    drop(server1);
+    thread::sleep(Duration::from_millis(100));
+
+    let port2 = find_free_port();
+    let addr2: SocketAddr = format!("127.0.0.1:{port2}").parse().unwrap();
+    let server2 = spawn_server(
+        port2,
+        &[
+            ("NC_X402_STELLAR_STORE_PATH", store_path_s.as_str()),
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr2, Duration::from_secs(3));
+
+    let signature = format!("paid:{challenge_id}");
+    let (status, resp_body) = http_post_json_with_headers(
+        addr2,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["payment"]["state"], "finalized");
+    assert_eq!(resp["payment"]["challenge_id"], challenge_id);
+    assert_eq!(resp["decision"]["status"], "approved");
+    drop(server2);
+    thread::sleep(Duration::from_millis(100));
+
+    let port3 = find_free_port();
+    let addr3: SocketAddr = format!("127.0.0.1:{port3}").parse().unwrap();
+    let server3 = spawn_server(
+        port3,
+        &[
+            ("NC_X402_STELLAR_STORE_PATH", store_path_s.as_str()),
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr3, Duration::from_secs(3));
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr3,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 409);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["error"], "payment_replay_blocked");
+    assert_eq!(resp["payment"]["state"], "replay_blocked");
+    assert_eq!(resp["decision"]["status"], "blocked");
+
+    let store_raw = fs::read_to_string(&store_path).expect("read challenge store");
+    assert!(
+        !store_raw.contains("PAYMENT-SIGNATURE") && !store_raw.contains("paid:"),
+        "challenge store must not persist raw payment signature material"
+    );
+    assert!(
+        store_raw.contains("used_challenges"),
+        "expected persisted idempotency state"
+    );
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["event"], "payment_required");
+    assert_eq!(rows[1]["event"], "approved");
+    assert_eq!(rows[2]["event"], "payment_replay_blocked");
+
+    drop(server3);
+    let _ = fs::remove_file(&store_path);
+    let _ = fs::remove_file(&audit_path);
+}
+
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);

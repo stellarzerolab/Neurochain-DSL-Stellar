@@ -889,6 +889,7 @@ $env:PORT="8081"
 $env:NC_MODELS_DIR="models"
 $env:NC_API_KEY="your-secret-key"
 $env:NC_X402_STELLAR_AUDIT_PATH="logs/x402_stellar_audit.jsonl"
+$env:NC_X402_STELLAR_STORE_PATH="logs/x402_stellar_store.json"
 cargo run --release --bin neurochain-server
 ```
 
@@ -1024,8 +1025,18 @@ Optional x402 server environment variables:
 | `NC_X402_STELLAR_RECEIVER` | Receiver label/account placeholder | `mock-receiver` |
 | `NC_X402_STELLAR_TTL_SECS` | Challenge lifetime | `300` |
 | `NC_X402_STELLAR_AUDIT_PATH` | Optional safe JSONL audit output path | unset |
+| `NC_X402_STELLAR_STORE_PATH` | Optional file-backed challenge/replay store path | unset |
 
 When `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit
 rows for payment-required, finalized, blocked, replay, expired, and invalid
 payment states. Audit rows intentionally do not store the raw
 `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>` signature.
+
+By default, x402 challenge/replay state is in-memory and is reset when the
+server restarts. When `NC_X402_STELLAR_STORE_PATH` is set, the server persists
+the challenge state to a local JSON file so a challenge created before a restart
+can still be finalized after the restart, and finalized challenges continue to
+block replay after later restarts. The store persists challenge ids and payment
+state, not the raw `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>`
+signature. This is a dev/production-shape bridge, not a real facilitator
+integration.
