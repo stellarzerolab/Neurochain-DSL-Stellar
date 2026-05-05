@@ -214,13 +214,30 @@ fn x402_challenge_from_signature(signature: &str) -> Option<&str> {
     signature.trim().strip_prefix("paid:").map(str::trim)
 }
 
+fn x402_audit_id(challenge_id: &str) -> String {
+    format!("x402-stellar-{challenge_id}")
+}
+
+fn x402_guardrail_reason(exit_code: Option<i32>, error: Option<&str>) -> Option<String> {
+    match exit_code {
+        Some(3) => Some("allowlist".to_string()),
+        Some(4) => Some("contract_policy".to_string()),
+        Some(5) => Some("intent_safety".to_string()),
+        Some(code) => Some(format!("exit_code_{code}")),
+        None => error.map(str::to_string),
+    }
+}
+
 fn x402_payment_required_response(challenge_id: String, expires_at: u64) -> Response {
+    let audit_id = x402_audit_id(&challenge_id);
     (
         StatusCode::PAYMENT_REQUIRED,
         Json(json!({
             "ok": false,
+            "blocked": false,
             "error": "payment_required",
-            "challenge_id": challenge_id,
+            "audit_id": audit_id,
+            "challenge_id": &challenge_id,
             "amount": x402_stellar_amount(),
             "asset": x402_stellar_asset(),
             "network": x402_stellar_network(),
@@ -228,6 +245,28 @@ fn x402_payment_required_response(challenge_id: String, expires_at: u64) -> Resp
             "expires_at": expires_at,
             "payment_header": "PAYMENT-SIGNATURE",
             "mock_signature": format!("paid:{challenge_id}"),
+            "payment": {
+                "protocol": "x402",
+                "state": "payment_required",
+                "challenge_id": &challenge_id,
+                "amount": x402_stellar_amount(),
+                "asset": x402_stellar_asset(),
+                "network": x402_stellar_network(),
+                "receiver": x402_stellar_receiver(),
+                "expires_at": expires_at
+            },
+            "decision": {
+                "status": "not_evaluated",
+                "approved": false,
+                "blocked": false,
+                "requires_approval": false,
+                "reason": "payment_required"
+            },
+            "guardrails": {
+                "state": "not_run",
+                "exit_code": null,
+                "reason": null
+            },
             "logs": [
                 "x402: payment required",
                 "x402: retry with PAYMENT-SIGNATURE=paid:<challenge_id>"
@@ -237,13 +276,87 @@ fn x402_payment_required_response(challenge_id: String, expires_at: u64) -> Resp
         .into_response()
 }
 
-fn x402_error_response(status: StatusCode, error: &str, logs: Vec<String>) -> Response {
+fn x402_error_response(
+    status: StatusCode,
+    error: &str,
+    payment_state: &str,
+    challenge_id: Option<&str>,
+    logs: Vec<String>,
+) -> Response {
+    let audit_id = challenge_id
+        .map(x402_audit_id)
+        .unwrap_or_else(|| format!("x402-stellar-untracked-{}", now_unix_secs()));
     (
         status,
         Json(json!({
             "ok": false,
+            "blocked": true,
             "error": error,
+            "audit_id": audit_id,
+            "payment": {
+                "protocol": "x402",
+                "state": payment_state,
+                "challenge_id": challenge_id,
+                "amount": x402_stellar_amount(),
+                "asset": x402_stellar_asset(),
+                "network": x402_stellar_network(),
+                "receiver": x402_stellar_receiver()
+            },
+            "decision": {
+                "status": "blocked",
+                "approved": false,
+                "blocked": true,
+                "requires_approval": false,
+                "reason": error
+            },
+            "guardrails": {
+                "state": "not_run",
+                "exit_code": null,
+                "reason": null
+            },
             "logs": logs
+        })),
+    )
+        .into_response()
+}
+
+fn x402_stellar_decision_response(challenge_id: &str, resp: StellarIntentPlanResp) -> Response {
+    let decision_status = if resp.blocked { "blocked" } else { "approved" };
+    let guardrail_state = if resp.blocked { "blocked" } else { "passed" };
+    let reason = x402_guardrail_reason(resp.exit_code, resp.error.as_deref());
+    let audit_id = x402_audit_id(challenge_id);
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": resp.ok,
+            "blocked": resp.blocked,
+            "exit_code": resp.exit_code,
+            "error": resp.error,
+            "audit_id": audit_id,
+            "payment": {
+                "protocol": "x402",
+                "state": "finalized",
+                "challenge_id": challenge_id,
+                "amount": x402_stellar_amount(),
+                "asset": x402_stellar_asset(),
+                "network": x402_stellar_network(),
+                "receiver": x402_stellar_receiver()
+            },
+            "decision": {
+                "status": decision_status,
+                "approved": resp.ok && !resp.blocked,
+                "blocked": resp.blocked,
+                "requires_approval": false,
+                "reason": reason
+            },
+            "guardrails": {
+                "state": guardrail_state,
+                "exit_code": resp.exit_code,
+                "reason": reason
+            },
+            "plan": resp.plan,
+            "logs": resp.logs
         })),
     )
         .into_response()
@@ -597,7 +710,13 @@ async fn api_x402_stellar_intent_plan(
             .unwrap_or(false);
         if !ok {
             logs.push("auth: missing or invalid api key".to_string());
-            return x402_error_response(StatusCode::UNAUTHORIZED, "unauthorized", logs);
+            return x402_error_response(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "unauthorized",
+                None,
+                logs,
+            );
         }
     }
 
@@ -609,6 +728,8 @@ async fn api_x402_stellar_intent_plan(
                 return x402_error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "x402_state_unavailable",
+                    "state_unavailable",
+                    None,
                     logs,
                 );
             }
@@ -618,29 +739,59 @@ async fn api_x402_stellar_intent_plan(
 
     let Some(challenge_id) = x402_challenge_from_signature(&signature).map(str::to_string) else {
         logs.push("x402: invalid payment signature format".to_string());
-        return x402_error_response(StatusCode::PAYMENT_REQUIRED, "invalid_payment", logs);
+        return x402_error_response(
+            StatusCode::PAYMENT_REQUIRED,
+            "invalid_payment",
+            "invalid",
+            None,
+            logs,
+        );
     };
 
     match state.x402_stellar.lock() {
         Ok(mut x402) => {
             if x402.used_signatures.contains(&signature) {
                 logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
-                return x402_error_response(StatusCode::CONFLICT, "payment_replay_blocked", logs);
+                return x402_error_response(
+                    StatusCode::CONFLICT,
+                    "payment_replay_blocked",
+                    "replay_blocked",
+                    Some(&challenge_id),
+                    logs,
+                );
             }
 
             let Some(challenge) = x402.challenges.get_mut(&challenge_id) else {
                 logs.push(format!("x402: unknown or missing challenge={challenge_id}"));
-                return x402_error_response(StatusCode::PAYMENT_REQUIRED, "invalid_payment", logs);
+                return x402_error_response(
+                    StatusCode::PAYMENT_REQUIRED,
+                    "invalid_payment",
+                    "invalid",
+                    Some(&challenge_id),
+                    logs,
+                );
             };
 
             if challenge.finalized {
                 logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
-                return x402_error_response(StatusCode::CONFLICT, "payment_replay_blocked", logs);
+                return x402_error_response(
+                    StatusCode::CONFLICT,
+                    "payment_replay_blocked",
+                    "replay_blocked",
+                    Some(&challenge_id),
+                    logs,
+                );
             }
 
             if now_unix_secs() >= challenge.expires_at {
                 logs.push(format!("x402: expired challenge={challenge_id}"));
-                return x402_error_response(StatusCode::PAYMENT_REQUIRED, "payment_expired", logs);
+                return x402_error_response(
+                    StatusCode::PAYMENT_REQUIRED,
+                    "payment_expired",
+                    "expired",
+                    Some(&challenge_id),
+                    logs,
+                );
             }
 
             challenge.finalized = true;
@@ -651,13 +802,16 @@ async fn api_x402_stellar_intent_plan(
             return x402_error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "x402_state_unavailable",
+                "state_unavailable",
+                None,
                 logs,
             );
         }
     }
 
     logs.push(format!("x402: finalized challenge={challenge_id}"));
-    build_stellar_intent_plan_response(req, logs).into_response()
+    let (_status, Json(resp)) = build_stellar_intent_plan_response(req, logs);
+    x402_stellar_decision_response(&challenge_id, resp)
 }
 
 fn build_stellar_intent_plan_response(
