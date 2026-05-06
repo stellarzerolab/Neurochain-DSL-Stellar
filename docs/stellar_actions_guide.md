@@ -1066,6 +1066,30 @@ slot, the paid request is still blocked by intent safety:
 - `guardrails.exit_code = 5`
 - `guardrails.reason = "intent_safety"`
 
+The x402 gateway also preserves contract-policy enforcement. For example, if a
+paid request invokes a contract function that is not present in
+`allowed_functions` while `contract_policy_enforce` is enabled, the payment is
+finalized but the action is blocked:
+
+```powershell
+$env:NC_CONTRACT_POLICY="contracts/rewards/policy.json"
+
+$body = @{
+  model                   = "intent_stellar"
+  prompt                  = "Invoke contract CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function emergency_withdraw args={""account"":""GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX""}"
+  threshold               = 0.0
+  contract_policy_enforce = $true
+} | ConvertTo-Json
+```
+
+Expected finalized contract-policy block:
+
+- `payment.state = "finalized"`
+- `decision.status = "blocked"`
+- `decision.reason = "contract_policy"`
+- `guardrails.exit_code = 4`
+- `guardrails.reason = "contract_policy"`
+
 Optional x402 server environment variables:
 
 | Env var | Meaning | Default |
