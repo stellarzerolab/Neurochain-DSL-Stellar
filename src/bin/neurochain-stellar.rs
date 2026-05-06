@@ -3276,19 +3276,6 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
     println!(
         "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
     );
-    println!();
-    println!("Soroban v2 template prompts (policy-backed):");
-    let soroban_v2_rows = [
-        ("contract_policy: <path>", "(load template registry/policy)"),
-        ("hello", "(prompt: Please say hello to World)"),
-        ("claim_rewards", "(template: rewards claim invoke)"),
-        ("deposit", "(template: amount + asset deposit)"),
-        ("swap", "(template: amount/from/to/min_out swap)"),
-        ("REPL + .nc + API", "(same template core)"),
-    ];
-    for (command, desc) in soroban_v2_rows {
-        println!("- {:<HELP_COL_WIDTH$} {}", command, desc);
-    }
     println!("- restart with --no-flow if you want plan-only REPL");
 }
 

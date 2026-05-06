@@ -1024,6 +1024,48 @@ Important behavior:
   - `5` intent safety / typed slot error / low confidence
 - `requires_approval` is currently always `false`; a real approval boundary is a later step
 
+Soroban v2 template example through the x402 gateway:
+
+```powershell
+$env:NC_CONTRACT_POLICY="examples/soroban_claim_rewards_template_policy.json"
+
+$body = @{
+  model     = "intent_stellar"
+  prompt    = "Invoke contract rewards function claim_rewards for wallet GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX"
+  threshold = 0.0
+} | ConvertTo-Json
+
+$challenge = Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8081/api/x402/stellar/intent-plan" `
+  -ContentType "application/json" `
+  -Body $body
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8081/api/x402/stellar/intent-plan" `
+  -ContentType "application/json" `
+  -Headers @{ "PAYMENT-SIGNATURE" = "paid:$($challenge.challenge_id)" } `
+  -Body $body
+```
+
+Expected finalized Soroban v2 behavior:
+
+- `payment.state = "finalized"`
+- `decision.status = "approved"`
+- `guardrails.state = "passed"`
+- `plan.actions[0].kind = "soroban_contract_invoke"`
+- `plan.actions[0].function = "claim_rewards"`
+- `logs` include `soroban_deep_template: expanded=true template=claim_rewards`
+
+If the prompt matches the `claim_rewards` template but misses the wallet/account
+slot, the paid request is still blocked by intent safety:
+
+- `payment.state = "finalized"`
+- `decision.status = "blocked"`
+- `guardrails.exit_code = 5`
+- `guardrails.reason = "intent_safety"`
+
 Optional x402 server environment variables:
 
 | Env var | Meaning | Default |

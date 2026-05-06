@@ -96,10 +96,10 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("NeuroChain Stellar REPL"))
         .stdout(contains("Stellar REPL quick start"))
         .stdout(contains("help dsl"))
-        .stdout(contains("Soroban v2 template prompts"))
-        .stdout(contains("claim_rewards"))
-        .stdout(contains("deposit"))
-        .stdout(contains("swap"))
+        .stdout(contains("Soroban v2 template prompts").not())
+        .stdout(contains("claim_rewards").not())
+        .stdout(contains("deposit").not())
+        .stdout(contains("swap").not())
         .stdout(contains(
             "Toggle commands are listed in `help all` under Toggles (on/off).",
         ))

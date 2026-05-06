@@ -962,6 +962,211 @@ fn api_x402_stellar_intent_plan_payment_does_not_bypass_allowlist_guardrail() {
 }
 
 #[test]
+fn api_x402_stellar_intent_plan_runs_soroban_v2_claim_rewards_template() {
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_x402_stellar_intent_plan_runs_soroban_v2_claim_rewards_template skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let audit_path =
+        std::env::temp_dir().join(format!("nc_x402_stellar_audit_soroban_v2_{port}.jsonl"));
+    let policy_path =
+        std::env::temp_dir().join(format!("nc_x402_stellar_claim_rewards_policy_{port}.json"));
+    let policy_dir = std::env::temp_dir().join(format!("nc_x402_stellar_empty_policy_dir_{port}"));
+    let _ = fs::remove_file(&audit_path);
+    let _ = fs::remove_file(&policy_path);
+    let _ = fs::remove_dir_all(&policy_dir);
+    fs::create_dir_all(&policy_dir).expect("create empty policy dir");
+
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy = format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["claim_rewards"],
+  "args_schema": {{
+    "claim_rewards": {{
+      "required": {{
+        "account": "address"
+      }},
+      "optional": {{
+        "pool": "symbol"
+      }}
+    }}
+  }},
+  "intent_templates": {{
+    "claim_rewards": {{
+      "aliases": ["claim rewards", "collect rewards", "claim yield"],
+      "function": "claim_rewards",
+      "args": {{
+        "account": {{
+          "source": "first_account",
+          "type": "address"
+        }},
+        "pool": {{
+          "value": "rewards",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    );
+    fs::write(&policy_path, policy).expect("write claim rewards policy");
+
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let policy_path_s = policy_path.to_string_lossy().to_string();
+    let policy_dir_s = policy_dir.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+            ("NC_CONTRACT_POLICY", policy_path_s.as_str()),
+            ("NC_CONTRACT_POLICY_DIR", policy_dir_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Invoke contract rewards function claim_rewards for wallet {account}"),
+        "threshold": 0.0
+    })
+    .to_string();
+
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 402);
+    let challenge_id = payment_challenge_id(&resp_body);
+    let signature = format!("paid:{challenge_id}");
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(resp["payment"]["state"], "finalized");
+    assert_eq!(resp["payment"]["challenge_id"], challenge_id);
+    assert_eq!(resp["decision"]["status"], "approved");
+    assert_eq!(resp["decision"]["approved"], true);
+    assert_eq!(resp["decision"]["blocked"], false);
+    assert_eq!(resp["decision"]["requires_approval"], false);
+    assert_eq!(resp["guardrails"]["state"], "passed");
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["contract_id"], contract);
+    assert_eq!(resp["plan"]["actions"][0]["function"], "claim_rewards");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["account"], account);
+    assert_eq!(resp["plan"]["actions"][0]["args"]["pool"], "rewards");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("x402: finalized challenge=")),
+        "expected finalized x402 log"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("soroban_deep_template: expanded=true template=claim_rewards")),
+        "expected claim_rewards template expansion log"
+    );
+
+    let blocked_body = json!({
+        "model": "intent_stellar",
+        "prompt": "Invoke contract rewards function claim_rewards",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &blocked_body);
+    assert_eq!(status, 402);
+    let blocked_signature = format!("paid:{}", payment_challenge_id(&resp_body));
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &blocked_body,
+        &[("PAYMENT-SIGNATURE", blocked_signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 5);
+    assert_eq!(resp["payment"]["state"], "finalized");
+    assert_eq!(resp["decision"]["status"], "blocked");
+    assert_eq!(resp["decision"]["approved"], false);
+    assert_eq!(resp["decision"]["blocked"], true);
+    assert_eq!(resp["decision"]["requires_approval"], false);
+    assert_eq!(resp["decision"]["reason"], "intent_safety");
+    assert_eq!(resp["guardrails"]["state"], "blocked");
+    assert_eq!(resp["guardrails"]["exit_code"], 5);
+    assert_eq!(resp["guardrails"]["reason"], "intent_safety");
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|warning| warning.contains(
+                "slot_missing: ContractInvoke template claim_rewards missing arg account"
+            )),
+        "expected missing account warning"
+    );
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("x402: finalized challenge=")),
+        "expected finalized x402 log for blocked path"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "block: intent_safety"),
+        "expected intent safety block after payment"
+    );
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0]["event"], "payment_required");
+    assert_eq!(rows[1]["event"], "approved");
+    assert_eq!(rows[1]["payment"]["state"], "finalized");
+    assert_eq!(rows[1]["decision"]["status"], "approved");
+    assert_eq!(rows[1]["guardrails"]["state"], "passed");
+    assert_eq!(rows[2]["event"], "payment_required");
+    assert_eq!(rows[3]["event"], "blocked");
+    assert_eq!(rows[3]["payment"]["state"], "finalized");
+    assert_eq!(rows[3]["decision"]["status"], "blocked");
+    assert_eq!(rows[3]["decision"]["reason"], "intent_safety");
+    assert_eq!(rows[3]["guardrails"]["state"], "blocked");
+    assert_eq!(rows[3]["guardrails"]["exit_code"], 5);
+
+    let _ = fs::remove_file(&audit_path);
+    let _ = fs::remove_file(&policy_path);
+    let _ = fs::remove_dir_all(&policy_dir);
+}
+
+#[test]
 fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
     let port = find_free_port();
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
