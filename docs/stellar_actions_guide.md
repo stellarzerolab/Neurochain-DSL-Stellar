@@ -1089,6 +1089,28 @@ slot, the paid request is still blocked by intent safety:
 - `guardrails.exit_code = 5`
 - `guardrails.reason = "intent_safety"`
 
+The same x402-paid Soroban v2 path is also covered for higher-signal DeFi-like
+templates:
+
+- `deposit` approved:
+  - prompt shape: `Invoke contract deposit function deposit 100 for wallet G...`
+  - action: `soroban_contract_invoke`
+  - function: `deposit`
+  - args: `account`, `amount`, `asset`
+- `deposit` missing amount:
+  - finalized payment
+  - blocked by intent safety
+  - `guardrails.exit_code = 5`
+- `swap` approved:
+  - prompt shape: `Invoke contract swap function swap amount 100 from USDC to XLM min_out 95 for wallet G...`
+  - action: `soroban_contract_invoke`
+  - function: `swap`
+  - args: `account`, `amount`, `from_asset`, `to_asset`, `min_out`
+- `swap` missing `min_out`:
+  - finalized payment
+  - blocked by intent safety
+  - `guardrails.exit_code = 5`
+
 The x402 gateway also preserves contract-policy enforcement. For example, if a
 paid request invokes a contract function that is not present in
 `allowed_functions` while `contract_policy_enforce` is enabled, the payment is
@@ -1112,6 +1134,12 @@ Expected finalized contract-policy block:
 - `decision.reason = "contract_policy"`
 - `guardrails.exit_code = 4`
 - `guardrails.reason = "contract_policy"`
+
+Static response fixtures for frontend and agent integrations live under:
+
+```text
+examples/x402_response_contract/
+```
 
 Optional x402 server environment variables:
 

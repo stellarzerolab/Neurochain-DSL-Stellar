@@ -1,0 +1,47 @@
+{
+  "ok": false,
+  "blocked": true,
+  "exit_code": 5,
+  "error": null,
+  "audit_id": "x402-stellar-x402s0005",
+  "payment": {
+    "protocol": "x402",
+    "state": "finalized",
+    "challenge_id": "x402s0005",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000300,
+    "finalized_at": 1760000005
+  },
+  "decision": {
+    "status": "blocked",
+    "approved": false,
+    "blocked": true,
+    "requires_approval": false,
+    "reason": "intent_safety"
+  },
+  "guardrails": {
+    "state": "blocked",
+    "exit_code": 5,
+    "reason": "intent_safety"
+  },
+  "plan": {
+    "actions": [
+      {
+        "kind": "unknown",
+        "reason": "slot_missing: ContractInvoke template claim_rewards missing arg account"
+      }
+    ],
+    "warnings": [
+      "intent_error: slot_missing: ContractInvoke template claim_rewards missing arg account"
+    ]
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: finalized challenge=x402s0005",
+    "block: intent_safety"
+  ]
+}

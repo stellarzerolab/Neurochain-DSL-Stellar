@@ -1,0 +1,33 @@
+{
+  "ok": false,
+  "error": "payment_expired",
+  "audit_id": "x402-stellar-x402s0007",
+  "payment": {
+    "protocol": "x402",
+    "state": "expired",
+    "challenge_id": "x402s0007",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000000,
+    "finalized_at": null
+  },
+  "decision": {
+    "status": "blocked",
+    "approved": false,
+    "blocked": true,
+    "requires_approval": false,
+    "reason": "payment_expired"
+  },
+  "guardrails": {
+    "state": "not_run",
+    "exit_code": null,
+    "reason": null
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: expired challenge=x402s0007"
+  ]
+}

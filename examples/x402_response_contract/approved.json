@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "blocked": false,
+  "exit_code": null,
+  "error": null,
+  "audit_id": "x402-stellar-x402s0002",
+  "payment": {
+    "protocol": "x402",
+    "state": "finalized",
+    "challenge_id": "x402s0002",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000300,
+    "finalized_at": 1760000005
+  },
+  "decision": {
+    "status": "approved",
+    "approved": true,
+    "blocked": false,
+    "requires_approval": false,
+    "reason": null
+  },
+  "guardrails": {
+    "state": "passed",
+    "exit_code": null,
+    "reason": null
+  },
+  "plan": {
+    "actions": [
+      {
+        "kind": "soroban_contract_invoke",
+        "contract_id": "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+        "function": "claim_rewards",
+        "args": {
+          "account": "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+          "pool": "rewards"
+        }
+      }
+    ],
+    "warnings": [
+      "soroban_deep_template: template=claim_rewards contract_id=CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function=claim_rewards"
+    ]
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: finalized challenge=x402s0002",
+    "soroban_deep_template: expanded=true template=claim_rewards contract_id=CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function=claim_rewards reason=(none)"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "ok": false,
+  "blocked": true,
+  "exit_code": 4,
+  "error": null,
+  "audit_id": "x402-stellar-x402s0004",
+  "payment": {
+    "protocol": "x402",
+    "state": "finalized",
+    "challenge_id": "x402s0004",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000300,
+    "finalized_at": 1760000005
+  },
+  "decision": {
+    "status": "blocked",
+    "approved": false,
+    "blocked": true,
+    "requires_approval": false,
+    "reason": "contract_policy"
+  },
+  "guardrails": {
+    "state": "blocked",
+    "exit_code": 4,
+    "reason": "contract_policy"
+  },
+  "plan": {
+    "actions": [
+      {
+        "kind": "soroban_contract_invoke",
+        "contract_id": "CDPFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+        "function": "emergency_withdraw",
+        "args": {
+          "account": "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX"
+        }
+      }
+    ],
+    "warnings": [
+      "policy error: policy_function_denied: CDPFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ:emergency_withdraw not allowed"
+    ]
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: finalized challenge=x402s0004",
+    "block: contract_policy_enforced"
+  ]
+}

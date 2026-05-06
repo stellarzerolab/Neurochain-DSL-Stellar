@@ -1,0 +1,42 @@
+{
+  "ok": false,
+  "error": "payment_required",
+  "audit_id": "x402-stellar-x402s0001",
+  "challenge_id": "x402s0001",
+  "amount": "0.01",
+  "asset": "USDC",
+  "network": "stellar:testnet",
+  "receiver": "mock-receiver",
+  "expires_at": 1760000300,
+  "payment_header": "PAYMENT-SIGNATURE",
+  "mock_signature": "paid:x402s0001",
+  "payment": {
+    "protocol": "x402",
+    "state": "payment_required",
+    "challenge_id": "x402s0001",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000300,
+    "finalized_at": null
+  },
+  "decision": {
+    "status": "not_evaluated",
+    "approved": false,
+    "blocked": false,
+    "requires_approval": false,
+    "reason": null
+  },
+  "guardrails": {
+    "state": "not_run",
+    "exit_code": null,
+    "reason": null
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: payment required",
+    "x402: retry with PAYMENT-SIGNATURE=paid:<challenge_id>"
+  ]
+}

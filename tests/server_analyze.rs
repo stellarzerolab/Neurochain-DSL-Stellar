@@ -300,12 +300,129 @@ fn assert_x402_finalized_block_contract(resp: &Value, exit_code: i64, reason: &s
     assert_eq!(resp["guardrails"]["reason"], reason);
 }
 
+fn x402_paid_response(addr: SocketAddr, body: &str) -> (String, Value) {
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", body);
+    assert_eq!(status, 402);
+    let challenge_id = payment_challenge_id(&resp_body);
+    let signature = format!("paid:{challenge_id}");
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    (challenge_id, resp)
+}
+
 fn read_jsonl(path: &PathBuf) -> Vec<Value> {
     fs::read_to_string(path)
         .expect("read audit jsonl")
         .lines()
         .map(|line| serde_json::from_str(line).expect("audit json row"))
         .collect()
+}
+
+#[test]
+fn x402_response_contract_fixtures_are_valid() {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("x402_response_contract");
+    let cases = [
+        (
+            "payment_required.json",
+            "payment_required",
+            "not_evaluated",
+            "not_run",
+            None,
+            None,
+            false,
+        ),
+        (
+            "approved.json",
+            "finalized",
+            "approved",
+            "passed",
+            None,
+            None,
+            true,
+        ),
+        (
+            "blocked_exit_3_allowlist.json",
+            "finalized",
+            "blocked",
+            "blocked",
+            Some(3),
+            Some("allowlist"),
+            true,
+        ),
+        (
+            "blocked_exit_4_contract_policy.json",
+            "finalized",
+            "blocked",
+            "blocked",
+            Some(4),
+            Some("contract_policy"),
+            true,
+        ),
+        (
+            "blocked_exit_5_intent_safety.json",
+            "finalized",
+            "blocked",
+            "blocked",
+            Some(5),
+            Some("intent_safety"),
+            true,
+        ),
+        (
+            "replay_blocked.json",
+            "replay_blocked",
+            "blocked",
+            "not_run",
+            None,
+            Some("payment_replay_blocked"),
+            false,
+        ),
+        (
+            "expired.json",
+            "expired",
+            "blocked",
+            "not_run",
+            None,
+            Some("payment_expired"),
+            false,
+        ),
+    ];
+
+    for (file_name, payment_state, decision_status, guardrail_state, exit_code, reason, has_plan) in
+        cases
+    {
+        let path = base.join(file_name);
+        let raw = fs::read_to_string(&path).unwrap_or_else(|err| {
+            panic!("read fixture {}: {err}", path.display());
+        });
+        let resp: Value = serde_json::from_str(&raw).unwrap_or_else(|err| {
+            panic!("parse fixture {}: {err}", path.display());
+        });
+        assert_x402_response_contract(&resp, payment_state, decision_status, guardrail_state);
+        assert_eq!(
+            resp.get("plan").is_some(),
+            has_plan,
+            "unexpected plan presence in {file_name}"
+        );
+        if let Some(exit_code) = exit_code {
+            assert_eq!(resp["exit_code"], exit_code, "exit_code in {file_name}");
+            assert_eq!(
+                resp["guardrails"]["exit_code"], exit_code,
+                "guardrail exit_code in {file_name}"
+            );
+        }
+        if let Some(reason) = reason {
+            assert_eq!(resp["decision"]["reason"], reason, "reason in {file_name}");
+        }
+    }
 }
 
 #[test]
@@ -1230,6 +1347,184 @@ fn api_x402_stellar_intent_plan_runs_soroban_v2_claim_rewards_template() {
 
     let _ = fs::remove_file(&audit_path);
     let _ = fs::remove_file(&policy_path);
+    let _ = fs::remove_dir_all(&policy_dir);
+}
+
+#[test]
+fn api_x402_stellar_intent_plan_runs_soroban_v2_deposit_and_swap_templates() {
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_x402_stellar_intent_plan_runs_soroban_v2_deposit_and_swap_templates skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let audit_path = std::env::temp_dir().join(format!(
+        "nc_x402_stellar_audit_soroban_v2_deposit_swap_{port}.jsonl"
+    ));
+    let policy_dir =
+        std::env::temp_dir().join(format!("nc_x402_stellar_deposit_swap_policy_dir_{port}"));
+    let _ = fs::remove_file(&audit_path);
+    let _ = fs::remove_dir_all(&policy_dir);
+    fs::create_dir_all(&policy_dir).expect("create policy dir");
+
+    let deposit_policy_src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("soroban_deposit_template_policy.json");
+    let swap_policy_src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("soroban_swap_template_policy.json");
+    let deposit_policy_dir = policy_dir.join("deposit");
+    let swap_policy_dir = policy_dir.join("swap");
+    fs::create_dir_all(&deposit_policy_dir).expect("create deposit policy dir");
+    fs::create_dir_all(&swap_policy_dir).expect("create swap policy dir");
+    fs::copy(&deposit_policy_src, deposit_policy_dir.join("policy.json"))
+        .expect("copy deposit policy");
+    fs::copy(&swap_policy_src, swap_policy_dir.join("policy.json")).expect("copy swap policy");
+
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let policy_dir_s = policy_dir.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+            ("NC_CONTRACT_POLICY_DIR", policy_dir_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let deposit_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Invoke contract deposit function deposit 100 for wallet {account}"),
+        "threshold": 0.0
+    })
+    .to_string();
+    let (deposit_challenge_id, resp) = x402_paid_response(addr, &deposit_body);
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(resp["payment"]["state"], "finalized");
+    assert_eq!(resp["payment"]["challenge_id"], deposit_challenge_id);
+    assert_eq!(resp["decision"]["status"], "approved");
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["function"], "deposit");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["account"], account);
+    assert_eq!(resp["plan"]["actions"][0]["args"]["amount"], 100);
+    assert_eq!(resp["plan"]["actions"][0]["args"]["asset"], "USDC");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("soroban_deep_template: expanded=true template=deposit")),
+        "expected deposit template expansion log"
+    );
+
+    let missing_amount_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Invoke contract deposit function deposit for wallet {account}"),
+        "threshold": 0.0
+    })
+    .to_string();
+    let (_challenge_id, resp) = x402_paid_response(addr, &missing_amount_body);
+    assert_x402_finalized_block_contract(&resp, 5, "intent_safety");
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|warning| warning
+                .contains("slot_missing: ContractInvoke template deposit missing arg amount")),
+        "expected missing deposit amount warning"
+    );
+
+    let swap_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!(
+            "Invoke contract swap function swap amount 100 from USDC to XLM min_out 95 for wallet {account}"
+        ),
+        "threshold": 0.0
+    })
+    .to_string();
+    let (swap_challenge_id, resp) = x402_paid_response(addr, &swap_body);
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(resp["payment"]["state"], "finalized");
+    assert_eq!(resp["payment"]["challenge_id"], swap_challenge_id);
+    assert_eq!(resp["decision"]["status"], "approved");
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["function"], "swap");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["account"], account);
+    assert_eq!(resp["plan"]["actions"][0]["args"]["amount"], 100);
+    assert_eq!(resp["plan"]["actions"][0]["args"]["from_asset"], "USDC");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["to_asset"], "XLM");
+    assert_eq!(resp["plan"]["actions"][0]["args"]["min_out"], 95);
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("soroban_deep_template: expanded=true template=swap")),
+        "expected swap template expansion log"
+    );
+
+    let missing_min_out_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!(
+            "Invoke contract swap function swap amount 100 from USDC to XLM for wallet {account}"
+        ),
+        "threshold": 0.0
+    })
+    .to_string();
+    let (_challenge_id, resp) = x402_paid_response(addr, &missing_min_out_body);
+    assert_x402_finalized_block_contract(&resp, 5, "intent_safety");
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|warning| warning
+                .contains("slot_missing: ContractInvoke template swap missing arg min_out")),
+        "expected missing swap min_out warning"
+    );
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 8);
+    assert_eq!(rows[0]["event"], "payment_required");
+    assert_eq!(rows[1]["event"], "approved");
+    assert_eq!(rows[2]["event"], "payment_required");
+    assert_eq!(rows[3]["event"], "blocked");
+    assert_eq!(rows[3]["decision"]["reason"], "intent_safety");
+    assert_eq!(rows[3]["guardrails"]["exit_code"], 5);
+    assert_eq!(rows[4]["event"], "payment_required");
+    assert_eq!(rows[5]["event"], "approved");
+    assert_eq!(rows[6]["event"], "payment_required");
+    assert_eq!(rows[7]["event"], "blocked");
+    assert_eq!(rows[7]["decision"]["reason"], "intent_safety");
+    assert_eq!(rows[7]["guardrails"]["exit_code"], 5);
+
+    let _ = fs::remove_file(&audit_path);
     let _ = fs::remove_dir_all(&policy_dir);
 }
 

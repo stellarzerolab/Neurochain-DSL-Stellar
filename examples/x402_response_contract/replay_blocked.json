@@ -1,0 +1,33 @@
+{
+  "ok": false,
+  "error": "payment_replay_blocked",
+  "audit_id": "x402-stellar-x402s0006",
+  "payment": {
+    "protocol": "x402",
+    "state": "replay_blocked",
+    "challenge_id": "x402s0006",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000300,
+    "finalized_at": 1760000005
+  },
+  "decision": {
+    "status": "blocked",
+    "approved": false,
+    "blocked": true,
+    "requires_approval": false,
+    "reason": "payment_replay_blocked"
+  },
+  "guardrails": {
+    "state": "not_run",
+    "exit_code": null,
+    "reason": null
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: replay blocked for challenge=x402s0006"
+  ]
+}

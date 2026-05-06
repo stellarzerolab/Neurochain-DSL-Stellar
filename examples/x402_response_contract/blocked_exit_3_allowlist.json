@@ -1,0 +1,49 @@
+{
+  "ok": false,
+  "blocked": true,
+  "exit_code": 3,
+  "error": null,
+  "audit_id": "x402-stellar-x402s0003",
+  "payment": {
+    "protocol": "x402",
+    "state": "finalized",
+    "challenge_id": "x402s0003",
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": 1760000000,
+    "expires_at": 1760000300,
+    "finalized_at": 1760000005
+  },
+  "decision": {
+    "status": "blocked",
+    "approved": false,
+    "blocked": true,
+    "requires_approval": false,
+    "reason": "allowlist"
+  },
+  "guardrails": {
+    "state": "blocked",
+    "exit_code": 3,
+    "reason": "allowlist"
+  },
+  "plan": {
+    "actions": [
+      {
+        "kind": "stellar_payment",
+        "to": "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+        "amount": "5",
+        "asset_code": "XLM"
+      }
+    ],
+    "warnings": [
+      "allowlist warning: #0 stellar_payment (asset XLM not allowed)"
+    ]
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402: finalized challenge=x402s0003",
+    "block: allowlist_enforced"
+  ]
+}
