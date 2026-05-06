@@ -404,6 +404,15 @@ Prompt and action commands:
 - `x402.request to="G..." amount="1" asset_code="XLM"` -> create an x402-lite payment challenge
 - `x402.finalize challenge_id="last"` -> finalize a challenge into a typed `stellar_payment` action
 
+Soroban v2 templates:
+
+- `template registry` -> policy-backed `intent_templates` in the contract policy
+- `hello` -> prompt example: `Please say hello to World`
+- `claim_rewards` -> prompt example: `Invoke contract rewards function claim_rewards`
+- `deposit` -> prompt example: `Invoke contract deposit amount 100 asset USDC`
+- `swap` -> prompt shape: amount / from asset / to asset / `min_out`
+- `parity` -> same template core in REPL, `.nc`, and `/api/stellar/intent-plan`
+
 Utility commands:
 
 - `help` -> quick start

@@ -96,6 +96,10 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("NeuroChain Stellar REPL"))
         .stdout(contains("Stellar REPL quick start"))
         .stdout(contains("help dsl"))
+        .stdout(contains("Soroban v2 template prompts"))
+        .stdout(contains("claim_rewards"))
+        .stdout(contains("deposit"))
+        .stdout(contains("swap"))
         .stdout(contains(
             "Toggle commands are listed in `help all` under Toggles (on/off).",
         ))
@@ -248,6 +252,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
             "Core setup (value required):",
             "Toggles (on/off):",
             "Prompt/Action commands:",
+            "Soroban v2 templates:",
             "Utility commands:",
         ],
     );
@@ -301,6 +306,27 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     );
     let setup_row = help_row("show setup", "print active setup");
     let help_dsl_row = help_row("help dsl", "show normal NeuroChain DSL language help");
+    let template_registry_row = help_row(
+        "template registry",
+        "policy-backed intent_templates in contract policy",
+    );
+    let template_hello_row = help_row("hello", "prompt example: Please say hello to World");
+    let template_claim_row = help_row(
+        "claim_rewards",
+        "prompt example: Invoke contract rewards function claim_rewards",
+    );
+    let template_deposit_row = help_row(
+        "deposit",
+        "prompt example: Invoke contract deposit amount 100 asset USDC",
+    );
+    let template_swap_row = help_row(
+        "swap",
+        "prompt example: Invoke contract swap amount/from/to/min_out",
+    );
+    let template_parity_row = help_row(
+        "parity",
+        "same template core in REPL, .nc, and /api/stellar/intent-plan",
+    );
 
     assert!(stdout.contains(&ai_row));
     assert!(stdout.contains(&threshold_row));
@@ -321,6 +347,12 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&deploy_row));
     assert!(stdout.contains(&help_dsl_row));
     assert!(stdout.contains(&setup_row));
+    assert!(stdout.contains(&template_registry_row));
+    assert!(stdout.contains(&template_hello_row));
+    assert!(stdout.contains(&template_claim_row));
+    assert!(stdout.contains(&template_deposit_row));
+    assert!(stdout.contains(&template_swap_row));
+    assert!(stdout.contains(&template_parity_row));
 
     let core_start = stdout
         .find("Core setup (value required):")
@@ -329,11 +361,15 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     let prompt_start = stdout
         .find("Prompt/Action commands:")
         .expect("prompt/action header");
+    let soroban_v2_start = stdout
+        .find("Soroban v2 templates:")
+        .expect("soroban v2 header");
     let utility_start = stdout.find("Utility commands:").expect("utility header");
 
     let core_section = &stdout[core_start..toggle_start];
     let toggle_section = &stdout[toggle_start..prompt_start];
-    let prompt_section = &stdout[prompt_start..utility_start];
+    let prompt_section = &stdout[prompt_start..soroban_v2_start];
+    let soroban_v2_section = &stdout[soroban_v2_start..utility_start];
 
     assert!(core_section.contains("intent_threshold: <f32>"));
     assert!(!core_section.contains("txrep"));
@@ -347,6 +383,13 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
 
     assert!(prompt_section.contains("set stellar intent from AI: \"...\""));
     assert!(prompt_section.contains("x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\""));
+
+    assert!(soroban_v2_section.contains("template registry"));
+    assert!(soroban_v2_section.contains("hello"));
+    assert!(soroban_v2_section.contains("claim_rewards"));
+    assert!(soroban_v2_section.contains("deposit"));
+    assert!(soroban_v2_section.contains("swap"));
+    assert!(soroban_v2_section.contains("REPL, .nc, and /api/stellar/intent-plan"));
 }
 
 #[test]

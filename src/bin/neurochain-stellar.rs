@@ -3276,6 +3276,19 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
     println!(
         "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
     );
+    println!();
+    println!("Soroban v2 template prompts (policy-backed):");
+    let soroban_v2_rows = [
+        ("contract_policy: <path>", "(load template registry/policy)"),
+        ("hello", "(prompt: Please say hello to World)"),
+        ("claim_rewards", "(template: rewards claim invoke)"),
+        ("deposit", "(template: amount + asset deposit)"),
+        ("swap", "(template: amount/from/to/min_out swap)"),
+        ("REPL + .nc + API", "(same template core)"),
+    ];
+    for (command, desc) in soroban_v2_rows {
+        println!("- {:<HELP_COL_WIDTH$} {}", command, desc);
+    }
     println!("- restart with --no-flow if you want plan-only REPL");
 }
 
@@ -3506,6 +3519,31 @@ fn print_repl_help_all() {
         ("stellar.* / soroban.* lines", "manual action-plan mode"),
     ];
     print_repl_help_section("Prompt/Action commands", &prompt_actions);
+
+    let soroban_templates = [
+        (
+            "template registry",
+            "policy-backed intent_templates in contract policy",
+        ),
+        ("hello", "prompt example: Please say hello to World"),
+        (
+            "claim_rewards",
+            "prompt example: Invoke contract rewards function claim_rewards",
+        ),
+        (
+            "deposit",
+            "prompt example: Invoke contract deposit amount 100 asset USDC",
+        ),
+        (
+            "swap",
+            "prompt example: Invoke contract swap amount/from/to/min_out",
+        ),
+        (
+            "parity",
+            "same template core in REPL, .nc, and /api/stellar/intent-plan",
+        ),
+    ];
+    print_repl_help_section("Soroban v2 templates", &soroban_templates);
 
     let utility = [
         ("help", "show quick start"),
