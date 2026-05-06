@@ -1014,6 +1014,29 @@ decision model:
   - `exit_code`
   - `reason = "allowlist" | "contract_policy" | "intent_safety" | ...`
 
+Agent/frontend response contract:
+
+| Scenario | HTTP | `payment.state` | `decision.status` | `decision.reason` | `guardrails.state` | `guardrails.exit_code` |
+| --- | --- | --- | --- | --- | --- | --- |
+| payment required | `402` | `payment_required` | `not_evaluated` | `null` | `not_run` | `null` |
+| approved | `200` | `finalized` | `approved` | `null` | `passed` | `null` |
+| allowlist block | `200` | `finalized` | `blocked` | `allowlist` | `blocked` | `3` |
+| contract policy block | `200` | `finalized` | `blocked` | `contract_policy` | `blocked` | `4` |
+| intent safety / slot block | `200` | `finalized` | `blocked` | `intent_safety` | `blocked` | `5` |
+| replay block | `409` | `replay_blocked` | `blocked` | `payment_replay_blocked` | `not_run` | `null` |
+| expired challenge | `402` | `expired` | `blocked` | `payment_expired` | `not_run` | `null` |
+
+For every scenario, clients can rely on these envelope fields:
+
+- `audit_id`
+- `payment`
+- `decision`
+- `guardrails`
+- `logs`
+
+For finalized requests, `plan` is also present and should be shown in agent and
+frontend surfaces as the typed ActionPlan that NeuroChain evaluated.
+
 Important behavior:
 
 - replayed payment signatures return `409 payment_replay_blocked`

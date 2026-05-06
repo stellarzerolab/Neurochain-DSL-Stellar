@@ -219,6 +219,7 @@ fn spawn_server(port: u16, extra_env: &[(&str, &str)]) -> Server {
 
 fn payment_challenge_id(resp_body: &str) -> String {
     let resp: serde_json::Value = serde_json::from_str(resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "payment_required", "not_evaluated", "not_run");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["error"], "payment_required");
     assert_eq!(resp["payment"]["state"], "payment_required");
@@ -236,6 +237,67 @@ fn payment_challenge_id(resp_body: &str) -> String {
         .as_str()
         .expect("challenge_id")
         .to_string()
+}
+
+fn assert_x402_response_contract(
+    resp: &Value,
+    payment_state: &str,
+    decision_status: &str,
+    guardrail_state: &str,
+) {
+    assert!(resp["ok"].is_boolean(), "ok must be boolean: {resp}");
+    assert!(
+        resp["audit_id"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("x402-stellar-"),
+        "audit_id must use x402-stellar prefix: {resp}"
+    );
+    assert_eq!(resp["payment"]["protocol"], "x402");
+    assert_eq!(resp["payment"]["state"], payment_state);
+    assert!(
+        resp["payment"]["amount"].is_string(),
+        "payment.amount must be string: {resp}"
+    );
+    assert!(
+        resp["payment"]["asset"].is_string(),
+        "payment.asset must be string: {resp}"
+    );
+    assert!(
+        resp["payment"]["network"].is_string(),
+        "payment.network must be string: {resp}"
+    );
+    assert!(
+        resp["payment"]["receiver"].is_string(),
+        "payment.receiver must be string: {resp}"
+    );
+    assert_eq!(resp["decision"]["status"], decision_status);
+    assert!(
+        resp["decision"]["approved"].is_boolean(),
+        "decision.approved must be boolean: {resp}"
+    );
+    assert!(
+        resp["decision"]["blocked"].is_boolean(),
+        "decision.blocked must be boolean: {resp}"
+    );
+    assert!(
+        resp["decision"]["requires_approval"].is_boolean(),
+        "decision.requires_approval must be boolean: {resp}"
+    );
+    assert_eq!(resp["guardrails"]["state"], guardrail_state);
+    assert!(resp["logs"].is_array(), "logs must be array: {resp}");
+}
+
+fn assert_x402_finalized_block_contract(resp: &Value, exit_code: i64, reason: &str) {
+    assert_x402_response_contract(resp, "finalized", "blocked", "blocked");
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], exit_code);
+    assert_eq!(resp["decision"]["approved"], false);
+    assert_eq!(resp["decision"]["blocked"], true);
+    assert_eq!(resp["decision"]["requires_approval"], false);
+    assert_eq!(resp["decision"]["reason"], reason);
+    assert_eq!(resp["guardrails"]["exit_code"], exit_code);
+    assert_eq!(resp["guardrails"]["reason"], reason);
 }
 
 fn read_jsonl(path: &PathBuf) -> Vec<Value> {
@@ -398,6 +460,7 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(status, 200);
 
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
     assert_eq!(resp["ok"], true);
     assert_eq!(resp["blocked"], false);
     assert_eq!(
@@ -841,6 +904,7 @@ fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
     );
     assert_eq!(status, 409);
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "replay_blocked", "blocked", "not_run");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["error"], "payment_replay_blocked");
     assert_eq!(resp["audit_id"], format!("x402-stellar-{challenge_id}"));
@@ -917,6 +981,7 @@ fn api_x402_stellar_intent_plan_payment_does_not_bypass_allowlist_guardrail() {
     );
     assert_eq!(status, 200);
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_finalized_block_contract(&resp, 3, "allowlist");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 3);
@@ -1053,6 +1118,7 @@ fn api_x402_stellar_intent_plan_runs_soroban_v2_claim_rewards_template() {
     );
     assert_eq!(status, 200);
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
     assert_eq!(resp["ok"], true);
     assert_eq!(resp["blocked"], false);
     assert_eq!(resp["payment"]["state"], "finalized");
@@ -1102,6 +1168,7 @@ fn api_x402_stellar_intent_plan_runs_soroban_v2_claim_rewards_template() {
     );
     assert_eq!(status, 200);
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_finalized_block_contract(&resp, 5, "intent_safety");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 5);
@@ -1245,6 +1312,7 @@ fn api_x402_stellar_intent_plan_contract_policy_exit4_after_payment() {
     );
     assert_eq!(status, 200);
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_finalized_block_contract(&resp, 4, "contract_policy");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 4);
@@ -1345,6 +1413,7 @@ fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
     );
     assert_eq!(status, 402);
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "expired", "blocked", "not_run");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["error"], "payment_expired");
     assert_eq!(resp["payment"]["state"], "expired");
@@ -1437,6 +1506,7 @@ fn api_x402_stellar_file_store_persists_challenge_and_replay_state() {
     );
     assert_eq!(status, 200);
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
     assert_eq!(resp["payment"]["state"], "finalized");
     assert_eq!(resp["payment"]["challenge_id"], challenge_id);
     assert_eq!(resp["decision"]["status"], "approved");
@@ -1462,6 +1532,7 @@ fn api_x402_stellar_file_store_persists_challenge_and_replay_state() {
     );
     assert_eq!(status, 409);
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "replay_blocked", "blocked", "not_run");
     assert_eq!(resp["error"], "payment_replay_blocked");
     assert_eq!(resp["payment"]["state"], "replay_blocked");
     assert_eq!(resp["decision"]["status"], "blocked");
