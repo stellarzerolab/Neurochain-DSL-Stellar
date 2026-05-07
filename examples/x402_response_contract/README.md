@@ -36,6 +36,12 @@ The frontend-friendly TypeScript contract is in:
 examples/x402_response_contract/types.ts
 ```
 
+A small adapter from backend response to UI/agent state is in:
+
+```text
+examples/x402_response_contract/client_adapter.ts
+```
+
 ## Scenario Matrix
 
 | Fixture | HTTP | `payment.state` | `decision.status` | `decision.reason` | `guardrails.state` | `guardrails.exit_code` |
@@ -77,6 +83,24 @@ Minimal agent/frontend flow:
    - `5` = intent safety, low confidence, or typed slot error
 6. If `payment.state = "replay_blocked"` or `payment.state = "expired"`, do
    not render an ActionPlan. Ask the agent/client to create a fresh challenge.
+
+## Client Adapter
+
+`client_adapter.ts` maps the raw response to a UI-friendly state:
+
+- `payment_required`
+- `approved`
+- `requires_approval`
+- `blocked_allowlist`
+- `blocked_contract_policy`
+- `blocked_intent_safety`
+- `blocked_unknown`
+- `replay_blocked`
+- `expired`
+- `unknown`
+
+The adapter is intentionally view-facing. It does not submit transactions,
+verify payments, sign wallet payloads, or settle with a facilitator.
 
 ## Non-Goals
 

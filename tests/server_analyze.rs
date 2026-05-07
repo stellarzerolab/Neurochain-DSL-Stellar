@@ -488,12 +488,17 @@ fn x402_response_contract_fixtures_are_valid() {
     });
     for expected in [
         "types.ts",
+        "client_adapter.ts",
         "Client Flow",
+        "Client Adapter",
         "PAYMENT-SIGNATURE",
         "payment.state = \"finalized\"",
         "`3` = allowlist block",
         "`4` = contract policy block",
         "`5` = intent safety",
+        "blocked_allowlist",
+        "blocked_contract_policy",
+        "blocked_intent_safety",
     ] {
         assert!(
             readme.contains(expected),
@@ -525,6 +530,36 @@ fn x402_response_contract_fixtures_are_valid() {
         assert!(
             types.contains(expected),
             "TypeScript contract missing {expected:?}"
+        );
+    }
+
+    let adapter_path = base.join("client_adapter.ts");
+    let adapter = fs::read_to_string(&adapter_path).unwrap_or_else(|err| {
+        panic!("read client adapter {}: {err}", adapter_path.display());
+    });
+    for expected in [
+        "export type X402UiState",
+        "export interface X402UiModel",
+        "export function toX402UiModel",
+        "payment_required",
+        "approved",
+        "requires_approval",
+        "blocked_allowlist",
+        "blocked_contract_policy",
+        "blocked_intent_safety",
+        "blocked_unknown",
+        "replay_blocked",
+        "expired",
+        "case 3:",
+        "case 4:",
+        "case 5:",
+        "canRetryWithPayment: true",
+        "requiresFreshChallenge: true",
+        "canRenderPlan: Boolean(response.plan)",
+    ] {
+        assert!(
+            adapter.contains(expected),
+            "client adapter missing {expected:?}"
         );
     }
 

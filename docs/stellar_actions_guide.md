@@ -1146,6 +1146,7 @@ That directory now includes:
 - `README.md` -> human-readable scenario matrix and field semantics
 - `schema.json` -> machine-readable JSON Schema for the response envelope
 - `types.ts` -> frontend-friendly TypeScript contract for agent/UI clients
+- `client_adapter.ts` -> example mapper from backend response to UI/agent state
 - `*.json` -> concrete examples for `payment_required`, `approved`,
   `blocked_exit_3_allowlist`, `blocked_exit_4_contract_policy`,
   `blocked_exit_5_intent_safety`, `replay_blocked`, and `expired`
@@ -1158,6 +1159,16 @@ The same test also checks that `types.ts` and the README client flow stay next
 to the fixtures. Client integrations should follow the simple loop:
 `payment_required -> retry with PAYMENT-SIGNATURE -> finalized/blocked`, then
 render `decision`, `guardrails`, `logs`, and finalized `plan`.
+
+`client_adapter.ts` shows the intended UI state mapping:
+
+- `payment_required` -> show x402 challenge and retry affordance
+- `approved` -> render the finalized ActionPlan
+- `blocked_allowlist` -> explain exit `3`
+- `blocked_contract_policy` -> explain exit `4`
+- `blocked_intent_safety` -> explain exit `5`
+- `replay_blocked` / `expired` -> ask for a fresh challenge
+- `requires_approval` -> reserved for the later approval boundary
 
 Optional x402 server environment variables:
 
