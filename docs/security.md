@@ -18,8 +18,7 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0097
+            --ignore RUSTSEC-2025-0134
 ```
 
 Note: `cargo test` includes AI model smoke tests (`src/ai/model/tests.rs`). These tests auto-skip if the referenced ONNX files are missing (useful if you clone without `models/`). For end-to-end validation, run the example scripts that load models (see `docs/getting_started.md` and `examples/`).
@@ -28,7 +27,9 @@ Runtime safety note (Stellar path): in addition to toolchain checks, `neurochain
 
 x402 audit/store safety note (Stellar server path): `/api/x402/stellar/intent-plan` is an access/payment gate in front of the same guardrail pipeline, not a submit path. If `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit rows for payment-required, finalized, blocked, replay, expired, and invalid payment states. If `NC_X402_STELLAR_STORE_PATH` is set, the server persists local challenge/replay state across restarts. Audit rows and the store must not persist the raw `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>` signature material.
 
-RustSec note: `RUSTSEC-2026-0097` is currently transitive (`rand 0.8.5` via `tokenizers`/`tract`/`axum` stack) and is tracked in the ignore list until upstream-compatible updates are available.
+RustSec note: `RUSTSEC-2026-0097` was resolved by updating the transitive
+`rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by
+updating `rustls-webpki 0.103.12 -> 0.103.13`.
 
 ## 3. CI/CD Gatekeepers (GitHub Actions Example)
 Keep audit as a separate job; combining fmt+clippy saves time.
@@ -66,8 +67,7 @@ jobs:
           # Known unmaintained warnings via transitive deps.
           cargo audit --deny warnings \
             --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0097
+            --ignore RUSTSEC-2025-0134
 ```
 
 ## 4. Supply Chain Hardening (Later)
@@ -91,6 +91,5 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0097
+            --ignore RUSTSEC-2025-0134
 ```

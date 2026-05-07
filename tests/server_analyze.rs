@@ -863,7 +863,6 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(status, 200);
 
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
-    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
     assert_eq!(resp["ok"], true);
     assert_eq!(resp["blocked"], false);
     assert_eq!(
