@@ -1,13 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
-    env,
-    fs::{self, OpenOptions},
-    io::Write,
+    env, fs,
     net::SocketAddr,
     panic::{catch_unwind, AssertUnwindSafe},
-    path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -27,9 +22,16 @@ use neurochain::{
     },
     interpreter, soroban_deep,
     soroban_deep::ContractPolicy,
+    x402_stellar::{
+        x402_challenge_from_signature, x402_error_response, x402_payment_required_response,
+        x402_payment_signature, x402_stellar_decision_response, X402PaymentContext,
+        X402StellarIntentPlanOutcome,
+    },
+    x402_store::{
+        build_x402_challenge_store, now_unix_secs, X402ChallengeStore, X402FinalizeOutcome,
+    },
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use tokio::{
     sync::Semaphore,
     task,
@@ -91,274 +93,7 @@ struct StellarIntentPlanResp {
     logs: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct X402StellarChallenge {
-    created_at: u64,
-    expires_at: u64,
-    finalized: bool,
-    finalized_at: Option<u64>,
-    payment_state: String,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct X402StellarState {
-    next_id: u64,
-    #[serde(default)]
-    challenges: HashMap<String, X402StellarChallenge>,
-    #[serde(default)]
-    used_challenges: HashSet<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct X402PaymentContext<'a> {
-    challenge_id: Option<&'a str>,
-    created_at: Option<u64>,
-    expires_at: Option<u64>,
-    finalized_at: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-struct X402ChallengeRecord {
-    challenge_id: String,
-    challenge: X402StellarChallenge,
-}
-
-#[derive(Debug, Clone)]
-enum X402FinalizeOutcome {
-    Finalized(X402StellarChallenge),
-    ReplayBlocked(X402StellarChallenge),
-    Expired(X402StellarChallenge),
-    UnknownChallenge,
-}
-
-trait X402ChallengeStore {
-    fn store_kind(&self) -> &'static str;
-    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String>;
-    fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String>;
-}
-
-impl X402StellarState {
-    fn create_challenge(&mut self) -> X402ChallengeRecord {
-        self.next_id += 1;
-        let challenge_id = format!("x402s{:04}", self.next_id);
-        let created_at = now_unix_secs();
-        let expires_at = created_at.saturating_add(x402_stellar_ttl_secs());
-        let challenge = X402StellarChallenge {
-            created_at,
-            expires_at,
-            finalized: false,
-            finalized_at: None,
-            payment_state: "payment_required".to_string(),
-        };
-        self.challenges
-            .insert(challenge_id.clone(), challenge.clone());
-        X402ChallengeRecord {
-            challenge_id,
-            challenge,
-        }
-    }
-
-    fn begin_finalize(&mut self, challenge_id: &str) -> X402FinalizeOutcome {
-        let used = self.used_challenges.contains(challenge_id);
-        let Some(challenge) = self.challenges.get_mut(challenge_id) else {
-            return X402FinalizeOutcome::UnknownChallenge;
-        };
-
-        if used || challenge.finalized {
-            challenge.payment_state = "replay_blocked".to_string();
-            return X402FinalizeOutcome::ReplayBlocked(challenge.clone());
-        }
-
-        if now_unix_secs() >= challenge.expires_at {
-            challenge.payment_state = "expired".to_string();
-            return X402FinalizeOutcome::Expired(challenge.clone());
-        }
-
-        let finalized_at = now_unix_secs();
-        challenge.finalized = true;
-        challenge.finalized_at = Some(finalized_at);
-        challenge.payment_state = "finalized".to_string();
-        self.used_challenges.insert(challenge_id.to_string());
-        X402FinalizeOutcome::Finalized(challenge.clone())
-    }
-}
-
-#[derive(Debug, Default)]
-struct InMemoryX402ChallengeStore {
-    state: X402StellarState,
-}
-
-impl X402ChallengeStore for InMemoryX402ChallengeStore {
-    fn store_kind(&self) -> &'static str {
-        "in_memory"
-    }
-
-    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
-        Ok(self.state.create_challenge())
-    }
-
-    fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
-        Ok(self.state.begin_finalize(challenge_id))
-    }
-}
-
-#[derive(Debug)]
-struct FileX402ChallengeStore {
-    path: PathBuf,
-    state: X402StellarState,
-}
-
-impl FileX402ChallengeStore {
-    fn load(path: PathBuf) -> Result<Self, String> {
-        let state = match fs::read_to_string(&path) {
-            Ok(raw) if raw.trim().is_empty() => X402StellarState::default(),
-            Ok(raw) => serde_json::from_str(&raw)
-                .map_err(|err| format!("x402 store parse failed at {}: {err}", path.display()))?,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => X402StellarState::default(),
-            Err(err) => {
-                return Err(format!(
-                    "x402 store read failed at {}: {err}",
-                    path.display()
-                ));
-            }
-        };
-
-        Ok(Self { path, state })
-    }
-
-    fn persist(&self) -> Result<(), String> {
-        if let Some(parent) = self
-            .path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "x402 store mkdir failed at {}: {err}",
-                    parent.to_string_lossy()
-                )
-            })?;
-        }
-
-        let raw = serde_json::to_string_pretty(&self.state)
-            .map_err(|err| format!("x402 store serialize failed: {err}"))?;
-        let tmp_path = self.path.with_extension("json.tmp");
-        fs::write(&tmp_path, raw)
-            .map_err(|err| format!("x402 store write failed at {}: {err}", tmp_path.display()))?;
-        if self.path.exists() {
-            fs::remove_file(&self.path).map_err(|err| {
-                format!(
-                    "x402 store replace failed at {}: {err}",
-                    self.path.display()
-                )
-            })?;
-        }
-        fs::rename(&tmp_path, &self.path).map_err(|err| {
-            format!(
-                "x402 store rename failed from {} to {}: {err}",
-                tmp_path.display(),
-                self.path.display()
-            )
-        })
-    }
-}
-
-impl X402ChallengeStore for FileX402ChallengeStore {
-    fn store_kind(&self) -> &'static str {
-        "file"
-    }
-
-    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
-        let record = self.state.create_challenge();
-        self.persist()?;
-        Ok(record)
-    }
-
-    fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
-        let outcome = self.state.begin_finalize(challenge_id);
-        if !matches!(outcome, X402FinalizeOutcome::UnknownChallenge) {
-            self.persist()?;
-        }
-        Ok(outcome)
-    }
-}
-
 static REQUIRED_API_KEY: OnceLock<Option<String>> = OnceLock::new();
-
-fn now_unix_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
-}
-
-fn x402_stellar_ttl_secs() -> u64 {
-    env::var("NC_X402_STELLAR_TTL_SECS")
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .unwrap_or(300)
-}
-
-fn x402_stellar_amount() -> String {
-    env::var("NC_X402_STELLAR_AMOUNT")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "0.01".to_string())
-}
-
-fn x402_stellar_asset() -> String {
-    env::var("NC_X402_STELLAR_ASSET")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "USDC".to_string())
-}
-
-fn x402_stellar_network() -> String {
-    env::var("NC_X402_STELLAR_NETWORK")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "stellar:testnet".to_string())
-}
-
-fn x402_stellar_receiver() -> String {
-    env::var("NC_X402_STELLAR_RECEIVER")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "mock-receiver".to_string())
-}
-
-fn x402_stellar_audit_path() -> Option<String> {
-    env::var("NC_X402_STELLAR_AUDIT_PATH")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-fn x402_stellar_store_path() -> Option<PathBuf> {
-    env::var("NC_X402_STELLAR_STORE_PATH")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
-fn build_x402_challenge_store() -> Box<dyn X402ChallengeStore + Send> {
-    let Some(path) = x402_stellar_store_path() else {
-        return Box::<InMemoryX402ChallengeStore>::default();
-    };
-
-    match FileX402ChallengeStore::load(path.clone()) {
-        Ok(store) => Box::new(store),
-        Err(err) => {
-            eprintln!("WARN: {err}; falling back to in-memory x402 challenge store");
-            Box::<InMemoryX402ChallengeStore>::default()
-        }
-    }
-}
 
 fn required_api_key() -> Option<&'static str> {
     REQUIRED_API_KEY
@@ -393,279 +128,6 @@ fn provided_api_key(headers: &HeaderMap) -> Option<&str> {
     }
 
     None
-}
-
-fn x402_payment_signature(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("payment-signature")
-        .or_else(|| headers.get("x-payment"))
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn x402_challenge_from_signature(signature: &str) -> Option<&str> {
-    signature.trim().strip_prefix("paid:").map(str::trim)
-}
-
-fn x402_audit_id(challenge_id: &str) -> String {
-    format!("x402-stellar-{challenge_id}")
-}
-
-fn x402_guardrail_reason(exit_code: Option<i32>, error: Option<&str>) -> Option<String> {
-    match exit_code {
-        Some(3) => Some("allowlist".to_string()),
-        Some(4) => Some("contract_policy".to_string()),
-        Some(5) => Some("intent_safety".to_string()),
-        Some(code) => Some(format!("exit_code_{code}")),
-        None => error.map(str::to_string),
-    }
-}
-
-fn x402_payment_json(
-    state: &str,
-    challenge_id: Option<&str>,
-    created_at: Option<u64>,
-    expires_at: Option<u64>,
-    finalized_at: Option<u64>,
-) -> Value {
-    json!({
-        "protocol": "x402",
-        "state": state,
-        "challenge_id": challenge_id,
-        "amount": x402_stellar_amount(),
-        "asset": x402_stellar_asset(),
-        "network": x402_stellar_network(),
-        "receiver": x402_stellar_receiver(),
-        "created_at": created_at,
-        "expires_at": expires_at,
-        "finalized_at": finalized_at
-    })
-}
-
-fn write_x402_audit_event(
-    logs: &mut Vec<String>,
-    event: &str,
-    http_status: StatusCode,
-    audit_id: &str,
-    payment: &Value,
-    decision: &Value,
-    guardrails: &Value,
-) {
-    let Some(path) = x402_stellar_audit_path() else {
-        return;
-    };
-
-    if let Some(parent) = Path::new(&path)
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        if let Err(err) = fs::create_dir_all(parent) {
-            logs.push(format!("x402_audit: mkdir_failed {err}"));
-            return;
-        }
-    }
-
-    let row = json!({
-        "schema_version": 1,
-        "service": "stellar.intent_plan",
-        "endpoint": "/api/x402/stellar/intent-plan",
-        "event": event,
-        "timestamp": now_unix_secs(),
-        "http_status": http_status.as_u16(),
-        "audit_id": audit_id,
-        "payment": payment,
-        "decision": decision,
-        "guardrails": guardrails
-    });
-
-    match OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(mut file) => {
-            if let Err(err) = writeln!(file, "{row}") {
-                logs.push(format!("x402_audit: write_failed {err}"));
-            } else {
-                logs.push("x402_audit: wrote safe event".to_string());
-            }
-        }
-        Err(err) => logs.push(format!("x402_audit: open_failed {err}")),
-    }
-}
-
-fn x402_payment_required_response(
-    challenge_id: String,
-    created_at: u64,
-    expires_at: u64,
-    mut logs: Vec<String>,
-) -> Response {
-    let audit_id = x402_audit_id(&challenge_id);
-    let payment = x402_payment_json(
-        "payment_required",
-        Some(&challenge_id),
-        Some(created_at),
-        Some(expires_at),
-        None,
-    );
-    let decision = json!({
-        "status": "not_evaluated",
-        "approved": false,
-        "blocked": false,
-        "requires_approval": false,
-        "reason": "payment_required"
-    });
-    let guardrails = json!({
-        "state": "not_run",
-        "exit_code": null,
-        "reason": null
-    });
-    write_x402_audit_event(
-        &mut logs,
-        "payment_required",
-        StatusCode::PAYMENT_REQUIRED,
-        &audit_id,
-        &payment,
-        &decision,
-        &guardrails,
-    );
-
-    (
-        StatusCode::PAYMENT_REQUIRED,
-        Json(json!({
-            "ok": false,
-            "blocked": false,
-            "error": "payment_required",
-            "audit_id": audit_id,
-            "challenge_id": &challenge_id,
-            "amount": x402_stellar_amount(),
-            "asset": x402_stellar_asset(),
-            "network": x402_stellar_network(),
-            "receiver": x402_stellar_receiver(),
-            "expires_at": expires_at,
-            "payment_header": "PAYMENT-SIGNATURE",
-            "mock_signature": format!("paid:{challenge_id}"),
-            "payment": payment,
-            "decision": decision,
-            "guardrails": guardrails,
-            "logs": logs
-        })),
-    )
-        .into_response()
-}
-
-fn x402_error_response(
-    status: StatusCode,
-    error: &str,
-    payment_state: &str,
-    ctx: X402PaymentContext<'_>,
-    mut logs: Vec<String>,
-) -> Response {
-    let audit_id = ctx
-        .challenge_id
-        .map(x402_audit_id)
-        .unwrap_or_else(|| format!("x402-stellar-untracked-{}", now_unix_secs()));
-    let payment = x402_payment_json(
-        payment_state,
-        ctx.challenge_id,
-        ctx.created_at,
-        ctx.expires_at,
-        ctx.finalized_at,
-    );
-    let decision = json!({
-        "status": "blocked",
-        "approved": false,
-        "blocked": true,
-        "requires_approval": false,
-        "reason": error
-    });
-    let guardrails = json!({
-        "state": "not_run",
-        "exit_code": null,
-        "reason": null
-    });
-    write_x402_audit_event(
-        &mut logs,
-        error,
-        status,
-        &audit_id,
-        &payment,
-        &decision,
-        &guardrails,
-    );
-
-    (
-        status,
-        Json(json!({
-            "ok": false,
-            "blocked": true,
-            "error": error,
-            "audit_id": audit_id,
-            "payment": payment,
-            "decision": decision,
-            "guardrails": guardrails,
-            "logs": logs
-        })),
-    )
-        .into_response()
-}
-
-fn x402_stellar_decision_response(
-    challenge_id: &str,
-    created_at: u64,
-    expires_at: u64,
-    finalized_at: u64,
-    payment_state: &str,
-    resp: StellarIntentPlanResp,
-) -> Response {
-    let decision_status = if resp.blocked { "blocked" } else { "approved" };
-    let guardrail_state = if resp.blocked { "blocked" } else { "passed" };
-    let reason = x402_guardrail_reason(resp.exit_code, resp.error.as_deref());
-    let audit_id = x402_audit_id(challenge_id);
-    let payment = x402_payment_json(
-        payment_state,
-        Some(challenge_id),
-        Some(created_at),
-        Some(expires_at),
-        Some(finalized_at),
-    );
-    let decision = json!({
-        "status": decision_status,
-        "approved": resp.ok && !resp.blocked,
-        "blocked": resp.blocked,
-        "requires_approval": false,
-        "reason": reason
-    });
-    let guardrails = json!({
-        "state": guardrail_state,
-        "exit_code": resp.exit_code,
-        "reason": reason
-    });
-    let mut logs = resp.logs;
-    write_x402_audit_event(
-        &mut logs,
-        decision_status,
-        StatusCode::OK,
-        &audit_id,
-        &payment,
-        &decision,
-        &guardrails,
-    );
-
-    (
-        StatusCode::OK,
-        Json(json!({
-            "ok": resp.ok,
-            "blocked": resp.blocked,
-            "exit_code": resp.exit_code,
-            "error": resp.error,
-            "audit_id": audit_id,
-            "payment": payment,
-            "decision": decision,
-            "guardrails": guardrails,
-            "plan": resp.plan,
-            "logs": logs
-        })),
-    )
-        .into_response()
 }
 
 fn secure_eq(a: &str, b: &str) -> bool {
@@ -1162,13 +624,21 @@ async fn api_x402_stellar_intent_plan(
 
     logs.push(format!("x402: finalized challenge={challenge_id}"));
     let (_status, Json(resp)) = build_stellar_intent_plan_response(req, logs);
+    let outcome = X402StellarIntentPlanOutcome {
+        ok: resp.ok,
+        blocked: resp.blocked,
+        exit_code: resp.exit_code,
+        error: resp.error,
+        plan: resp.plan,
+        logs: resp.logs,
+    };
     x402_stellar_decision_response(
         &challenge_id,
         created_at,
         expires_at,
         finalized_at,
         &payment_state,
-        resp,
+        outcome,
     )
 }
 
