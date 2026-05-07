@@ -1145,6 +1145,7 @@ That directory now includes:
 
 - `README.md` -> human-readable scenario matrix and field semantics
 - `schema.json` -> machine-readable JSON Schema for the response envelope
+- `types.ts` -> frontend-friendly TypeScript contract for agent/UI clients
 - `*.json` -> concrete examples for `payment_required`, `approved`,
   `blocked_exit_3_allowlist`, `blocked_exit_4_contract_policy`,
   `blocked_exit_5_intent_safety`, `replay_blocked`, and `expired`
@@ -1152,6 +1153,11 @@ That directory now includes:
 The fixture test parses `schema.json` and validates every example against the
 same required fields, types, enums, and x402 audit-id prefix used by the
 frontend/agent contract.
+
+The same test also checks that `types.ts` and the README client flow stay next
+to the fixtures. Client integrations should follow the simple loop:
+`payment_required -> retry with PAYMENT-SIGNATURE -> finalized/blocked`, then
+render `decision`, `guardrails`, `logs`, and finalized `plan`.
 
 Optional x402 server environment variables:
 

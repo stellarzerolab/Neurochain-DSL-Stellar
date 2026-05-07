@@ -30,6 +30,12 @@ The machine-readable schema is in:
 examples/x402_response_contract/schema.json
 ```
 
+The frontend-friendly TypeScript contract is in:
+
+```text
+examples/x402_response_contract/types.ts
+```
+
 ## Scenario Matrix
 
 | Fixture | HTTP | `payment.state` | `decision.status` | `decision.reason` | `guardrails.state` | `guardrails.exit_code` |
@@ -54,6 +60,23 @@ examples/x402_response_contract/schema.json
   later integration step.
 - `payment_required`, `replay_blocked`, and `expired` do not run guardrails,
   so `guardrails.state` is `not_run`.
+
+## Client Flow
+
+Minimal agent/frontend flow:
+
+1. Send the agent request to `POST /api/x402/stellar/intent-plan`.
+2. If the response is `402 payment_required`, show the x402 challenge details.
+3. Retry the same request with `PAYMENT-SIGNATURE`.
+4. If `payment.state = "finalized"`, render `decision`, `guardrails`, `logs`,
+   and the typed `plan`.
+5. If `decision.status = "blocked"`, use `guardrails.exit_code` to explain the
+   safety outcome:
+   - `3` = allowlist block
+   - `4` = contract policy block
+   - `5` = intent safety, low confidence, or typed slot error
+6. If `payment.state = "replay_blocked"` or `payment.state = "expired"`, do
+   not render an ActionPlan. Ask the agent/client to create a fresh challenge.
 
 ## Non-Goals
 

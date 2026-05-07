@@ -480,6 +480,53 @@ fn x402_response_contract_fixtures_are_valid() {
         "response contract README missing: {}",
         readme_path.display()
     );
+    let readme = fs::read_to_string(&readme_path).unwrap_or_else(|err| {
+        panic!(
+            "read response contract README {}: {err}",
+            readme_path.display()
+        );
+    });
+    for expected in [
+        "types.ts",
+        "Client Flow",
+        "PAYMENT-SIGNATURE",
+        "payment.state = \"finalized\"",
+        "`3` = allowlist block",
+        "`4` = contract policy block",
+        "`5` = intent safety",
+    ] {
+        assert!(
+            readme.contains(expected),
+            "response contract README missing {expected:?}"
+        );
+    }
+
+    let types_path = base.join("types.ts");
+    let types = fs::read_to_string(&types_path).unwrap_or_else(|err| {
+        panic!("read TypeScript contract {}: {err}", types_path.display());
+    });
+    for expected in [
+        "export type X402PaymentState",
+        "export type X402DecisionStatus",
+        "export type X402GuardrailState",
+        "export type X402GuardrailExitCode",
+        "export interface X402IntentPlanResponse",
+        "export interface X402ActionPlan",
+        "\"payment_required\"",
+        "\"finalized\"",
+        "\"replay_blocked\"",
+        "\"expired\"",
+        "\"not_evaluated\"",
+        "\"allowlist\"",
+        "\"contract_policy\"",
+        "\"intent_safety\"",
+        "PAYMENT-SIGNATURE",
+    ] {
+        assert!(
+            types.contains(expected),
+            "TypeScript contract missing {expected:?}"
+        );
+    }
 
     let schema_path = base.join("schema.json");
     let schema_raw = fs::read_to_string(&schema_path).unwrap_or_else(|err| {
