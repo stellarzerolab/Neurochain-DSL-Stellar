@@ -288,6 +288,149 @@ fn assert_x402_response_contract(
     assert!(resp["logs"].is_array(), "logs must be array: {resp}");
 }
 
+fn assert_schema_required_contains(schema_node: &Value, required_fields: &[&str]) {
+    let required = schema_node["required"]
+        .as_array()
+        .expect("schema required array");
+    for field in required_fields {
+        assert!(
+            required.iter().any(|entry| entry.as_str() == Some(field)),
+            "schema missing required field {field}: {schema_node}"
+        );
+    }
+}
+
+fn assert_json_schema_subset(schema: &Value, value: &Value, label: &str) {
+    let mut errors = Vec::new();
+    validate_json_schema_subset(schema, value, "$", &mut errors);
+    assert!(
+        errors.is_empty(),
+        "{label} does not match examples/x402_response_contract/schema.json:\n{}",
+        errors.join("\n")
+    );
+}
+
+fn validate_json_schema_subset(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    if let Some(expected) = schema.get("const") {
+        if value != expected {
+            errors.push(format!("{path}: expected const {expected}, got {value}"));
+        }
+    }
+
+    if let Some(enum_values) = schema.get("enum").and_then(Value::as_array) {
+        if !enum_values.iter().any(|candidate| candidate == value) {
+            errors.push(format!("{path}: {value} is not in enum {enum_values:?}"));
+        }
+    }
+
+    if let Some(type_schema) = schema.get("type") {
+        let type_matches = match type_schema {
+            Value::String(type_name) => json_schema_type_matches(type_name, value),
+            Value::Array(type_names) => type_names.iter().any(|type_name| {
+                type_name
+                    .as_str()
+                    .is_some_and(|type_name| json_schema_type_matches(type_name, value))
+            }),
+            _ => {
+                errors.push(format!(
+                    "{path}: unsupported schema type field {type_schema}"
+                ));
+                true
+            }
+        };
+
+        if !type_matches {
+            errors.push(format!(
+                "{path}: expected type {type_schema}, got {}",
+                json_value_type(value)
+            ));
+            return;
+        }
+    }
+
+    if let (Some(pattern), Some(text)) = (
+        schema.get("pattern").and_then(Value::as_str),
+        value.as_str(),
+    ) {
+        if let Some(prefix) = pattern.strip_prefix('^') {
+            if !text.starts_with(prefix) {
+                errors.push(format!(
+                    "{path}: string {text:?} does not start with {prefix:?}"
+                ));
+            }
+        }
+    }
+
+    if let (Some(required), Some(object)) = (
+        schema.get("required").and_then(Value::as_array),
+        value.as_object(),
+    ) {
+        for field in required {
+            let Some(field) = field.as_str() else {
+                errors.push(format!("{path}: required entry is not a string: {field}"));
+                continue;
+            };
+            if !object.contains_key(field) {
+                errors.push(format!("{path}: missing required field {field}"));
+            }
+        }
+    }
+
+    if let (Some(properties), Some(object)) = (
+        schema.get("properties").and_then(Value::as_object),
+        value.as_object(),
+    ) {
+        for (field, field_schema) in properties {
+            if let Some(field_value) = object.get(field) {
+                validate_json_schema_subset(
+                    field_schema,
+                    field_value,
+                    &format!("{path}.{field}"),
+                    errors,
+                );
+            }
+        }
+    }
+
+    if let (Some(item_schema), Some(items)) = (schema.get("items"), value.as_array()) {
+        for (index, item) in items.iter().enumerate() {
+            validate_json_schema_subset(item_schema, item, &format!("{path}[{index}]"), errors);
+        }
+    }
+}
+
+fn json_schema_type_matches(type_name: &str, value: &Value) -> bool {
+    match type_name {
+        "array" => value.is_array(),
+        "boolean" => value.is_boolean(),
+        "integer" => value
+            .as_number()
+            .is_some_and(|number| number.is_i64() || number.is_u64()),
+        "null" => value.is_null(),
+        "number" => value.is_number(),
+        "object" => value.is_object(),
+        "string" => value.is_string(),
+        _ => false,
+    }
+}
+
+fn json_value_type(value: &Value) -> &'static str {
+    match value {
+        Value::Array(_) => "array",
+        Value::Bool(_) => "boolean",
+        Value::Null => "null",
+        Value::Number(number) if number.is_i64() || number.is_u64() => "integer",
+        Value::Number(_) => "number",
+        Value::Object(_) => "object",
+        Value::String(_) => "string",
+    }
+}
+
 fn assert_x402_finalized_block_contract(resp: &Value, exit_code: i64, reason: &str) {
     assert_x402_response_contract(resp, "finalized", "blocked", "blocked");
     assert_eq!(resp["blocked"], true);
@@ -330,6 +473,66 @@ fn x402_response_contract_fixtures_are_valid() {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("examples")
         .join("x402_response_contract");
+
+    let readme_path = base.join("README.md");
+    assert!(
+        readme_path.is_file(),
+        "response contract README missing: {}",
+        readme_path.display()
+    );
+
+    let schema_path = base.join("schema.json");
+    let schema_raw = fs::read_to_string(&schema_path).unwrap_or_else(|err| {
+        panic!("read schema {}: {err}", schema_path.display());
+    });
+    let schema: Value = serde_json::from_str(&schema_raw).unwrap_or_else(|err| {
+        panic!("parse schema {}: {err}", schema_path.display());
+    });
+    assert_eq!(
+        schema["$schema"],
+        "https://json-schema.org/draft/2020-12/schema"
+    );
+    assert_schema_required_contains(
+        &schema,
+        &[
+            "ok",
+            "audit_id",
+            "payment",
+            "decision",
+            "guardrails",
+            "logs",
+        ],
+    );
+    assert_schema_required_contains(
+        &schema["properties"]["payment"],
+        &[
+            "protocol",
+            "state",
+            "challenge_id",
+            "amount",
+            "asset",
+            "network",
+            "receiver",
+            "created_at",
+            "expires_at",
+            "finalized_at",
+        ],
+    );
+    assert_schema_required_contains(
+        &schema["properties"]["decision"],
+        &[
+            "status",
+            "approved",
+            "blocked",
+            "requires_approval",
+            "reason",
+        ],
+    );
+    assert_schema_required_contains(
+        &schema["properties"]["guardrails"],
+        &["state", "exit_code", "reason"],
+    );
+
     let cases = [
         (
             "payment_required.json",
@@ -406,6 +609,7 @@ fn x402_response_contract_fixtures_are_valid() {
         let resp: Value = serde_json::from_str(&raw).unwrap_or_else(|err| {
             panic!("parse fixture {}: {err}", path.display());
         });
+        assert_json_schema_subset(&schema, &resp, file_name);
         assert_x402_response_contract(&resp, payment_state, decision_status, guardrail_state);
         assert_eq!(
             resp.get("plan").is_some(),

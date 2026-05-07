@@ -1141,6 +1141,18 @@ Static response fixtures for frontend and agent integrations live under:
 examples/x402_response_contract/
 ```
 
+That directory now includes:
+
+- `README.md` -> human-readable scenario matrix and field semantics
+- `schema.json` -> machine-readable JSON Schema for the response envelope
+- `*.json` -> concrete examples for `payment_required`, `approved`,
+  `blocked_exit_3_allowlist`, `blocked_exit_4_contract_policy`,
+  `blocked_exit_5_intent_safety`, `replay_blocked`, and `expired`
+
+The fixture test parses `schema.json` and validates every example against the
+same required fields, types, enums, and x402 audit-id prefix used by the
+frontend/agent contract.
+
 Optional x402 server environment variables:
 
 | Env var | Meaning | Default |

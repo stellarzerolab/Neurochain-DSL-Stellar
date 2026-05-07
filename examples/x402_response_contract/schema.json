@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neurochain.local/schemas/x402-stellar-intent-plan-response.schema.json",
+  "title": "NeuroChain x402 Stellar IntentPlan Response",
+  "description": "Stable frontend and agent response envelope for the NeuroChain Stellar x402 IntentPlan Gateway.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "ok",
+    "audit_id",
+    "payment",
+    "decision",
+    "guardrails",
+    "logs"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "blocked": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "enum": [
+        3,
+        4,
+        5,
+        null
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "payment_required",
+        "payment_replay_blocked",
+        "payment_expired",
+        null
+      ]
+    },
+    "audit_id": {
+      "type": "string",
+      "pattern": "^x402-stellar-"
+    },
+    "challenge_id": {
+      "type": "string"
+    },
+    "amount": {
+      "type": "string"
+    },
+    "asset": {
+      "type": "string"
+    },
+    "network": {
+      "type": "string"
+    },
+    "receiver": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "integer"
+    },
+    "payment_header": {
+      "type": "string"
+    },
+    "mock_signature": {
+      "type": "string"
+    },
+    "payment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "protocol",
+        "state",
+        "challenge_id",
+        "amount",
+        "asset",
+        "network",
+        "receiver",
+        "created_at",
+        "expires_at",
+        "finalized_at"
+      ],
+      "properties": {
+        "protocol": {
+          "const": "x402"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "payment_required",
+            "finalized",
+            "replay_blocked",
+            "expired"
+          ]
+        },
+        "challenge_id": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "string"
+        },
+        "asset": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "receiver": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "expires_at": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "finalized_at": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "status",
+        "approved",
+        "blocked",
+        "requires_approval",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "blocked",
+            "not_evaluated"
+          ]
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "blocked": {
+          "type": "boolean"
+        },
+        "requires_approval": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "allowlist",
+            "contract_policy",
+            "intent_safety",
+            "payment_replay_blocked",
+            "payment_expired",
+            null
+          ]
+        }
+      }
+    },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "state",
+        "exit_code",
+        "reason"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "blocked",
+            "not_run"
+          ]
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "enum": [
+            3,
+            4,
+            5,
+            null
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "allowlist",
+            "contract_policy",
+            "intent_safety",
+            null
+          ]
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "actions",
+        "warnings"
+      ],
+      "properties": {
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
