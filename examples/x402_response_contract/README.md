@@ -164,6 +164,17 @@ approved or blocked response using the same UI contract as the fixtures. It
 does not sign wallet payloads, submit transactions, or settle with a real
 facilitator.
 
+The live panel also includes one-click backend presets:
+
+- approved `claim_rewards`
+- blocked exit `3` allowlist
+- blocked exit `4` contract policy
+- blocked exit `5` intent safety / missing slot
+- replay blocked
+
+These presets are for local contract/UX verification. They use the same mock
+challenge/finalize path and the same stable response envelope.
+
 ## Non-Goals
 
 These fixtures do not model real wallet signing, real facilitator settlement,

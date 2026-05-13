@@ -41,6 +41,60 @@ const SCENARIOS = [
   },
 ];
 
+const DEMO_ACCOUNT = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+const DEMO_CONTRACT = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+
+const LIVE_PRESETS = {
+  approved: {
+    label: "Live preset: approved",
+    status: "preset approved",
+    mode: "normal",
+    request: {
+      prompt: `Invoke contract rewards function claim_rewards for wallet ${DEMO_ACCOUNT}`,
+      threshold: 0,
+    },
+  },
+  exit3: {
+    label: "Live preset: exit 3 allowlist",
+    status: "preset exit 3",
+    mode: "normal",
+    request: {
+      prompt: `Send 5 XLM to ${DEMO_ACCOUNT}`,
+      threshold: 0.2,
+      allowlist_assets: "USDC:GISSUER",
+      allowlist_enforce: true,
+    },
+  },
+  exit4: {
+    label: "Live preset: exit 4 contract policy",
+    status: "preset exit 4",
+    mode: "normal",
+    request: {
+      prompt: `Invoke contract ${DEMO_CONTRACT} function emergency_withdraw args={"account":"${DEMO_ACCOUNT}"}`,
+      threshold: 0,
+      contract_policy_enforce: true,
+    },
+  },
+  exit5: {
+    label: "Live preset: exit 5 intent safety",
+    status: "preset exit 5",
+    mode: "normal",
+    request: {
+      prompt: "Invoke contract rewards function claim_rewards",
+      threshold: 0,
+    },
+  },
+  replay: {
+    label: "Live preset: replay blocked",
+    status: "preset replay",
+    mode: "replay",
+    request: {
+      prompt: `Invoke contract rewards function claim_rewards for wallet ${DEMO_ACCOUNT}`,
+      threshold: 0,
+    },
+  },
+};
+
 const SEVERITY_CLASS = {
   info: "info",
   success: "success",
@@ -61,6 +115,7 @@ const elements = {
   liveApiKey: document.getElementById("liveApiKey"),
   livePrompt: document.getElementById("livePrompt"),
   liveAllowlistContracts: document.getElementById("liveAllowlistContracts"),
+  liveAllowlistAssets: document.getElementById("liveAllowlistAssets"),
   liveContractPolicyEnforce: document.getElementById("liveContractPolicyEnforce"),
   liveAllowlistEnforce: document.getElementById("liveAllowlistEnforce"),
   liveStatus: document.getElementById("liveStatus"),
@@ -125,6 +180,12 @@ function wireLiveControls() {
     }
     setLiveStatus("fixture mode", "info");
   });
+
+  for (const button of document.querySelectorAll("[data-live-preset]")) {
+    button.addEventListener("click", () => {
+      runLivePreset(button.dataset.livePreset).catch((error) => renderLiveError(error));
+    });
+  }
 }
 
 async function fetchJson(path) {
@@ -191,6 +252,69 @@ async function runLiveMockFlow() {
   return finalizeLivePayment();
 }
 
+async function runLivePreset(key) {
+  const preset = LIVE_PRESETS[key];
+  if (!preset) {
+    throw new Error(`Unknown live preset: ${key}`);
+  }
+
+  applyLivePreset(preset);
+  setLiveStatus(preset.status, "info");
+
+  if (preset.mode === "replay") {
+    return runLiveReplayFlow(preset);
+  }
+
+  return runLiveMockFlow();
+}
+
+function applyLivePreset(preset) {
+  const request = {
+    model: "intent_stellar",
+    threshold: 0,
+    allowlist_assets: "",
+    allowlist_contracts: "",
+    allowlist_enforce: false,
+    contract_policy_enforce: false,
+    ...preset.request,
+  };
+
+  elements.liveModel.value = request.model;
+  elements.liveThreshold.value = String(request.threshold);
+  elements.livePrompt.value = request.prompt;
+  elements.liveAllowlistAssets.value = request.allowlist_assets;
+  elements.liveAllowlistContracts.value = request.allowlist_contracts;
+  elements.liveAllowlistEnforce.checked = Boolean(request.allowlist_enforce);
+  elements.liveContractPolicyEnforce.checked = Boolean(request.contract_policy_enforce);
+}
+
+async function runLiveReplayFlow(preset) {
+  setLiveBusy(true);
+  setLiveStatus("running replay preset", "info");
+
+  try {
+    const request = buildLiveRequest();
+    const challenge = await postX402IntentPlan(request);
+    const challengeId = challenge.body.payment?.challenge_id;
+    if (!challengeId) {
+      renderLiveResponse(challenge, request.prompt, preset.label);
+      setLiveStatus("no challenge id", "warning");
+      return challenge;
+    }
+
+    const signature = `paid:${challengeId}`;
+    await postX402IntentPlan(request, signature);
+    const replay = await postX402IntentPlan(request, signature);
+    renderLiveResponse(replay, request.prompt, preset.label);
+    setLiveStatus(`replay HTTP ${replay.status}`, "error");
+    lastLiveChallenge = null;
+    elements.liveFinalizeButton.disabled = true;
+    return replay;
+  } finally {
+    setLiveBusy(false);
+  }
+}
+
 function buildLiveRequest() {
   const prompt = elements.livePrompt.value.trim();
   if (!prompt) {
@@ -213,6 +337,11 @@ function buildLiveRequest() {
   const allowlistContracts = elements.liveAllowlistContracts.value.trim();
   if (allowlistContracts) {
     request.allowlist_contracts = allowlistContracts;
+  }
+
+  const allowlistAssets = elements.liveAllowlistAssets.value.trim();
+  if (allowlistAssets) {
+    request.allowlist_assets = allowlistAssets;
   }
 
   return request;
@@ -307,6 +436,9 @@ function setLiveBusy(isBusy) {
   elements.liveRunButton.disabled = isBusy;
   elements.fixtureResetButton.disabled = isBusy;
   elements.liveFinalizeButton.disabled = isBusy || !lastLiveChallenge;
+  for (const button of document.querySelectorAll("[data-live-preset]")) {
+    button.disabled = isBusy;
+  }
 }
 
 function setLiveStatus(text, severity = "info") {

@@ -1233,6 +1233,17 @@ The live panel calls `/api/x402/stellar/intent-plan`, receives
 approved or blocked envelope in the same UI. It remains mock-only: no wallet
 signing, no submit/broadcast, and no real facilitator settlement.
 
+The live panel also has one-click presets for the current backend matrix:
+
+- approved `claim_rewards`
+- blocked exit `3` allowlist
+- blocked exit `4` contract policy
+- blocked exit `5` intent safety / missing slot
+- replay blocked
+
+Use these presets to verify that frontend state mapping still matches the
+server response contract after x402 or guardrail changes.
+
 Optional x402 server environment variables:
 
 | Env var | Meaning | Default |

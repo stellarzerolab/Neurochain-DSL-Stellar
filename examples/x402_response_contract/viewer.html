@@ -181,6 +181,12 @@
       gap: 10px;
     }
 
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
     .control-button {
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -201,6 +207,11 @@
     .control-button.success {
       border-color: color-mix(in srgb, var(--green) 55%, var(--line));
       color: var(--green);
+    }
+
+    .control-button.danger {
+      border-color: color-mix(in srgb, var(--red) 55%, var(--line));
+      color: var(--red);
     }
 
     .control-button:hover:not(:disabled) {
@@ -468,6 +479,10 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
+      .preset-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .flow {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -485,7 +500,8 @@
 
       .flow,
       .metrics,
-      .live-grid {
+      .live-grid,
+      .preset-grid {
         grid-template-columns: 1fr;
       }
 
@@ -550,6 +566,11 @@
           <span>Allowlist contracts (optional)</span>
           <input id="liveAllowlistContracts" type="text" spellcheck="false" placeholder="Comma-separated contract ids for allowlist_enforce tests">
         </label>
+
+        <label class="field field-wide">
+          <span>Allowlist assets (optional)</span>
+          <input id="liveAllowlistAssets" type="text" spellcheck="false" placeholder="Example: USDC:GISSUER">
+        </label>
       </div>
 
       <div class="live-options">
@@ -568,6 +589,14 @@
         <button class="control-button success" id="liveFinalizeButton" type="button" disabled>Finalize mock payment</button>
         <button class="control-button" id="liveRunButton" type="button">Run full mock flow</button>
         <button class="control-button" id="fixtureResetButton" type="button">Back to fixtures</button>
+      </div>
+
+      <div class="preset-grid" aria-label="Live backend presets">
+        <button class="control-button success" type="button" data-live-preset="approved">Preset: approved</button>
+        <button class="control-button danger" type="button" data-live-preset="exit3">Preset: exit 3 allowlist</button>
+        <button class="control-button danger" type="button" data-live-preset="exit4">Preset: exit 4 policy</button>
+        <button class="control-button danger" type="button" data-live-preset="exit5">Preset: exit 5 intent</button>
+        <button class="control-button danger" type="button" data-live-preset="replay">Preset: replay blocked</button>
       </div>
 
       <p class="hint">
