@@ -489,8 +489,11 @@ fn x402_response_contract_fixtures_are_valid() {
     for expected in [
         "types.ts",
         "client_adapter.ts",
+        "viewer.html",
+        "viewer.js",
         "Client Flow",
         "Client Adapter",
+        "Static Viewer",
         "PAYMENT-SIGNATURE",
         "payment.state = \"finalized\"",
         "mock_header_store",
@@ -564,6 +567,52 @@ fn x402_response_contract_fixtures_are_valid() {
         assert!(
             adapter.contains(expected),
             "client adapter missing {expected:?}"
+        );
+    }
+
+    let viewer_html_path = base.join("viewer.html");
+    let viewer_html = fs::read_to_string(&viewer_html_path).unwrap_or_else(|err| {
+        panic!("read response viewer {}: {err}", viewer_html_path.display());
+    });
+    for expected in [
+        "NeuroChain x402 Response Viewer",
+        "viewer.js",
+        "ActionPlan",
+        "Execution Log",
+        "Raw Envelope",
+    ] {
+        assert!(
+            viewer_html.contains(expected),
+            "response viewer HTML missing {expected:?}"
+        );
+    }
+
+    let viewer_js_path = base.join("viewer.js");
+    let viewer_js = fs::read_to_string(&viewer_js_path).unwrap_or_else(|err| {
+        panic!(
+            "read response viewer script {}: {err}",
+            viewer_js_path.display()
+        );
+    });
+    for expected in [
+        "const SCENARIOS",
+        "payment_required.json",
+        "approved.json",
+        "blocked_exit_3_allowlist.json",
+        "blocked_exit_4_contract_policy.json",
+        "blocked_exit_5_intent_safety.json",
+        "replay_blocked.json",
+        "expired.json",
+        "invalid_payment.json",
+        "function toUiModel",
+        "blocked_allowlist",
+        "blocked_contract_policy",
+        "blocked_intent_safety",
+        "invalid_payment",
+    ] {
+        assert!(
+            viewer_js.contains(expected),
+            "response viewer script missing {expected:?}"
         );
     }
 

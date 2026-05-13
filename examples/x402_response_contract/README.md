@@ -49,6 +49,13 @@ A small adapter from backend response to UI/agent state is in:
 examples/x402_response_contract/client_adapter.ts
 ```
 
+A static response viewer is in:
+
+```text
+examples/x402_response_contract/viewer.html
+examples/x402_response_contract/viewer.js
+```
+
 ## Scenario Matrix
 
 | Fixture | HTTP | `payment.state` | `decision.status` | `decision.reason` | `guardrails.state` | `guardrails.exit_code` |
@@ -111,6 +118,30 @@ Minimal agent/frontend flow:
 
 The adapter is intentionally view-facing. It does not submit transactions,
 verify payments, sign wallet payloads, or settle with a facilitator.
+
+## Static Viewer
+
+The viewer renders the same fixture matrix as an agent-facing execution UI:
+
+```text
+agent request -> x402 payment -> ActionPlan -> guardrails -> decision -> audit/logs
+```
+
+Run it from the repo root with a local static server:
+
+```powershell
+python -m http.server 8787 -d examples/x402_response_contract
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8787/viewer.html
+```
+
+The viewer fetches the JSON fixtures from this directory. It is intentionally
+static and mock-only: no wallet signing, no transaction submit, no facilitator
+settlement, and no server-side state mutation.
 
 ## Non-Goals
 

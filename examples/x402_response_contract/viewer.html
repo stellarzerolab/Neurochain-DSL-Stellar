@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroChain x402 Response Viewer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b10;
+      --panel: #11151d;
+      --panel-2: #151b25;
+      --line: #2a3342;
+      --text: #eef2f8;
+      --muted: #9ba7b7;
+      --soft: #c9d3e2;
+      --accent: #4fb7ff;
+      --green: #47d18c;
+      --yellow: #f1c75b;
+      --red: #ff6b6b;
+      --violet: #9d8cff;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-width: 320px;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 40px;
+    }
+
+    header {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(26px, 4vw, 42px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .lede {
+      max-width: 820px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .scenario-list {
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .scenario-button {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: var(--soft);
+      background: transparent;
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .scenario-button:hover,
+    .scenario-button[aria-selected="true"] {
+      background: var(--panel-2);
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    .scenario-title {
+      display: block;
+      font-weight: 650;
+      font-size: 14px;
+    }
+
+    .scenario-subtitle {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .viewer {
+      min-height: 680px;
+      overflow: hidden;
+    }
+
+    .summary {
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 16px;
+    }
+
+    .summary-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .status-title {
+      display: grid;
+      gap: 5px;
+    }
+
+    .status-title h2 {
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .status-title p {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .badge {
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: #0d1117;
+      white-space: nowrap;
+    }
+
+    .badge.info {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+    }
+
+    .badge.success {
+      color: var(--green);
+      border-color: color-mix(in srgb, var(--green) 45%, var(--line));
+    }
+
+    .badge.warning {
+      color: var(--yellow);
+      border-color: color-mix(in srgb, var(--yellow) 45%, var(--line));
+    }
+
+    .badge.error {
+      color: var(--red);
+      border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      background: #0d1117;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .metric strong {
+      display: block;
+      font-family: var(--mono);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .flow {
+      padding: 18px;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+      background: #0d1117;
+      min-height: 116px;
+    }
+
+    .step small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .step strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .step p {
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .step.active {
+      border-color: var(--accent);
+    }
+
+    .step.pass {
+      border-color: var(--green);
+    }
+
+    .step.warn {
+      border-color: var(--yellow);
+    }
+
+    .step.fail {
+      border-color: var(--red);
+    }
+
+    .detail-grid {
+      padding: 18px;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+    }
+
+    .section {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .section h3 {
+      font-size: 15px;
+      color: var(--soft);
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #07090d;
+      color: #d6deeb;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow: auto;
+      max-height: 360px;
+    }
+
+    .log-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .log-item {
+      border: 1px solid var(--line);
+      background: #0d1117;
+      border-radius: 6px;
+      padding: 9px 10px;
+      color: var(--soft);
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 6px;
+      padding: 16px;
+      background: #0d1117;
+    }
+
+    @media (max-width: 960px) {
+      .layout,
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 560px) {
+      main {
+        width: min(100% - 20px, 1180px);
+        padding-top: 20px;
+      }
+
+      .flow,
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .summary,
+      .flow,
+      .detail-grid {
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">POST /api/x402/stellar/intent-plan</p>
+      <h1>NeuroChain x402 Response Viewer</h1>
+      <p class="lede">
+        Contract-backed UI prototype for the agent-facing Stellar flow:
+        payment challenge, typed ActionPlan, guardrails, decision, and audit logs.
+      </p>
+    </header>
+
+    <div class="layout">
+      <nav class="panel scenario-list" id="scenarioList" aria-label="Response scenarios"></nav>
+
+      <section class="panel viewer" aria-live="polite">
+        <div class="summary">
+          <div class="summary-head">
+            <div class="status-title">
+              <h2 id="stateTitle">Loading...</h2>
+              <p id="stateDescription">Reading x402 response fixtures.</p>
+            </div>
+            <div class="badge info" id="stateBadge">loading</div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric">
+              <span>Audit</span>
+              <strong id="auditId">-</strong>
+            </div>
+            <div class="metric">
+              <span>Payment</span>
+              <strong id="paymentState">-</strong>
+            </div>
+            <div class="metric">
+              <span>Decision</span>
+              <strong id="decisionState">-</strong>
+            </div>
+            <div class="metric">
+              <span>Guardrail</span>
+              <strong id="guardrailState">-</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow" id="flow"></div>
+
+        <div class="detail-grid">
+          <section class="section">
+            <h3>ActionPlan</h3>
+            <pre id="planPreview"></pre>
+          </section>
+
+          <section class="section">
+            <h3>Execution Log</h3>
+            <div class="log-list" id="logs"></div>
+          </section>
+
+          <section class="section">
+            <h3>Payment</h3>
+            <pre id="paymentPreview"></pre>
+          </section>
+
+          <section class="section">
+            <h3>Raw Envelope</h3>
+            <pre id="rawPreview"></pre>
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="./viewer.js"></script>
+</body>
+</html>

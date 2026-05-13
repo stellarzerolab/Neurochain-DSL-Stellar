@@ -1175,6 +1175,7 @@ That directory now includes:
 - `schema.json` -> machine-readable JSON Schema for the response envelope
 - `types.ts` -> frontend-friendly TypeScript contract for agent/UI clients
 - `client_adapter.ts` -> example mapper from backend response to UI/agent state
+- `viewer.html` / `viewer.js` -> static agent-facing execution viewer for the fixture matrix
 - `*.json` -> concrete examples for `payment_required`, `approved`,
   `blocked_exit_3_allowlist`, `blocked_exit_4_contract_policy`,
   `blocked_exit_5_intent_safety`, `replay_blocked`, `expired`, and
@@ -1198,6 +1199,18 @@ render `decision`, `guardrails`, `logs`, and finalized `plan`.
 - `blocked_intent_safety` -> explain exit `5`
 - `replay_blocked` / `expired` -> ask for a fresh challenge
 - `requires_approval` -> reserved for the later approval boundary
+
+To inspect the static response viewer locally:
+
+```powershell
+python -m http.server 8787 -d examples/x402_response_contract
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8787/viewer.html
+```
 
 Optional x402 server environment variables:
 
