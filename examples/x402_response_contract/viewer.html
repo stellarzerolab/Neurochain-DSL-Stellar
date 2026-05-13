@@ -85,6 +85,137 @@
       border-radius: 8px;
     }
 
+    .live-panel {
+      margin-bottom: 18px;
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .live-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .live-head h2 {
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+
+    .live-head p,
+    .field span,
+    .hint {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .live-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .field-wide {
+      grid-column: 1 / -1;
+    }
+
+    .field span,
+    .check-row {
+      font-size: 12px;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0d1117;
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      padding: 10px;
+      min-width: 0;
+    }
+
+    textarea {
+      min-height: 76px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+      border-color: var(--accent);
+    }
+
+    .live-options {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .check-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--soft);
+    }
+
+    .check-row input {
+      width: auto;
+    }
+
+    .live-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .control-button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0d1117;
+      color: var(--text);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+
+    .control-button.primary {
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+      color: var(--accent);
+    }
+
+    .control-button.success {
+      border-color: color-mix(in srgb, var(--green) 55%, var(--line));
+      color: var(--green);
+    }
+
+    .control-button:hover:not(:disabled) {
+      background: var(--panel-2);
+    }
+
+    .control-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    .hint {
+      font-size: 12px;
+    }
+
     .scenario-list {
       padding: 10px;
       display: grid;
@@ -333,6 +464,10 @@
         grid-template-columns: 1fr;
       }
 
+      .live-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .flow {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -349,7 +484,8 @@
       }
 
       .flow,
-      .metrics {
+      .metrics,
+      .live-grid {
         grid-template-columns: 1fr;
       }
 
@@ -371,6 +507,74 @@
         payment challenge, typed ActionPlan, guardrails, decision, and audit logs.
       </p>
     </header>
+
+    <section class="panel live-panel" aria-labelledby="liveTitle">
+      <div class="live-head">
+        <div>
+          <h2 id="liveTitle">Live x402 API</h2>
+          <p>
+            Call a local NeuroChain server with the same response contract:
+            payment_required -> mock finalize -> approved or blocked.
+          </p>
+        </div>
+        <div class="badge info" id="liveStatus">idle</div>
+      </div>
+
+      <div class="live-grid">
+        <label class="field">
+          <span>Server base URL</span>
+          <input id="liveBaseUrl" type="url" value="http://127.0.0.1:8081" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span>Model</span>
+          <input id="liveModel" type="text" value="intent_stellar" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span>Threshold</span>
+          <input id="liveThreshold" type="number" value="0" min="0" max="1" step="0.05">
+        </label>
+
+        <label class="field">
+          <span>API key (optional)</span>
+          <input id="liveApiKey" type="password" autocomplete="off" spellcheck="false">
+        </label>
+
+        <label class="field field-wide">
+          <span>Agent prompt</span>
+          <textarea id="livePrompt" spellcheck="false">Invoke contract rewards function claim_rewards for wallet GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX</textarea>
+        </label>
+
+        <label class="field field-wide">
+          <span>Allowlist contracts (optional)</span>
+          <input id="liveAllowlistContracts" type="text" spellcheck="false" placeholder="Comma-separated contract ids for allowlist_enforce tests">
+        </label>
+      </div>
+
+      <div class="live-options">
+        <label class="check-row">
+          <input id="liveContractPolicyEnforce" type="checkbox">
+          contract_policy_enforce
+        </label>
+        <label class="check-row">
+          <input id="liveAllowlistEnforce" type="checkbox">
+          allowlist_enforce
+        </label>
+      </div>
+
+      <div class="live-actions">
+        <button class="control-button primary" id="liveChallengeButton" type="button">Request challenge</button>
+        <button class="control-button success" id="liveFinalizeButton" type="button" disabled>Finalize mock payment</button>
+        <button class="control-button" id="liveRunButton" type="button">Run full mock flow</button>
+        <button class="control-button" id="fixtureResetButton" type="button">Back to fixtures</button>
+      </div>
+
+      <p class="hint">
+        This live mode is local and mock-only. It does not sign wallet payloads,
+        submit transactions, or settle through a real facilitator.
+      </p>
+    </section>
 
     <div class="layout">
       <nav class="panel scenario-list" id="scenarioList" aria-label="Response scenarios"></nav>

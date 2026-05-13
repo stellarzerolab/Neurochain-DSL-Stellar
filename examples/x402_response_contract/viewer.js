@@ -50,9 +50,24 @@ const SEVERITY_CLASS = {
 
 let activeIndex = 0;
 let loaded = [];
+let lastLiveChallenge = null;
+let lastLiveRequest = null;
 
 const elements = {
   scenarioList: document.getElementById("scenarioList"),
+  liveBaseUrl: document.getElementById("liveBaseUrl"),
+  liveModel: document.getElementById("liveModel"),
+  liveThreshold: document.getElementById("liveThreshold"),
+  liveApiKey: document.getElementById("liveApiKey"),
+  livePrompt: document.getElementById("livePrompt"),
+  liveAllowlistContracts: document.getElementById("liveAllowlistContracts"),
+  liveContractPolicyEnforce: document.getElementById("liveContractPolicyEnforce"),
+  liveAllowlistEnforce: document.getElementById("liveAllowlistEnforce"),
+  liveStatus: document.getElementById("liveStatus"),
+  liveChallengeButton: document.getElementById("liveChallengeButton"),
+  liveFinalizeButton: document.getElementById("liveFinalizeButton"),
+  liveRunButton: document.getElementById("liveRunButton"),
+  fixtureResetButton: document.getElementById("fixtureResetButton"),
   stateTitle: document.getElementById("stateTitle"),
   stateDescription: document.getElementById("stateDescription"),
   stateBadge: document.getElementById("stateBadge"),
@@ -77,6 +92,8 @@ init().catch((error) => {
 });
 
 async function init() {
+  wireLiveControls();
+
   loaded = await Promise.all(
     SCENARIOS.map(async (scenario) => {
       const response = await fetchJson(scenario.file);
@@ -92,6 +109,24 @@ async function init() {
   renderScenario(0);
 }
 
+function wireLiveControls() {
+  elements.liveChallengeButton.addEventListener("click", () => {
+    requestLiveChallenge().catch((error) => renderLiveError(error));
+  });
+  elements.liveFinalizeButton.addEventListener("click", () => {
+    finalizeLivePayment().catch((error) => renderLiveError(error));
+  });
+  elements.liveRunButton.addEventListener("click", () => {
+    runLiveMockFlow().catch((error) => renderLiveError(error));
+  });
+  elements.fixtureResetButton.addEventListener("click", () => {
+    if (loaded.length) {
+      renderScenario(Math.max(activeIndex, 0));
+    }
+    setLiveStatus("fixture mode", "info");
+  });
+}
+
 async function fetchJson(path) {
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
@@ -99,6 +134,184 @@ async function fetchJson(path) {
   }
 
   return response.json();
+}
+
+async function requestLiveChallenge() {
+  setLiveBusy(true);
+  setLiveStatus("requesting challenge", "info");
+
+  try {
+    const request = buildLiveRequest();
+    const result = await postX402IntentPlan(request);
+    lastLiveRequest = request;
+    lastLiveChallenge = result.body.payment?.challenge_id
+      ? {
+          challengeId: result.body.payment.challenge_id,
+          request,
+        }
+      : null;
+
+    elements.liveFinalizeButton.disabled = !lastLiveChallenge;
+    renderLiveResponse(result, request.prompt, "Live challenge");
+    setLiveStatus(lastLiveChallenge ? "challenge ready" : "no challenge id", lastLiveChallenge ? "success" : "warning");
+    return result;
+  } finally {
+    setLiveBusy(false);
+  }
+}
+
+async function finalizeLivePayment() {
+  if (!lastLiveChallenge) {
+    throw new Error("Request a live x402 challenge before finalizing.");
+  }
+
+  setLiveBusy(true);
+  setLiveStatus("finalizing mock payment", "info");
+
+  try {
+    const result = await postX402IntentPlan(
+      lastLiveChallenge.request,
+      `paid:${lastLiveChallenge.challengeId}`,
+    );
+    renderLiveResponse(result, lastLiveChallenge.request.prompt, "Live finalized");
+    elements.liveFinalizeButton.disabled = true;
+    setLiveStatus(`finalized HTTP ${result.status}`, result.body.blocked ? "error" : "success");
+    return result;
+  } finally {
+    setLiveBusy(false);
+  }
+}
+
+async function runLiveMockFlow() {
+  const challenge = await requestLiveChallenge();
+  if (!challenge.body.payment?.challenge_id) {
+    return challenge;
+  }
+
+  return finalizeLivePayment();
+}
+
+function buildLiveRequest() {
+  const prompt = elements.livePrompt.value.trim();
+  if (!prompt) {
+    throw new Error("Live prompt is required.");
+  }
+
+  const threshold = Number(elements.liveThreshold.value);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new Error("Threshold must be a number between 0 and 1.");
+  }
+
+  const request = {
+    prompt,
+    model: elements.liveModel.value.trim() || "intent_stellar",
+    threshold,
+    contract_policy_enforce: elements.liveContractPolicyEnforce.checked,
+    allowlist_enforce: elements.liveAllowlistEnforce.checked,
+  };
+
+  const allowlistContracts = elements.liveAllowlistContracts.value.trim();
+  if (allowlistContracts) {
+    request.allowlist_contracts = allowlistContracts;
+  }
+
+  return request;
+}
+
+async function postX402IntentPlan(request, paymentSignature = null) {
+  const baseUrl = normalizedBaseUrl();
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  const apiKey = elements.liveApiKey.value.trim();
+  if (apiKey) {
+    headers["x-api-key"] = apiKey;
+  }
+
+  if (paymentSignature) {
+    headers["PAYMENT-SIGNATURE"] = paymentSignature;
+  }
+
+  const response = await fetch(`${baseUrl}/api/x402/stellar/intent-plan`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(request),
+  });
+
+  const raw = await response.text();
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Live API returned non-JSON HTTP ${response.status}: ${raw || error.message}`);
+  }
+
+  return {
+    status: response.status,
+    body,
+  };
+}
+
+function normalizedBaseUrl() {
+  const raw = elements.liveBaseUrl.value.trim();
+  if (!raw) {
+    throw new Error("Server base URL is required.");
+  }
+
+  return raw.replace(/\/+$/, "");
+}
+
+function renderLiveResponse(result, intent, label) {
+  const response = result.body;
+  clearFixtureSelection();
+
+  const scenario = {
+    file: `HTTP ${result.status}`,
+    label,
+    intent: `${intent}\n\nHTTP ${result.status} from local API.`,
+    response,
+    ui: toUiModel(response),
+  };
+
+  renderResponseScenario(scenario);
+  elements.stateDescription.textContent = `${scenario.ui.description} Live API returned HTTP ${result.status}.`;
+}
+
+function renderLiveError(error) {
+  clearFixtureSelection();
+  setLiveBusy(false);
+  setLiveStatus("live error", "error");
+
+  elements.stateTitle.textContent = "Live request failed";
+  elements.stateDescription.textContent =
+    "Check that neurochain-server is running, CORS is enabled, and the base URL is correct.";
+  elements.stateBadge.textContent = "client_error";
+  elements.stateBadge.className = "badge error";
+  elements.auditId.textContent = "-";
+  elements.paymentState.textContent = "-";
+  elements.decisionState.textContent = "-";
+  elements.guardrailState.textContent = "-";
+  elements.flow.replaceChildren();
+  renderPlan({ plan: null });
+  renderLogs([String(error.message ?? error)]);
+  elements.paymentPreview.textContent = "{}";
+  elements.rawPreview.textContent = formatJson({
+    error: String(error.message ?? error),
+    base_url: elements.liveBaseUrl.value.trim(),
+  });
+}
+
+function setLiveBusy(isBusy) {
+  elements.liveChallengeButton.disabled = isBusy;
+  elements.liveRunButton.disabled = isBusy;
+  elements.fixtureResetButton.disabled = isBusy;
+  elements.liveFinalizeButton.disabled = isBusy || !lastLiveChallenge;
+}
+
+function setLiveStatus(text, severity = "info") {
+  elements.liveStatus.textContent = text;
+  elements.liveStatus.className = `badge ${SEVERITY_CLASS[severity] ?? "info"}`;
 }
 
 function renderScenarioList() {
@@ -127,11 +340,24 @@ function renderScenarioList() {
 function renderScenario(index) {
   activeIndex = index;
   const scenario = loaded[index];
-  const { response, ui } = scenario;
+  selectFixtureButton(index);
+  renderResponseScenario(scenario);
+}
 
+function selectFixtureButton(index) {
   for (const [buttonIndex, button] of [...elements.scenarioList.children].entries()) {
     button.setAttribute("aria-selected", String(buttonIndex === index));
   }
+}
+
+function clearFixtureSelection() {
+  for (const button of elements.scenarioList.children) {
+    button.setAttribute("aria-selected", "false");
+  }
+}
+
+function renderResponseScenario(scenario) {
+  const { response, ui } = scenario;
 
   elements.stateTitle.textContent = ui.title;
   elements.stateDescription.textContent = ui.description;
@@ -242,7 +468,7 @@ function renderLogs(logs) {
   if (!logs.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No logs in this fixture.";
+    empty.textContent = "No logs in this response.";
     elements.logs.append(empty);
   }
 }

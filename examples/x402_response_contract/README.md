@@ -119,7 +119,7 @@ Minimal agent/frontend flow:
 The adapter is intentionally view-facing. It does not submit transactions,
 verify payments, sign wallet payloads, or settle with a facilitator.
 
-## Static Viewer
+## Static And Live Viewer
 
 The viewer renders the same fixture matrix as an agent-facing execution UI:
 
@@ -142,6 +142,27 @@ http://127.0.0.1:8787/viewer.html
 The viewer fetches the JSON fixtures from this directory. It is intentionally
 static and mock-only: no wallet signing, no transaction submit, no facilitator
 settlement, and no server-side state mutation.
+
+The same viewer also has a local live mode for the current mock x402 gateway.
+Start the NeuroChain server separately:
+
+```powershell
+$env:NC_MODELS_DIR="models"
+$env:NC_CONTRACT_POLICY="examples/soroban_claim_rewards_template_policy.json"
+cargo run --bin neurochain-server
+```
+
+Then use the **Live x402 API** panel in the viewer. The default local endpoint is:
+
+```text
+http://127.0.0.1:8081/api/x402/stellar/intent-plan
+```
+
+The live panel can request a payment challenge, retry with the current mock
+`PAYMENT-SIGNATURE: paid:<challenge_id>` proof, and render the finalized
+approved or blocked response using the same UI contract as the fixtures. It
+does not sign wallet payloads, submit transactions, or settle with a real
+facilitator.
 
 ## Non-Goals
 
