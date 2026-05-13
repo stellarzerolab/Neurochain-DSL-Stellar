@@ -1827,6 +1827,157 @@ fn api_x402_stellar_intent_plan_runs_soroban_v2_claim_rewards_template() {
 }
 
 #[test]
+fn api_x402_stellar_live_preset_matrix_smoke() {
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_x402_stellar_live_preset_matrix_smoke skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let audit_path =
+        std::env::temp_dir().join(format!("nc_x402_stellar_live_preset_matrix_{port}.jsonl"));
+    let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("examples")
+        .join("soroban_claim_rewards_template_policy.json");
+    let policy_dir =
+        std::env::temp_dir().join(format!("nc_x402_stellar_live_preset_policy_dir_{port}"));
+    let _ = fs::remove_file(&audit_path);
+    let _ = fs::remove_dir_all(&policy_dir);
+    fs::create_dir_all(&policy_dir).expect("create empty policy dir");
+
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let policy_path_s = policy_path.to_string_lossy().to_string();
+    let policy_dir_s = policy_dir.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+            ("NC_CONTRACT_POLICY", policy_path_s.as_str()),
+            ("NC_CONTRACT_POLICY_DIR", policy_dir_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let account = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    let contract = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+
+    let approved_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Invoke contract rewards function claim_rewards for wallet {account}"),
+        "threshold": 0.0
+    })
+    .to_string();
+    let (_, resp) = x402_paid_response(addr, &approved_body);
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["function"], "claim_rewards");
+
+    let exit3_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Send 5 XLM to {account}"),
+        "threshold": 0.20,
+        "allowlist_assets": "USDC:GISSUER",
+        "allowlist_enforce": true
+    })
+    .to_string();
+    let (_, resp) = x402_paid_response(addr, &exit3_body);
+    assert_x402_finalized_block_contract(&resp, 3, "allowlist");
+
+    let exit4_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!(
+            "Invoke contract {contract} function emergency_withdraw args={{\"account\":\"{account}\"}}"
+        ),
+        "threshold": 0.0,
+        "contract_policy_enforce": true
+    })
+    .to_string();
+    let (_, resp) = x402_paid_response(addr, &exit4_body);
+    assert_x402_finalized_block_contract(&resp, 4, "contract_policy");
+    assert_eq!(resp["plan"]["actions"][0]["contract_id"], contract);
+    assert_eq!(resp["plan"]["actions"][0]["function"], "emergency_withdraw");
+
+    let exit5_body = json!({
+        "model": "intent_stellar",
+        "prompt": "Invoke contract rewards function claim_rewards",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (_, resp) = x402_paid_response(addr, &exit5_body);
+    assert_x402_finalized_block_contract(&resp, 5, "intent_safety");
+
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &approved_body);
+    assert_eq!(status, 402);
+    let challenge_id = payment_challenge_id(&resp_body);
+    let signature = format!("paid:{challenge_id}");
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &approved_body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 200);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "finalized", "approved", "passed");
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &approved_body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 409);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "replay_blocked", "blocked", "not_run");
+    assert_eq!(resp["error"], "payment_replay_blocked");
+    assert_eq!(resp["payment"]["state"], "replay_blocked");
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE") && !audit_raw.contains("paid:"),
+        "audit rows must not leak raw payment signature material"
+    );
+    let rows = read_jsonl(&audit_path);
+    let events: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| row["event"].as_str())
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            "payment_required",
+            "approved",
+            "payment_required",
+            "blocked",
+            "payment_required",
+            "blocked",
+            "payment_required",
+            "blocked",
+            "payment_required",
+            "approved",
+            "payment_replay_blocked",
+        ]
+    );
+    assert_eq!(rows[3]["guardrails"]["exit_code"], 3);
+    assert_eq!(rows[5]["guardrails"]["exit_code"], 4);
+    assert_eq!(rows[7]["guardrails"]["exit_code"], 5);
+    assert_eq!(rows[10]["payment"]["state"], "replay_blocked");
+
+    let _ = fs::remove_file(&audit_path);
+    let _ = fs::remove_dir_all(&policy_dir);
+}
+
+#[test]
 fn api_x402_stellar_intent_plan_runs_soroban_v2_deposit_and_swap_templates() {
     let model = intent_stellar_model_path();
     if !model.exists() {

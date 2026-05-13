@@ -175,6 +175,12 @@ The live panel also includes one-click backend presets:
 These presets are for local contract/UX verification. They use the same mock
 challenge/finalize path and the same stable response envelope.
 
+The backend version of the same matrix is covered by:
+
+```powershell
+cargo test --test server_analyze api_x402_stellar_live_preset_matrix_smoke -- --nocapture
+```
+
 ## Non-Goals
 
 These fixtures do not model real wallet signing, real facilitator settlement,

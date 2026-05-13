@@ -1244,6 +1244,12 @@ The live panel also has one-click presets for the current backend matrix:
 Use these presets to verify that frontend state mapping still matches the
 server response contract after x402 or guardrail changes.
 
+The same matrix is covered by an automated API smoke test:
+
+```powershell
+cargo test --test server_analyze api_x402_stellar_live_preset_matrix_smoke -- --nocapture
+```
+
 Optional x402 server environment variables:
 
 | Env var | Meaning | Default |
