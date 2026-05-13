@@ -9,6 +9,7 @@ pub mod lexer;
 pub mod parser;
 pub mod soroban_deep;
 pub mod x402_audit;
+pub mod x402_facilitator;
 pub mod x402_stellar;
 pub mod x402_store;
 

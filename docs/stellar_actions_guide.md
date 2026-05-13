@@ -953,6 +953,31 @@ This endpoint is an x402-lite access layer in front of the same IntentStellar
 planning engine. It does not submit transactions and it does not bypass
 guardrails.
 
+Facilitator boundary:
+
+- the current verifier is still the local mock verifier
+- the public response envelope is already facilitator-shaped
+- server route code talks to a payment verifier adapter instead of hard-coding
+  the mock finalize logic directly in the route
+- future real x402 `verify` / `settle` / facilitator logic should replace the
+  verifier implementation, not the frontend/agent response contract
+
+What stays stable for agents and frontends:
+
+- `audit_id`
+- `payment`
+- `decision`
+- `guardrails`
+- `logs`
+- finalized responses also include `plan`
+
+What is still mock-only today:
+
+- the payment proof format is `PAYMENT-SIGNATURE: paid:<challenge_id>`
+- challenge finalization is local store-backed, not a real facilitator proof
+- pricing, receiver account, auth boundary, and production settlement are still
+  later decisions
+
 Unpaid request:
 
 ```powershell
@@ -999,7 +1024,7 @@ decision model:
 - `audit_id`
 - `payment`
   - `protocol = "x402"`
-  - `state = "finalized"` / `payment_required` / `replay_blocked` / `expired`
+  - `state = "finalized"` / `payment_required` / `replay_blocked` / `expired` / `invalid`
   - `challenge_id`
   - amount/asset/network/receiver
   - `created_at`, `expires_at`, `finalized_at`
@@ -1025,6 +1050,7 @@ Agent/frontend response contract:
 | intent safety / slot block | `200` | `finalized` | `blocked` | `intent_safety` | `blocked` | `5` |
 | replay block | `409` | `replay_blocked` | `blocked` | `payment_replay_blocked` | `not_run` | `null` |
 | expired challenge | `402` | `expired` | `blocked` | `payment_expired` | `not_run` | `null` |
+| invalid payment proof | `402` | `invalid` | `blocked` | `invalid_payment` | `not_run` | `null` |
 
 For every scenario, clients can rely on these envelope fields:
 
@@ -1039,6 +1065,8 @@ frontend surfaces as the typed ActionPlan that NeuroChain evaluated.
 
 Important behavior:
 
+- invalid payment proofs return `402 invalid_payment` without running the
+  intent planner
 - replayed payment signatures return `409 payment_replay_blocked`
 - expired challenges return `402 payment_expired`
 - paid requests still run the same guardrails:
@@ -1149,7 +1177,8 @@ That directory now includes:
 - `client_adapter.ts` -> example mapper from backend response to UI/agent state
 - `*.json` -> concrete examples for `payment_required`, `approved`,
   `blocked_exit_3_allowlist`, `blocked_exit_4_contract_policy`,
-  `blocked_exit_5_intent_safety`, `replay_blocked`, and `expired`
+  `blocked_exit_5_intent_safety`, `replay_blocked`, `expired`, and
+  `invalid_payment`
 
 The fixture test parses `schema.json` and validates every example against the
 same required fields, types, enums, and x402 audit-id prefix used by the
@@ -1195,3 +1224,12 @@ block replay after later restarts. The store persists challenge ids and payment
 state, not the raw `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>`
 signature. This is a dev/production-shape bridge, not a real facilitator
 integration.
+
+Implementation note:
+
+- `src/x402_facilitator.rs` owns the payment verifier boundary
+- current verifier kind: `mock`
+- current boundary kind: `mock_header_store`
+- future real facilitator support should be added behind that verifier boundary
+  while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
+  finalized `plan` stable for clients

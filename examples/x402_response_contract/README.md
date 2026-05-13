@@ -10,6 +10,13 @@ POST /api/x402/stellar/intent-plan
 The goal is to give frontend and agent integrations a concrete contract for
 the current mock x402 gateway before a real facilitator is attached.
 
+The current server implementation uses a payment verifier boundary:
+
+- current verifier: `mock`
+- current boundary kind: `mock_header_store`
+- future real x402 facilitator `verify` / `settle` logic should attach behind
+  that boundary without changing this response envelope
+
 ## Common Envelope
 
 Every response includes:
@@ -53,6 +60,7 @@ examples/x402_response_contract/client_adapter.ts
 | `blocked_exit_5_intent_safety.json` | `200` | `finalized` | `blocked` | `intent_safety` | `blocked` | `5` |
 | `replay_blocked.json` | `409` | `replay_blocked` | `blocked` | `payment_replay_blocked` | `not_run` | `null` |
 | `expired.json` | `402` | `expired` | `blocked` | `payment_expired` | `not_run` | `null` |
+| `invalid_payment.json` | `402` | `invalid` | `blocked` | `invalid_payment` | `not_run` | `null` |
 
 ## Semantics
 
@@ -64,8 +72,8 @@ examples/x402_response_contract/client_adapter.ts
   - `5` = intent safety, low confidence, or typed slot error
 - `requires_approval` is currently `false`; a real approval boundary is a
   later integration step.
-- `payment_required`, `replay_blocked`, and `expired` do not run guardrails,
-  so `guardrails.state` is `not_run`.
+- `payment_required`, `replay_blocked`, `expired`, and `invalid` do not run
+  guardrails, so `guardrails.state` is `not_run`.
 
 ## Client Flow
 
@@ -81,8 +89,9 @@ Minimal agent/frontend flow:
    - `3` = allowlist block
    - `4` = contract policy block
    - `5` = intent safety, low confidence, or typed slot error
-6. If `payment.state = "replay_blocked"` or `payment.state = "expired"`, do
-   not render an ActionPlan. Ask the agent/client to create a fresh challenge.
+6. If `payment.state = "replay_blocked"`, `payment.state = "expired"`, or
+   `payment.state = "invalid"`, do not render an ActionPlan. Ask the
+   agent/client to create a fresh challenge.
 
 ## Client Adapter
 
@@ -97,6 +106,7 @@ Minimal agent/frontend flow:
 - `blocked_unknown`
 - `replay_blocked`
 - `expired`
+- `invalid_payment`
 - `unknown`
 
 The adapter is intentionally view-facing. It does not submit transactions,

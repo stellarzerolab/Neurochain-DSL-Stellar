@@ -493,6 +493,7 @@ fn x402_response_contract_fixtures_are_valid() {
         "Client Adapter",
         "PAYMENT-SIGNATURE",
         "payment.state = \"finalized\"",
+        "mock_header_store",
         "`3` = allowlist block",
         "`4` = contract policy block",
         "`5` = intent safety",
@@ -521,10 +522,12 @@ fn x402_response_contract_fixtures_are_valid() {
         "\"finalized\"",
         "\"replay_blocked\"",
         "\"expired\"",
+        "\"invalid\"",
         "\"not_evaluated\"",
         "\"allowlist\"",
         "\"contract_policy\"",
         "\"intent_safety\"",
+        "\"invalid_payment\"",
         "PAYMENT-SIGNATURE",
     ] {
         assert!(
@@ -550,6 +553,7 @@ fn x402_response_contract_fixtures_are_valid() {
         "blocked_unknown",
         "replay_blocked",
         "expired",
+        "invalid_payment",
         "case 3:",
         "case 4:",
         "case 5:",
@@ -677,6 +681,15 @@ fn x402_response_contract_fixtures_are_valid() {
             "not_run",
             None,
             Some("payment_expired"),
+            false,
+        ),
+        (
+            "invalid_payment.json",
+            "invalid",
+            "blocked",
+            "not_run",
+            None,
+            Some("invalid_payment"),
             false,
         ),
     ];
@@ -1259,6 +1272,23 @@ fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
 
     let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
     assert_eq!(status, 402);
+    let payment_required_resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    let logs = payment_required_resp["logs"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_verifier: mock"),
+        "expected mock verifier boundary log"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_facilitator_boundary: mock_header_store"),
+        "expected facilitator boundary log"
+    );
     let challenge_id = payment_challenge_id(&resp_body);
     let signature = format!("paid:{challenge_id}");
 
@@ -1297,6 +1327,18 @@ fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
             .any(|log| log.contains("x402: finalized challenge=")),
         "expected finalized x402 log"
     );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_verifier: mock"),
+        "expected finalized path to pass through verifier adapter"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_facilitator_boundary: mock_header_store"),
+        "expected finalized path to pass through facilitator boundary"
+    );
 
     let (status, resp_body) = http_post_json_with_headers(
         addr,
@@ -1334,6 +1376,82 @@ fn api_x402_stellar_intent_plan_requires_payment_finalizes_and_blocks_replay() {
     assert_eq!(rows[2]["payment"]["state"], "replay_blocked");
     assert_eq!(rows[2]["decision"]["status"], "blocked");
     assert_eq!(rows[2]["guardrails"]["state"], "not_run");
+
+    let _ = fs::remove_file(&audit_path);
+}
+
+#[test]
+fn api_x402_stellar_facilitator_boundary_keeps_invalid_payment_envelope() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let audit_path = std::env::temp_dir().join(format!(
+        "nc_x402_stellar_audit_invalid_boundary_{port}.jsonl"
+    ));
+    let _ = fs::remove_file(&audit_path);
+    let audit_path_s = audit_path.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str())],
+    );
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.0
+    })
+    .to_string();
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", "not-a-valid-payment-proof")],
+    );
+    assert_eq!(status, 402);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "invalid", "blocked", "not_run");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["error"], "invalid_payment");
+    assert_eq!(resp["decision"]["reason"], "invalid_payment");
+    assert_eq!(resp["guardrails"]["state"], "not_run");
+    assert!(
+        resp.get("plan").is_none(),
+        "invalid payment must not run plan"
+    );
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_verifier: mock"),
+        "expected invalid payment to pass through verifier adapter"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_facilitator_boundary: mock_header_store"),
+        "expected invalid payment to pass through facilitator boundary"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402: invalid payment proof"),
+        "expected invalid payment proof log"
+    );
+
+    let audit_raw = fs::read_to_string(&audit_path).expect("read audit jsonl");
+    assert!(
+        !audit_raw.contains("PAYMENT-SIGNATURE")
+            && !audit_raw.contains("not-a-valid-payment-proof"),
+        "audit rows must not leak raw invalid payment proof"
+    );
+    let rows = read_jsonl(&audit_path);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["event"], "invalid_payment");
+    assert_eq!(rows[0]["payment"]["state"], "invalid");
+    assert_eq!(rows[0]["decision"]["status"], "blocked");
+    assert_eq!(rows[0]["guardrails"]["state"], "not_run");
 
     let _ = fs::remove_file(&audit_path);
 }

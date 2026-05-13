@@ -2,7 +2,8 @@ export type X402PaymentState =
   | "payment_required"
   | "finalized"
   | "replay_blocked"
-  | "expired";
+  | "expired"
+  | "invalid";
 
 export type X402DecisionStatus = "approved" | "blocked" | "not_evaluated";
 
@@ -16,6 +17,7 @@ export type X402DecisionReason =
   | "intent_safety"
   | "payment_replay_blocked"
   | "payment_expired"
+  | "invalid_payment"
   | null;
 
 export type X402GuardrailReason =
@@ -28,12 +30,13 @@ export type X402ResponseError =
   | "payment_required"
   | "payment_replay_blocked"
   | "payment_expired"
+  | "invalid_payment"
   | null;
 
 export interface X402Payment {
   protocol: "x402";
   state: X402PaymentState;
-  challenge_id: string;
+  challenge_id: string | null;
   amount: string;
   asset: string;
   network: string;
@@ -122,4 +125,12 @@ export type X402ExpiredResponse = X402IntentPlanResponse & {
   decision: X402Decision & { status: "blocked"; reason: "payment_expired" };
   guardrails: X402Guardrails & { state: "not_run"; exit_code: null; reason: null };
   error: "payment_expired";
+};
+
+export type X402InvalidPaymentResponse = X402IntentPlanResponse & {
+  ok: false;
+  payment: X402Payment & { state: "invalid" };
+  decision: X402Decision & { status: "blocked"; reason: "invalid_payment" };
+  guardrails: X402Guardrails & { state: "not_run"; exit_code: null; reason: null };
+  error: "invalid_payment";
 };

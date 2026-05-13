@@ -14,6 +14,7 @@ export type X402UiState =
   | "blocked_unknown"
   | "replay_blocked"
   | "expired"
+  | "invalid_payment"
   | "unknown";
 
 export type X402UiSeverity = "info" | "success" | "warning" | "error";
@@ -68,6 +69,16 @@ export function toX402UiModel(response: X402IntentPlanResponse): X402UiModel {
         severity: "warning",
         title: "Challenge expired",
         description: "The x402 challenge expired before it could be finalized.",
+        requiresFreshChallenge: true,
+      };
+
+    case "invalid":
+      return {
+        ...base,
+        state: "invalid_payment",
+        severity: "error",
+        title: "Invalid payment",
+        description: "The payment proof was invalid. Create a fresh x402 challenge.",
         requiresFreshChallenge: true,
       };
 
@@ -182,7 +193,7 @@ function baseUiModel(response: X402IntentPlanResponse): X402UiModel {
     guardrailState: response.guardrails.state,
     exitCode: response.guardrails.exit_code,
     reason: response.decision.reason ?? response.guardrails.reason,
-    challengeId: response.challenge_id ?? response.payment.challenge_id,
+    challengeId: response.challenge_id ?? response.payment.challenge_id ?? undefined,
     canRetryWithPayment: false,
     requiresFreshChallenge: false,
     canRenderPlan: false,

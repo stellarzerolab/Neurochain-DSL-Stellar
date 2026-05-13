@@ -44,6 +44,7 @@
         "payment_required",
         "payment_replay_blocked",
         "payment_expired",
+        "invalid_payment",
         null
       ]
     },
@@ -100,11 +101,15 @@
             "payment_required",
             "finalized",
             "replay_blocked",
-            "expired"
+            "expired",
+            "invalid"
           ]
         },
         "challenge_id": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "amount": {
           "type": "string"
@@ -177,6 +182,7 @@
             "intent_safety",
             "payment_replay_blocked",
             "payment_expired",
+            "invalid_payment",
             null
           ]
         }

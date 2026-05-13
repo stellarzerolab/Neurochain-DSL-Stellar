@@ -1,0 +1,36 @@
+{
+  "ok": false,
+  "blocked": true,
+  "error": "invalid_payment",
+  "audit_id": "x402-stellar-untracked-1760000000",
+  "payment": {
+    "protocol": "x402",
+    "state": "invalid",
+    "challenge_id": null,
+    "amount": "0.01",
+    "asset": "USDC",
+    "network": "stellar:testnet",
+    "receiver": "mock-receiver",
+    "created_at": null,
+    "expires_at": null,
+    "finalized_at": null
+  },
+  "decision": {
+    "status": "blocked",
+    "approved": false,
+    "blocked": true,
+    "requires_approval": false,
+    "reason": "invalid_payment"
+  },
+  "guardrails": {
+    "state": "not_run",
+    "exit_code": null,
+    "reason": null
+  },
+  "logs": [
+    "x402: stellar intent-plan gateway",
+    "x402_verifier: mock",
+    "x402_facilitator_boundary: mock_header_store",
+    "x402: invalid payment proof"
+  ]
+}
