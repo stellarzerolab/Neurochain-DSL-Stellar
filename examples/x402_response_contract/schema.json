@@ -159,6 +159,7 @@
           "enum": [
             "approved",
             "blocked",
+            "requires_approval",
             "not_evaluated"
           ]
         },
@@ -180,6 +181,7 @@
             "allowlist",
             "contract_policy",
             "intent_safety",
+            "approval_required",
             "payment_replay_blocked",
             "payment_expired",
             "invalid_payment",

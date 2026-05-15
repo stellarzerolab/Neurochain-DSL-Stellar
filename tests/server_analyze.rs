@@ -587,6 +587,8 @@ fn x402_response_contract_fixtures_are_valid() {
         "Run full mock flow",
         "liveBaseUrl",
         "data-live-preset=\"approved\"",
+        "data-live-preset=\"requiresApproval\"",
+        "liveRequiresApproval",
         "data-live-preset=\"exit3\"",
         "data-live-preset=\"exit4\"",
         "data-live-preset=\"exit5\"",
@@ -610,6 +612,7 @@ fn x402_response_contract_fixtures_are_valid() {
         "const SCENARIOS",
         "payment_required.json",
         "approved.json",
+        "requires_approval.json",
         "blocked_exit_3_allowlist.json",
         "blocked_exit_4_contract_policy.json",
         "blocked_exit_5_intent_safety.json",
@@ -627,6 +630,7 @@ fn x402_response_contract_fixtures_are_valid() {
         "allowlist_assets",
         "emergency_withdraw",
         "Live preset: replay blocked",
+        "Live preset: requires approval",
         "PAYMENT-SIGNATURE",
         "/api/x402/stellar/intent-plan",
         "blocked_allowlist",
@@ -709,6 +713,15 @@ fn x402_response_contract_fixtures_are_valid() {
             "passed",
             None,
             None,
+            true,
+        ),
+        (
+            "requires_approval.json",
+            "finalized",
+            "requires_approval",
+            "passed",
+            None,
+            Some("approval_required"),
             true,
         ),
         (
@@ -1882,6 +1895,30 @@ fn api_x402_stellar_live_preset_matrix_smoke() {
     );
     assert_eq!(resp["plan"]["actions"][0]["function"], "claim_rewards");
 
+    let requires_approval_body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Invoke contract rewards function claim_rewards for wallet {account}"),
+        "threshold": 0.0,
+        "requires_approval": true
+    })
+    .to_string();
+    let (_, resp) = x402_paid_response(addr, &requires_approval_body);
+    assert_x402_response_contract(&resp, "finalized", "requires_approval", "passed");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(resp["decision"]["approved"], false);
+    assert_eq!(resp["decision"]["blocked"], false);
+    assert_eq!(resp["decision"]["requires_approval"], true);
+    assert_eq!(resp["decision"]["reason"], "approval_required");
+    assert_eq!(resp["guardrails"]["state"], "passed");
+    assert_eq!(resp["guardrails"]["exit_code"], Value::Null);
+    assert_eq!(resp["guardrails"]["reason"], Value::Null);
+    assert_eq!(
+        resp["plan"]["actions"][0]["kind"],
+        "soroban_contract_invoke"
+    );
+    assert_eq!(resp["plan"]["actions"][0]["function"], "claim_rewards");
+
     let exit3_body = json!({
         "model": "intent_stellar",
         "prompt": format!("Send 5 XLM to {account}"),
@@ -1958,6 +1995,8 @@ fn api_x402_stellar_live_preset_matrix_smoke() {
             "payment_required",
             "approved",
             "payment_required",
+            "requires_approval",
+            "payment_required",
             "blocked",
             "payment_required",
             "blocked",
@@ -1968,10 +2007,11 @@ fn api_x402_stellar_live_preset_matrix_smoke() {
             "payment_replay_blocked",
         ]
     );
-    assert_eq!(rows[3]["guardrails"]["exit_code"], 3);
-    assert_eq!(rows[5]["guardrails"]["exit_code"], 4);
-    assert_eq!(rows[7]["guardrails"]["exit_code"], 5);
-    assert_eq!(rows[10]["payment"]["state"], "replay_blocked");
+    assert_eq!(rows[3]["decision"]["requires_approval"], true);
+    assert_eq!(rows[5]["guardrails"]["exit_code"], 3);
+    assert_eq!(rows[7]["guardrails"]["exit_code"], 4);
+    assert_eq!(rows[9]["guardrails"]["exit_code"], 5);
+    assert_eq!(rows[12]["payment"]["state"], "replay_blocked");
 
     let _ = fs::remove_file(&audit_path);
     let _ = fs::remove_dir_all(&policy_dir);

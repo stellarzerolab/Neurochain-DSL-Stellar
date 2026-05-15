@@ -78,6 +78,8 @@ struct StellarIntentPlanReq {
     allowlist_enforce: Option<bool>,
     #[serde(default)]
     contract_policy_enforce: Option<bool>,
+    #[serde(default)]
+    requires_approval: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -88,6 +90,8 @@ struct StellarIntentPlanResp {
     exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    requires_approval: bool,
     plan: ActionPlan,
     logs: Vec<String>,
 }
@@ -138,6 +142,10 @@ fn secure_eq(a: &str, b: &str) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn models_base() -> String {
@@ -455,6 +463,7 @@ async fn api_stellar_intent_plan(
                     blocked: true,
                     exit_code: Some(1),
                     error: Some("unauthorized".to_string()),
+                    requires_approval: false,
                     plan: ActionPlan::default(),
                     logs,
                 }),
@@ -632,6 +641,7 @@ async fn api_x402_stellar_intent_plan(
     let outcome = X402StellarIntentPlanOutcome {
         ok: resp.ok,
         blocked: resp.blocked,
+        requires_approval: resp.requires_approval,
         exit_code: resp.exit_code,
         error: resp.error,
         plan: resp.plan,
@@ -661,6 +671,7 @@ fn build_stellar_intent_plan_response(
                 blocked: true,
                 exit_code: Some(2),
                 error: Some("empty prompt".to_string()),
+                requires_approval: false,
                 plan: ActionPlan::default(),
                 logs,
             }),
@@ -696,6 +707,7 @@ fn build_stellar_intent_plan_response(
                         blocked: true,
                         exit_code: Some(2),
                         error: Some(format!("invalid intent threshold env: {err}")),
+                        requires_approval: false,
                         plan: ActionPlan::default(),
                         logs,
                     }),
@@ -715,6 +727,7 @@ fn build_stellar_intent_plan_response(
                     blocked: true,
                     exit_code: Some(1),
                     error: Some(format!("{err:#}")),
+                    requires_approval: false,
                     plan: ActionPlan::default(),
                     logs,
                 }),
@@ -815,6 +828,12 @@ fn build_stellar_intent_plan_response(
         exit_code = Some(5);
         logs.push("block: intent_safety".to_string());
     }
+    let requires_approval = req.requires_approval.unwrap_or(false) && !blocked;
+    if requires_approval {
+        plan.warnings
+            .push("approval required before any submit or signing boundary".to_string());
+        logs.push("approval: requires_approval boundary".to_string());
+    }
 
     (
         StatusCode::OK,
@@ -823,6 +842,7 @@ fn build_stellar_intent_plan_response(
             blocked,
             exit_code,
             error: None,
+            requires_approval,
             plan,
             logs,
         }),

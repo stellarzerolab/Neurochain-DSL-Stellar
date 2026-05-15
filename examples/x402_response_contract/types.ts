@@ -5,7 +5,11 @@ export type X402PaymentState =
   | "expired"
   | "invalid";
 
-export type X402DecisionStatus = "approved" | "blocked" | "not_evaluated";
+export type X402DecisionStatus =
+  | "approved"
+  | "blocked"
+  | "requires_approval"
+  | "not_evaluated";
 
 export type X402GuardrailState = "passed" | "blocked" | "not_run";
 
@@ -15,6 +19,7 @@ export type X402DecisionReason =
   | "allowlist"
   | "contract_policy"
   | "intent_safety"
+  | "approval_required"
   | "payment_replay_blocked"
   | "payment_expired"
   | "invalid_payment"
@@ -106,6 +111,19 @@ export type X402PaymentRequiredResponse = X402IntentPlanResponse & {
 export type X402FinalizedResponse = X402IntentPlanResponse & {
   payment: X402Payment & { state: "finalized" };
   plan: X402ActionPlan;
+};
+
+export type X402RequiresApprovalResponse = X402FinalizedResponse & {
+  ok: true;
+  blocked: false;
+  decision: X402Decision & {
+    status: "requires_approval";
+    approved: false;
+    blocked: false;
+    requires_approval: true;
+    reason: "approval_required";
+  };
+  guardrails: X402Guardrails & { state: "passed"; exit_code: null; reason: null };
 };
 
 export type X402ReplayBlockedResponse = X402IntentPlanResponse & {

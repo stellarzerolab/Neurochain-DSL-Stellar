@@ -10,6 +10,11 @@ const SCENARIOS = [
     intent: "Payment finalized and claim_rewards ActionPlan passes guardrails.",
   },
   {
+    file: "requires_approval.json",
+    label: "Requires approval",
+    intent: "Payment finalized and guardrails pass, but submit waits for human approval.",
+  },
+  {
     file: "blocked_exit_3_allowlist.json",
     label: "Blocked exit 3",
     intent: "Allowlist blocks the paid request.",
@@ -84,6 +89,16 @@ const LIVE_PRESETS = {
       threshold: 0,
     },
   },
+  requiresApproval: {
+    label: "Live preset: requires approval",
+    status: "preset requires approval",
+    mode: "normal",
+    request: {
+      prompt: `Invoke contract rewards function claim_rewards for wallet ${DEMO_ACCOUNT}`,
+      threshold: 0,
+      requires_approval: true,
+    },
+  },
   replay: {
     label: "Live preset: replay blocked",
     status: "preset replay",
@@ -118,6 +133,7 @@ const elements = {
   liveAllowlistAssets: document.getElementById("liveAllowlistAssets"),
   liveContractPolicyEnforce: document.getElementById("liveContractPolicyEnforce"),
   liveAllowlistEnforce: document.getElementById("liveAllowlistEnforce"),
+  liveRequiresApproval: document.getElementById("liveRequiresApproval"),
   liveStatus: document.getElementById("liveStatus"),
   liveChallengeButton: document.getElementById("liveChallengeButton"),
   liveFinalizeButton: document.getElementById("liveFinalizeButton"),
@@ -276,6 +292,7 @@ function applyLivePreset(preset) {
     allowlist_contracts: "",
     allowlist_enforce: false,
     contract_policy_enforce: false,
+    requires_approval: false,
     ...preset.request,
   };
 
@@ -286,6 +303,7 @@ function applyLivePreset(preset) {
   elements.liveAllowlistContracts.value = request.allowlist_contracts;
   elements.liveAllowlistEnforce.checked = Boolean(request.allowlist_enforce);
   elements.liveContractPolicyEnforce.checked = Boolean(request.contract_policy_enforce);
+  elements.liveRequiresApproval.checked = Boolean(request.requires_approval);
 }
 
 async function runLiveReplayFlow(preset) {
@@ -332,6 +350,7 @@ function buildLiveRequest() {
     threshold,
     contract_policy_enforce: elements.liveContractPolicyEnforce.checked,
     allowlist_enforce: elements.liveAllowlistEnforce.checked,
+    requires_approval: elements.liveRequiresApproval.checked,
   };
 
   const allowlistContracts = elements.liveAllowlistContracts.value.trim();

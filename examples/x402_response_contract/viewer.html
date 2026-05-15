@@ -582,6 +582,10 @@
           <input id="liveAllowlistEnforce" type="checkbox">
           allowlist_enforce
         </label>
+        <label class="check-row">
+          <input id="liveRequiresApproval" type="checkbox">
+          requires_approval
+        </label>
       </div>
 
       <div class="live-actions">
@@ -593,6 +597,7 @@
 
       <div class="preset-grid" aria-label="Live backend presets">
         <button class="control-button success" type="button" data-live-preset="approved">Preset: approved</button>
+        <button class="control-button" type="button" data-live-preset="requiresApproval">Preset: requires approval</button>
         <button class="control-button danger" type="button" data-live-preset="exit3">Preset: exit 3 allowlist</button>
         <button class="control-button danger" type="button" data-live-preset="exit4">Preset: exit 4 policy</button>
         <button class="control-button danger" type="button" data-live-preset="exit5">Preset: exit 5 intent</button>

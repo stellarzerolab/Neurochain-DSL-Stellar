@@ -20,6 +20,7 @@ pub struct X402PaymentContext<'a> {
 pub struct X402StellarIntentPlanOutcome {
     pub ok: bool,
     pub blocked: bool,
+    pub requires_approval: bool,
     pub exit_code: Option<i32>,
     pub error: Option<String>,
     pub plan: ActionPlan,
@@ -59,7 +60,7 @@ pub fn x402_payment_required_response(
         "approved": false,
         "blocked": false,
         "requires_approval": false,
-        "reason": "payment_required"
+        "reason": null
     });
     let guardrails = json!({
         "state": "not_run",
@@ -166,11 +167,18 @@ pub fn x402_stellar_decision_response(
 ) -> Response {
     let decision_status = if outcome.blocked {
         "blocked"
+    } else if outcome.requires_approval {
+        "requires_approval"
     } else {
         "approved"
     };
     let guardrail_state = if outcome.blocked { "blocked" } else { "passed" };
-    let reason = x402_guardrail_reason(outcome.exit_code, outcome.error.as_deref());
+    let guardrail_reason = x402_guardrail_reason(outcome.exit_code, outcome.error.as_deref());
+    let decision_reason = if outcome.requires_approval {
+        Some("approval_required".to_string())
+    } else {
+        guardrail_reason.clone()
+    };
     let audit_id = x402_audit_id(challenge_id);
     let payment = x402_payment_json(
         payment_state,
@@ -181,15 +189,15 @@ pub fn x402_stellar_decision_response(
     );
     let decision = json!({
         "status": decision_status,
-        "approved": outcome.ok && !outcome.blocked,
+        "approved": outcome.ok && !outcome.blocked && !outcome.requires_approval,
         "blocked": outcome.blocked,
-        "requires_approval": false,
-        "reason": reason
+        "requires_approval": outcome.requires_approval,
+        "reason": decision_reason
     });
     let guardrails = json!({
         "state": guardrail_state,
         "exit_code": outcome.exit_code,
-        "reason": reason
+        "reason": guardrail_reason
     });
     let mut logs = outcome.logs;
     write_x402_audit_event(

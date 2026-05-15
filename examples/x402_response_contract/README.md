@@ -62,6 +62,7 @@ examples/x402_response_contract/viewer.js
 | --- | --- | --- | --- | --- | --- | --- |
 | `payment_required.json` | `402` | `payment_required` | `not_evaluated` | `null` | `not_run` | `null` |
 | `approved.json` | `200` | `finalized` | `approved` | `null` | `passed` | `null` |
+| `requires_approval.json` | `200` | `finalized` | `requires_approval` | `approval_required` | `passed` | `null` |
 | `blocked_exit_3_allowlist.json` | `200` | `finalized` | `blocked` | `allowlist` | `blocked` | `3` |
 | `blocked_exit_4_contract_policy.json` | `200` | `finalized` | `blocked` | `contract_policy` | `blocked` | `4` |
 | `blocked_exit_5_intent_safety.json` | `200` | `finalized` | `blocked` | `intent_safety` | `blocked` | `5` |
@@ -77,8 +78,9 @@ examples/x402_response_contract/viewer.js
   - `3` = allowlist block
   - `4` = contract policy block
   - `5` = intent safety, low confidence, or typed slot error
-- `requires_approval` is currently `false`; a real approval boundary is a
-  later integration step.
+- `requires_approval` means the payment finalized and guardrails passed, but
+  NeuroChain intentionally stops before any submit/signing boundary until a
+  human or owner approval step is recorded.
 - `payment_required`, `replay_blocked`, `expired`, and `invalid` do not run
   guardrails, so `guardrails.state` is `not_run`.
 
@@ -91,12 +93,14 @@ Minimal agent/frontend flow:
 3. Retry the same request with `PAYMENT-SIGNATURE`.
 4. If `payment.state = "finalized"`, render `decision`, `guardrails`, `logs`,
    and the typed `plan`.
-5. If `decision.status = "blocked"`, use `guardrails.exit_code` to explain the
+5. If `decision.status = "requires_approval"`, show the plan and guardrails,
+   but do not submit, sign, or broadcast anything yet.
+6. If `decision.status = "blocked"`, use `guardrails.exit_code` to explain the
    safety outcome:
    - `3` = allowlist block
    - `4` = contract policy block
    - `5` = intent safety, low confidence, or typed slot error
-6. If `payment.state = "replay_blocked"`, `payment.state = "expired"`, or
+7. If `payment.state = "replay_blocked"`, `payment.state = "expired"`, or
    `payment.state = "invalid"`, do not render an ActionPlan. Ask the
    agent/client to create a fresh challenge.
 
@@ -167,6 +171,7 @@ facilitator.
 The live panel also includes one-click backend presets:
 
 - approved `claim_rewards`
+- requires approval `claim_rewards`
 - blocked exit `3` allowlist
 - blocked exit `4` contract policy
 - blocked exit `5` intent safety / missing slot

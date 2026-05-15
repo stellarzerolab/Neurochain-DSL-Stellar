@@ -1029,7 +1029,7 @@ decision model:
   - amount/asset/network/receiver
   - `created_at`, `expires_at`, `finalized_at`
 - `decision`
-  - `status = "approved" | "blocked" | "not_evaluated"`
+  - `status = "approved" | "requires_approval" | "blocked" | "not_evaluated"`
   - `approved`
   - `blocked`
   - `requires_approval`
@@ -1045,6 +1045,7 @@ Agent/frontend response contract:
 | --- | --- | --- | --- | --- | --- | --- |
 | payment required | `402` | `payment_required` | `not_evaluated` | `null` | `not_run` | `null` |
 | approved | `200` | `finalized` | `approved` | `null` | `passed` | `null` |
+| requires approval | `200` | `finalized` | `requires_approval` | `approval_required` | `passed` | `null` |
 | allowlist block | `200` | `finalized` | `blocked` | `allowlist` | `blocked` | `3` |
 | contract policy block | `200` | `finalized` | `blocked` | `contract_policy` | `blocked` | `4` |
 | intent safety / slot block | `200` | `finalized` | `blocked` | `intent_safety` | `blocked` | `5` |
@@ -1073,7 +1074,9 @@ Important behavior:
   - `3` allowlist
   - `4` contract policy
   - `5` intent safety / typed slot error / low confidence
-- `requires_approval` is currently always `false`; a real approval boundary is a later step
+- `requires_approval` means payment finalized and guardrails passed, but the
+  request stops before any submit/signing boundary until an owner or human
+  approval step exists
 
 Soroban v2 template example through the x402 gateway:
 
@@ -1178,9 +1181,9 @@ That directory now includes:
 - `viewer.html` / `viewer.js` -> fixture and local live viewer for the agent-facing
   execution flow
 - `*.json` -> concrete examples for `payment_required`, `approved`,
-  `blocked_exit_3_allowlist`, `blocked_exit_4_contract_policy`,
-  `blocked_exit_5_intent_safety`, `replay_blocked`, `expired`, and
-  `invalid_payment`
+  `requires_approval`, `blocked_exit_3_allowlist`,
+  `blocked_exit_4_contract_policy`, `blocked_exit_5_intent_safety`,
+  `replay_blocked`, `expired`, and `invalid_payment`
 
 The fixture test parses `schema.json` and validates every example against the
 same required fields, types, enums, and x402 audit-id prefix used by the
@@ -1188,18 +1191,19 @@ frontend/agent contract.
 
 The same test also checks that `types.ts` and the README client flow stay next
 to the fixtures. Client integrations should follow the simple loop:
-`payment_required -> retry with PAYMENT-SIGNATURE -> finalized/blocked`, then
+`payment_required -> retry with PAYMENT-SIGNATURE -> finalized decision`, then
 render `decision`, `guardrails`, `logs`, and finalized `plan`.
 
 `client_adapter.ts` shows the intended UI state mapping:
 
 - `payment_required` -> show x402 challenge and retry affordance
 - `approved` -> render the finalized ActionPlan
+- `requires_approval` -> render the plan and guardrails, but do not submit,
+  sign, or broadcast
 - `blocked_allowlist` -> explain exit `3`
 - `blocked_contract_policy` -> explain exit `4`
 - `blocked_intent_safety` -> explain exit `5`
-- `replay_blocked` / `expired` -> ask for a fresh challenge
-- `requires_approval` -> reserved for the later approval boundary
+- `replay_blocked` / `expired` / `invalid_payment` -> ask for a fresh challenge
 
 To inspect the static response viewer locally:
 
@@ -1230,12 +1234,14 @@ http://127.0.0.1:8081
 The live panel calls `/api/x402/stellar/intent-plan`, receives
 `payment_required`, retries with the current mock
 `PAYMENT-SIGNATURE: paid:<challenge_id>` proof, and renders the resulting
-approved or blocked envelope in the same UI. It remains mock-only: no wallet
-signing, no submit/broadcast, and no real facilitator settlement.
+approved, requires-approval, or blocked envelope in the same UI. It remains
+mock-only: no wallet signing, no submit/broadcast, and no real facilitator
+settlement.
 
 The live panel also has one-click presets for the current backend matrix:
 
 - approved `claim_rewards`
+- requires approval `claim_rewards`
 - blocked exit `3` allowlist
 - blocked exit `4` contract policy
 - blocked exit `5` intent safety / missing slot
