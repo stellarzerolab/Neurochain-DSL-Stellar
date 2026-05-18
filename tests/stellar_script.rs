@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -103,6 +103,33 @@ fn create_fake_stellar_cli_with_soroban_invoke() -> (TempDir, PathBuf) {
     }
 
     (dir, cli_path)
+}
+
+fn create_logging_soroban_cli() -> (TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir for logging stellar cli");
+    #[cfg(windows)]
+    let cli_path = dir.path().join("stellar.cmd");
+    #[cfg(not(windows))]
+    let cli_path = dir.path().join("stellar");
+    let log_path = dir.path().join("stellar_args.log");
+
+    #[cfg(windows)]
+    let script = "@echo off\r\necho %*>>\"%NC_TEST_CLI_LOG%\"\r\nif \"%1\"==\"contract\" if \"%2\"==\"invoke\" (echo preview-ok& exit /b 0)\r\necho unexpected args %* 1>&2\r\nexit /b 1\r\n";
+    #[cfg(not(windows))]
+    let script = "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> \"$NC_TEST_CLI_LOG\"\nif [ \"$1\" = \"contract\" ] && [ \"$2\" = \"invoke\" ]; then\n  echo preview-ok\n  exit 0\nfi\necho \"unexpected args: $@\" >&2\nexit 1\n";
+
+    fs::write(&cli_path, script).expect("write logging stellar cli");
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&cli_path)
+            .expect("metadata for logging stellar cli")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cli_path, perms).expect("chmod logging stellar cli");
+    }
+
+    (dir, cli_path, log_path)
 }
 
 fn spawn_horizon_tx_server(expected_account: &str, tx_hash: &str) -> String {
@@ -206,6 +233,7 @@ fn nc_script_wallet_generate_sets_wallet_source_alias() {
     let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_string_lossy().to_string())
+        .env("NC_STELLAR_SCRIPT_UNSAFE_EXEC", "1")
         .env_remove("NC_SOROBAN_SOURCE")
         .env_remove("NC_STELLAR_SOURCE")
         .output()
@@ -239,6 +267,7 @@ fn nc_script_wallet_bootstrap_sets_wallet_source_and_calls_friendbot() {
     let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
     let output = Command::new(bin)
         .arg(tmp.to_string_lossy().to_string())
+        .env("NC_STELLAR_SCRIPT_UNSAFE_EXEC", "1")
         .env_remove("NC_SOROBAN_SOURCE")
         .env_remove("NC_STELLAR_SOURCE")
         .output()
@@ -257,6 +286,112 @@ fn nc_script_wallet_bootstrap_sets_wallet_source_and_calls_friendbot() {
         seen_friendbot.load(Ordering::SeqCst),
         "expected wallet_bootstrap to call friendbot endpoint"
     );
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_blocks_script_selected_stellar_cli_without_unsafe_opt_in() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli();
+    let tmp = std::env::temp_dir().join("nc_script_blocks_custom_cli.nc");
+    let script = format!(
+        "stellar_cli: \"{}\"\nnetwork: testnet\n",
+        fake_cli.to_string_lossy()
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .env_remove("NC_STELLAR_SCRIPT_UNSAFE_EXEC")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(!output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("stellar_cli in .nc is blocked by default"));
+    assert!(combined.contains("NC_STELLAR_SCRIPT_UNSAFE_EXEC=1"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_blocks_wallet_generate_without_unsafe_opt_in() {
+    let (_tmp_dir, fake_cli) = create_fake_stellar_cli();
+    let tmp = std::env::temp_dir().join("nc_script_blocks_wallet_generate.nc");
+    fs::write(&tmp, "wallet_generate: demo-script\nnetwork: testnet\n")
+        .expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .env("NC_STELLAR_CLI", fake_cli.to_string_lossy().to_string())
+        .env_remove("NC_STELLAR_SCRIPT_UNSAFE_EXEC")
+        .output()
+        .expect("run neurochain-stellar script mode");
+
+    assert!(!output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("wallet_generate in .nc is blocked by default"));
+    assert!(combined.contains("NC_STELLAR_SCRIPT_UNSAFE_EXEC=1"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_soroban_preview_forces_no_send_despite_simulate_flag() {
+    let (_tmp_dir, fake_cli, cli_log) = create_logging_soroban_cli();
+    let horizon_url = spawn_horizon_tx_server(
+        "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+        "abc",
+    );
+    let tmp = std::env::temp_dir().join("nc_script_soroban_preview_forces_no_send.nc");
+    let script = format!(
+        "stellar_cli: \"{}\"\nhorizon: \"{}\"\nnetwork: testnet\nwallet: nc-testnet\nsimulate_flag: \"--send yes\"\nsoroban.contract.invoke contract_id=\"CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\" function=\"hello\" args={{\"to\":\"World\"}}\n",
+        fake_cli.to_string_lossy(),
+        horizon_url
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let mut child = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .arg("--flow")
+        .env("NC_STELLAR_SCRIPT_UNSAFE_EXEC", "1")
+        .env("NC_TEST_CLI_LOG", cli_log.to_string_lossy().to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run neurochain-stellar script mode");
+    child
+        .stdin
+        .as_mut()
+        .expect("child stdin")
+        .write_all(b"n\n")
+        .expect("write confirmation response");
+    let output = child.wait_with_output().expect("wait for script mode");
+
+    assert!(output.status.success());
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("=== Preview ==="));
+    assert!(combined.contains("Submit aborted by user."));
+
+    let logged = fs::read_to_string(&cli_log).expect("read stellar cli log");
+    assert!(logged.contains("--send no"), "logged args: {logged}");
+    assert!(!logged.contains("--send yes"), "logged args: {logged}");
 
     let _ = fs::remove_file(tmp);
 }
@@ -281,6 +416,7 @@ fn nc_script_soroban_submit_resolves_alias_for_latest_hash_fallback() {
         .arg(tmp.to_string_lossy().to_string())
         .arg("--flow")
         .arg("--yes")
+        .env("NC_STELLAR_SCRIPT_UNSAFE_EXEC", "1")
         .output()
         .expect("run neurochain-stellar script mode");
 
@@ -1098,7 +1234,7 @@ set stellar intent from AI: "Tell me a joke about stars"
 }
 
 #[test]
-fn nc_script_deploy_intent_phase1_builds_deploy_action() {
+fn nc_script_deploy_intent_without_explicit_label_stays_unknown() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")
         .join("intent_stellar")
@@ -1130,9 +1266,9 @@ set stellar intent from AI: "Invoke deploy contract alias hello-demo wasm ./cont
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(combined.contains("\"kind\": \"soroban_contract_deploy\""));
-    assert!(combined.contains("\"alias\": \"hello-demo\""));
-    assert!(combined.contains("\"wasm\": \"./contracts/hello.wasm\""));
+    assert!(combined.contains("\"kind\": \"unknown\""));
+    assert!(combined.contains("slot_missing"));
+    assert!(!combined.contains("\"kind\": \"soroban_contract_deploy\""));
 
     let _ = fs::remove_file(tmp);
 }
@@ -1173,7 +1309,7 @@ set stellar intent from AI: "Invoke deploy contract alias hello-demo"
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(combined.contains("slot_missing"));
-    assert!(combined.contains("ContractDeploy missing wasm"));
+    assert!(!combined.contains("\"kind\": \"soroban_contract_deploy\""));
     assert!(combined.contains("Intent safety guard blocked flow"));
 
     let _ = fs::remove_file(tmp);

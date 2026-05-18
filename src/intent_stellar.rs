@@ -163,18 +163,6 @@ pub fn build_action_plan(prompt: &str, decision: &IntentDecision) -> ActionPlan 
     }
 
     let result = match decision.label {
-        IntentStellarLabel::Unknown
-            if looks_like_contract_deploy_prompt(prompt)
-                && extract_deploy_alias(prompt).is_some() =>
-        {
-            build_contract_deploy(prompt)
-        }
-        IntentStellarLabel::ContractInvoke
-            if looks_like_contract_deploy_prompt(prompt)
-                && extract_deploy_alias(prompt).is_some() =>
-        {
-            build_contract_deploy(prompt)
-        }
         IntentStellarLabel::BalanceQuery => build_balance_query(prompt),
         IntentStellarLabel::CreateAccount => build_create_account(prompt),
         IntentStellarLabel::ChangeTrust => build_change_trust(prompt),
@@ -373,15 +361,6 @@ fn extract_deploy_wasm(prompt: &str) -> Option<String> {
                 .map(|m| m.as_str().trim().to_string())
                 .filter(|v| !v.is_empty())
         })
-}
-
-fn looks_like_contract_deploy_prompt(prompt: &str) -> bool {
-    let lower = prompt.to_ascii_lowercase();
-    lower.contains("deploy")
-        && (lower.contains("contract")
-            || lower.contains("soroban.contract.deploy")
-            || lower.contains(".wasm")
-            || lower.contains("wasm"))
 }
 
 fn extract_destination_account(prompt: &str) -> Option<String> {
@@ -996,16 +975,22 @@ mod tests {
     }
 
     #[test]
-    fn contract_deploy_slot_parse_builds_action_for_unknown_and_invoke_labels() {
+    fn contract_deploy_slot_parse_requires_explicit_deploy_label() {
         let prompt = "Deploy contract alias hello-demo wasm ./contracts/hello.wasm";
 
         let unknown_plan = build_action_plan(prompt, &decision(IntentStellarLabel::Unknown));
         assert_eq!(unknown_plan.actions.len(), 1);
-        assert_eq!(unknown_plan.actions[0].kind(), "soroban.contract.deploy");
+        assert!(matches!(unknown_plan.actions[0], Action::Unknown { .. }));
+        assert!(has_intent_blocking_issue(&unknown_plan));
 
         let invoke_plan = build_action_plan(prompt, &decision(IntentStellarLabel::ContractInvoke));
         assert_eq!(invoke_plan.actions.len(), 1);
-        assert_eq!(invoke_plan.actions[0].kind(), "soroban.contract.deploy");
+        assert!(matches!(invoke_plan.actions[0], Action::Unknown { .. }));
+        assert!(has_intent_blocking_issue(&invoke_plan));
+
+        let deploy_plan = build_action_plan(prompt, &decision(IntentStellarLabel::ContractDeploy));
+        assert_eq!(deploy_plan.actions.len(), 1);
+        assert_eq!(deploy_plan.actions[0].kind(), "soroban.contract.deploy");
     }
 
     #[test]

@@ -96,6 +96,11 @@ struct InMemoryX402ChallengeStore {
     state: X402StellarState,
 }
 
+#[derive(Debug)]
+struct UnavailableX402ChallengeStore {
+    error: String,
+}
+
 impl X402ChallengeStore for InMemoryX402ChallengeStore {
     fn store_kind(&self) -> &'static str {
         "in_memory"
@@ -107,6 +112,20 @@ impl X402ChallengeStore for InMemoryX402ChallengeStore {
 
     fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
         Ok(self.state.begin_finalize(challenge_id))
+    }
+}
+
+impl X402ChallengeStore for UnavailableX402ChallengeStore {
+    fn store_kind(&self) -> &'static str {
+        "unavailable"
+    }
+
+    fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
+        Err(self.error.clone())
+    }
+
+    fn begin_finalize(&mut self, _challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
+        Err(self.error.clone())
     }
 }
 
@@ -199,8 +218,8 @@ pub fn build_x402_challenge_store() -> Box<dyn X402ChallengeStore + Send> {
     match FileX402ChallengeStore::load(path.clone()) {
         Ok(store) => Box::new(store),
         Err(err) => {
-            eprintln!("WARN: {err}; falling back to in-memory x402 challenge store");
-            Box::<InMemoryX402ChallengeStore>::default()
+            eprintln!("ERROR: {err}; x402 challenge store unavailable");
+            Box::new(UnavailableX402ChallengeStore { error: err })
         }
     }
 }

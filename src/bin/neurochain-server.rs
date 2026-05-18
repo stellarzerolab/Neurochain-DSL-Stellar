@@ -168,6 +168,31 @@ fn resolve_model_path(id: &str) -> Option<String> {
     Some(path)
 }
 
+fn resolve_stellar_intent_model_path(
+    req: &StellarIntentPlanReq,
+    logs: &mut Vec<String>,
+) -> Result<String, String> {
+    if req
+        .model_path
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|v| !v.is_empty())
+    {
+        logs.push("warn: client model_path rejected".to_string());
+        return Err("model_path is not accepted by the server API; use model id".to_string());
+    }
+
+    let model_path = req
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .and_then(resolve_model_path)
+        .unwrap_or_else(resolve_intent_model_path);
+
+    Ok(model_path)
+}
+
 fn parse_bool_value(raw: &str) -> Option<bool> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Some(true),
@@ -678,20 +703,23 @@ fn build_stellar_intent_plan_response(
         );
     }
 
-    let model_path = req
-        .model_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            req.model
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .and_then(resolve_model_path)
-        })
-        .unwrap_or_else(resolve_intent_model_path);
+    let model_path = match resolve_stellar_intent_model_path(&req, &mut logs) {
+        Ok(path) => path,
+        Err(err) => {
+            return (
+                StatusCode::OK,
+                Json(StellarIntentPlanResp {
+                    ok: false,
+                    blocked: true,
+                    exit_code: Some(2),
+                    error: Some(err),
+                    requires_approval: false,
+                    plan: ActionPlan::default(),
+                    logs,
+                }),
+            );
+        }
+    };
     logs.push(format!("model_path={model_path}"));
 
     let threshold = match req.threshold {

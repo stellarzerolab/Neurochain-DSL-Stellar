@@ -206,6 +206,8 @@ fn spawn_server(port: u16, extra_env: &[(&str, &str)]) -> Server {
         .env("HOST", "127.0.0.1")
         .env("PORT", port.to_string())
         .env("NC_MODELS_DIR", models_dir())
+        .env("NC_ENV", "development")
+        .env("NC_X402_STELLAR_VERIFIER", "mock")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
@@ -979,14 +981,17 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(status, 200);
 
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
-    assert_eq!(resp["ok"], true);
-    assert_eq!(resp["blocked"], false);
-    assert_eq!(
-        resp["plan"]["actions"][0]["kind"],
-        "soroban_contract_deploy"
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 5);
+    assert_eq!(resp["plan"]["actions"][0]["kind"], "unknown");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l.contains("soroban_deep_template: expanded=false")),
+        "expected no soroban_deep_template expansion"
     );
-    assert_eq!(resp["plan"]["actions"][0]["alias"], "hello-demo");
-    assert_eq!(resp["plan"]["actions"][0]["wasm"], "./contracts/hello.wasm");
 
     let body = json!({
         "model": "intent_stellar",
@@ -1036,8 +1041,8 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
         warnings
             .iter()
             .filter_map(|v| v.as_str())
-            .any(|w| w.contains("slot_missing") && w.contains("ContractDeploy missing wasm")),
-        "expected ContractDeploy slot_missing warning"
+            .any(|w| w.contains("slot_missing")),
+        "expected slot_missing warning"
     );
 
     let body = json!({
@@ -2407,6 +2412,42 @@ fn api_x402_stellar_intent_plan_expired_challenge_blocks_finalize() {
 }
 
 #[test]
+fn api_stellar_intent_plan_rejects_client_model_path() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[]);
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let body = json!({
+        "model_path": "../../outside/model.onnx",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.00
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 2);
+    assert!(
+        resp["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("model_path is not accepted"),
+        "expected model_path rejection, got {resp_body}"
+    );
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("client model_path rejected")),
+        "expected model_path rejection log"
+    );
+}
+
+#[test]
 fn api_x402_stellar_file_store_persists_challenge_and_replay_state() {
     let model = intent_stellar_model_path();
     if !model.exists() {
@@ -2523,6 +2564,78 @@ fn api_x402_stellar_file_store_persists_challenge_and_replay_state() {
     drop(server3);
     let _ = fs::remove_file(&store_path);
     let _ = fs::remove_file(&audit_path);
+}
+
+#[test]
+fn api_x402_stellar_mock_verifier_is_fenced_in_production_mode() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_ENV", "production"),
+            ("NC_X402_STELLAR_VERIFIER", "mock"),
+        ],
+    );
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 500);
+
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
+    assert_eq!(resp["error"], "x402_state_unavailable");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("mock x402 verifier is disabled in production")),
+        "expected production mock verifier fence log"
+    );
+}
+
+#[test]
+fn api_x402_stellar_configured_store_load_failure_fails_closed() {
+    let store_path = std::env::temp_dir().join("nc_x402_stellar_unreadable_store_dir");
+    let _ = fs::remove_file(&store_path);
+    let _ = fs::create_dir_all(&store_path);
+    let store_path_s = store_path.to_string_lossy().to_string();
+
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(
+        port,
+        &[("NC_X402_STELLAR_STORE_PATH", store_path_s.as_str())],
+    );
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 500);
+
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
+    assert_eq!(resp["error"], "x402_state_unavailable");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("challenge store create failed")),
+        "expected fail-closed store log"
+    );
+
+    let _ = fs::remove_dir_all(&store_path);
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {

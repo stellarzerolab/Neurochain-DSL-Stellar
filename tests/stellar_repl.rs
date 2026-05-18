@@ -265,11 +265,11 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     );
     let wallet_generate_row = help_row(
         "wallet_generate: <alias>",
-        "generate a local stellar key alias",
+        "generate local key alias (REPL; .nc needs unsafe opt-in)",
     );
     let wallet_bootstrap_row = help_row(
         "wallet_bootstrap: <alias>",
-        "generate key alias and friendbot-fund it",
+        "generate and fund alias (REPL; .nc needs unsafe opt-in)",
     );
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
     let x402_row = help_row("x402", "enable x402-lite flow commands");

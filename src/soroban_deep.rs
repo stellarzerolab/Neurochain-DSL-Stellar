@@ -274,7 +274,7 @@ pub fn validate_contract_policies(
 
                 for key in args_obj.keys() {
                     if !schema.required.contains_key(key) && !schema.optional.contains_key(key) {
-                        warnings.push(format!(
+                        errors.push(format!(
                             "policy_args_unknown: {contract_id}:{function} unexpected arg {key}"
                         ));
                     }
@@ -500,14 +500,32 @@ fn template_matches_prompt(
     template: &ContractIntentTemplate,
     lower_prompt: &str,
 ) -> bool {
-    let name = name.trim().to_ascii_lowercase();
-    if !name.is_empty() && lower_prompt.contains(&name) {
+    if template_phrase_matches(lower_prompt, name) {
         return true;
     }
-    template.aliases.iter().any(|alias| {
-        let alias = alias.trim().to_ascii_lowercase();
-        !alias.is_empty() && lower_prompt.contains(&alias)
+    template
+        .aliases
+        .iter()
+        .any(|alias| template_phrase_matches(lower_prompt, alias))
+}
+
+fn template_phrase_matches(lower_prompt: &str, phrase: &str) -> bool {
+    let phrase = phrase.trim().to_ascii_lowercase();
+    if phrase.is_empty() {
+        return false;
+    }
+
+    lower_prompt.match_indices(&phrase).any(|(start, _)| {
+        let end = start + phrase.len();
+        let bytes = lower_prompt.as_bytes();
+        let before_ok = start == 0 || !is_template_phrase_body_byte(bytes[start - 1]);
+        let after_ok = end == bytes.len() || !is_template_phrase_body_byte(bytes[end]);
+        before_ok && after_ok
     })
+}
+
+fn is_template_phrase_body_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')
 }
 
 fn build_template_args(

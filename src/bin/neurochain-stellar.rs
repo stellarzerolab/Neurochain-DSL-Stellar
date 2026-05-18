@@ -50,6 +50,7 @@ fn print_usage() {
     eprintln!("Env: NC_SOROBAN_SOURCE or NC_STELLAR_SOURCE (for soroban invoke)");
     eprintln!("Env: NC_STELLAR_CLI (default: stellar)");
     eprintln!("Env: NC_SOROBAN_SIMULATE_FLAG (default: \"--send no\")");
+    eprintln!("Env: NC_STELLAR_SCRIPT_UNSAFE_EXEC=1 (allow .nc stellar_cli/wallet_generate/bootstrap build-time execution)");
     eprintln!("Env: NC_TXREP_PREVIEW=1 (include txrep in preview output)");
     eprintln!("Env: NC_INTENT_STELLAR_MODEL (default: models/intent_stellar/model.onnx)");
     eprintln!("Env: NC_INTENT_STELLAR_THRESHOLD (default: 0.55)");
@@ -206,6 +207,11 @@ fn x402_enabled(override_value: Option<bool>) -> bool {
     parse_bool_value(&std::env::var("NC_X402").unwrap_or_default()).unwrap_or(false)
 }
 
+fn script_unsafe_exec_enabled() -> bool {
+    parse_bool_value(&env::var("NC_STELLAR_SCRIPT_UNSAFE_EXEC").unwrap_or_default())
+        .unwrap_or(false)
+}
+
 #[derive(Debug)]
 struct Preview {
     fee_estimate: String,
@@ -284,6 +290,10 @@ fn parse_simulate_args(raw: &str) -> Vec<String> {
         parts.push("no".to_string());
     }
     parts
+}
+
+fn preview_soroban_simulate_args() -> [&'static str; 2] {
+    ["--send", "no"]
 }
 
 fn default_horizon_url(network: &str) -> String {
@@ -934,7 +944,7 @@ fn soroban_cli_invoke(
         &cfg.soroban_network,
     ]);
     if simulate {
-        cmd.args(&cfg.soroban_simulate_args);
+        cmd.args(preview_soroban_simulate_args());
     }
     cmd.arg("--");
     cmd.arg(function);
@@ -976,7 +986,7 @@ fn soroban_cli_deploy(
         wasm,
     ]);
     if simulate {
-        cmd.args(&cfg.soroban_simulate_args);
+        cmd.args(preview_soroban_simulate_args());
     }
     let output = cmd.output().context("failed to run stellar CLI")?;
     if !output.status.success() {
@@ -2276,6 +2286,7 @@ struct ScriptBuildContext {
     intent_mode: bool,
     debug: bool,
     x402_state: X402State,
+    unsafe_exec: bool,
 }
 
 impl ScriptBuildContext {
@@ -2300,6 +2311,7 @@ impl ScriptBuildContext {
             intent_mode: false,
             debug,
             x402_state: X402State::default(),
+            unsafe_exec: script_unsafe_exec_enabled(),
         }
     }
 
@@ -2362,12 +2374,14 @@ impl ScriptBuildContext {
         }
 
         if let Some(alias) = parse_wallet_generate_line(line) {
+            self.require_unsafe_exec("wallet_generate")?;
             generate_wallet_alias(&self.flow_cfg, &alias)?;
             self.flow_cfg.soroban_source = Some(alias);
             return Ok(());
         }
 
         if let Some(alias) = parse_wallet_bootstrap_line(line) {
+            self.require_unsafe_exec("wallet_bootstrap")?;
             let (_public_key, _fund_msg) = bootstrap_wallet_alias(&self.flow_cfg, &alias)?;
             self.flow_cfg.soroban_source = Some(alias);
             return Ok(());
@@ -2386,6 +2400,7 @@ impl ScriptBuildContext {
         }
 
         if let Some(cli_bin) = parse_stellar_cli_line(line) {
+            self.require_unsafe_exec("stellar_cli")?;
             self.flow_cfg.soroban_cli = cli_bin;
             return Ok(());
         }
@@ -2526,6 +2541,15 @@ impl ScriptBuildContext {
             self.append_intent_prompt(&prompt)?;
         }
         Ok(())
+    }
+
+    fn require_unsafe_exec(&self, directive: &str) -> Result<()> {
+        if self.unsafe_exec {
+            return Ok(());
+        }
+        Err(anyhow!(
+            "{directive} in .nc is blocked by default because it can execute local processes during script build; set NC_STELLAR_SCRIPT_UNSAFE_EXEC=1 only for trusted scripts"
+        ))
     }
 }
 
@@ -3334,6 +3358,14 @@ fn print_script_setup(
     eprintln!("- flow_mode: {}", if flow { "on" } else { "off" });
     eprintln!("- intent_debug: {}", if debug { "on" } else { "off" });
     eprintln!(
+        "- script_unsafe_exec: {}",
+        if script_unsafe_exec_enabled() {
+            "on"
+        } else {
+            "off"
+        }
+    );
+    eprintln!(
         "- txrep_preview: {}",
         if cfg.txrep_preview { "on" } else { "off" }
     );
@@ -3424,19 +3456,25 @@ fn print_repl_help_all() {
         ),
         (
             "wallet_generate: <alias>",
-            "generate a local stellar key alias",
+            "generate local key alias (REPL; .nc needs unsafe opt-in)",
         ),
         (
             "wallet_bootstrap: <alias>",
-            "generate key alias and friendbot-fund it",
+            "generate and fund alias (REPL; .nc needs unsafe opt-in)",
         ),
         ("horizon: https://...", "set Horizon URL override"),
         (
             "friendbot: https://...|off",
             "set Friendbot URL or disable it",
         ),
-        ("stellar_cli: <bin>", "set stellar CLI binary path/name"),
-        ("simulate_flag: \"--send no\"", "set soroban simulate flag"),
+        (
+            "stellar_cli: <bin>",
+            "set CLI binary (REPL; .nc needs unsafe opt-in)",
+        ),
+        (
+            "simulate_flag: \"--send no\"",
+            "set flag; preview still forces --send no",
+        ),
         (
             "asset_allowlist: XLM,USDC:G...",
             "set NC_ASSET_ALLOWLIST equivalent",

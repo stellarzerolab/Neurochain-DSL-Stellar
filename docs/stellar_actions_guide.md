@@ -179,6 +179,7 @@ In REPL, the same values can also be set with commands such as `network: ...`, `
 | `NC_SOROBAN_SOURCE` / `NC_STELLAR_SOURCE` | Sets the source wallet alias | CLI + `.nc`; REPL wallet is set explicitly | not set |
 | `NC_STELLAR_CLI` | Sets the `stellar` binary | CLI + REPL + `.nc` | `stellar` |
 | `NC_SOROBAN_SIMULATE_FLAG` | Sets the simulate flag | CLI + REPL + `.nc` | `--send no` |
+| `NC_STELLAR_SCRIPT_UNSAFE_EXEC` | Allows trusted `.nc` scripts to run local setup side effects during script build | `.nc` only | off |
 | `NC_TXREP_PREVIEW` | Enables txrep preview | CLI + REPL + `.nc` | off |
 | `NC_X402` | Enables x402-lite commands | CLI + REPL + `.nc` | off |
 | `NC_INTENT_STELLAR_MODEL` | Sets the IntentStellar model path | CLI + REPL + `.nc` | `models/intent_stellar/model.onnx` |
@@ -218,6 +219,18 @@ Recommended order:
 - `NC_CONTRACT_POLICY` -> `contract_policy: contracts/<id>/policy.json`
 - `NC_CONTRACT_POLICY_DIR` -> `contract_policy_dir: contracts`
 - `NC_CONTRACT_POLICY_ENFORCE` -> `contract_policy_enforce` / `contract_policy_enforce off`
+
+Safety notes:
+
+- In the REPL, `wallet_generate`, `wallet_bootstrap`, and `stellar_cli` are
+  interactive local commands.
+- In `.nc` script build / plan-only mode, those same directives are blocked by
+  default because they can execute local processes before the final submit
+  confirmation. Use `NC_STELLAR_SCRIPT_UNSAFE_EXEC=1` only for trusted local
+  scripts.
+- `simulate_flag` can still be shown and configured for compatibility, but
+  Soroban preview simulation always enforces `--send no` before any
+  `Confirm submit?` boundary.
 
 Example for REPL or `.nc`:
 
@@ -368,12 +381,12 @@ Core setup, value required:
 - `intent_threshold: <f32>` -> set intent confidence threshold
 - `network: testnet|mainnet|public` -> set active network for flow
 - `wallet: <stellar-key-alias>` -> set active source wallet alias
-- `wallet_generate: <alias>` -> generate a local Stellar key alias
-- `wallet_bootstrap: <alias>` -> generate an alias and fund it with Friendbot
+- `wallet_generate: <alias>` -> generate a local Stellar key alias (REPL; `.nc` requires `NC_STELLAR_SCRIPT_UNSAFE_EXEC=1`)
+- `wallet_bootstrap: <alias>` -> generate an alias and fund it with Friendbot (REPL; `.nc` requires `NC_STELLAR_SCRIPT_UNSAFE_EXEC=1`)
 - `horizon: https://...` -> set Horizon URL override
 - `friendbot: https://...|off` -> set Friendbot URL or disable it
-- `stellar_cli: <bin>` -> set Stellar CLI binary path/name
-- `simulate_flag: "--send no"` -> set Soroban simulate flag
+- `stellar_cli: <bin>` -> set Stellar CLI binary path/name (REPL; `.nc` requires `NC_STELLAR_SCRIPT_UNSAFE_EXEC=1`)
+- `simulate_flag: "--send no"` -> set Soroban simulate flag; preview still enforces `--send no`
 - `asset_allowlist: XLM,USDC:G...` -> set the equivalent of `NC_ASSET_ALLOWLIST`
 - `soroban_allowlist: C1:transfer,C2` -> set the equivalent of `NC_SOROBAN_ALLOWLIST`
 - `contract_policy: <path>` -> set the equivalent of `NC_CONTRACT_POLICY`
@@ -902,6 +915,10 @@ $env:NC_X402_STELLAR_STORE_PATH="logs/x402_stellar_store.json"
 cargo run --release --bin neurochain-server
 ```
 
+The server API accepts model ids such as `intent_stellar`, not arbitrary
+client-provided model paths. Requests that include `model_path` are rejected
+before loading any ONNX/tokenizer files.
+
 Endpoint:
 
 ```http
@@ -1265,8 +1282,10 @@ Optional x402 server environment variables:
 | `NC_X402_STELLAR_NETWORK` | Payment network label | `stellar:testnet` |
 | `NC_X402_STELLAR_RECEIVER` | Receiver label/account placeholder | `mock-receiver` |
 | `NC_X402_STELLAR_TTL_SECS` | Challenge lifetime | `300` |
+| `NC_X402_STELLAR_VERIFIER` | Verifier boundary mode. `mock` is the local dev bridge; real facilitator modes fail closed until implemented | `mock` |
 | `NC_X402_STELLAR_AUDIT_PATH` | Optional safe JSONL audit output path | unset |
 | `NC_X402_STELLAR_STORE_PATH` | Optional file-backed challenge/replay store path | unset |
+| `NC_ENV` / `APP_ENV` / `RUST_ENV` | When set to `production`, disables the mock x402 verifier and fails closed until a real facilitator verifier is configured | unset |
 
 When `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit
 rows for payment-required, finalized, blocked, replay, expired, and invalid
@@ -1279,14 +1298,18 @@ the challenge state to a local JSON file so a challenge created before a restart
 can still be finalized after the restart, and finalized challenges continue to
 block replay after later restarts. The store persists challenge ids and payment
 state, not the raw `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>`
-signature. This is a dev/production-shape bridge, not a real facilitator
+signature. If a configured file store cannot be read or parsed, x402 requests
+fail closed with `state_unavailable` instead of silently falling back to
+in-memory state. This is a dev/production-shape bridge, not a real facilitator
 integration.
 
 Implementation note:
 
 - `src/x402_facilitator.rs` owns the payment verifier boundary
-- current verifier kind: `mock`
+- current verifier kind: `mock` in development
 - current boundary kind: `mock_header_store`
+- production envs disable the mock verifier until a real facilitator verifier
+  is implemented/configured
 - future real facilitator support should be added behind that verifier boundary
   while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
   finalized `plan` stable for clients

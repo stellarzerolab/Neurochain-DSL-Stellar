@@ -3,7 +3,7 @@ use neurochain::intent_stellar::{
     build_action_plan, has_intent_blocking_issue, IntentDecision, IntentStellarLabel,
 };
 use neurochain::soroban_deep::{
-    apply_contract_intent_templates, apply_policy_typed_templates_v2,
+    apply_contract_intent_templates, apply_policy_typed_templates_v2, validate_contract_policies,
     validate_contract_policy_templates, ContractPolicy,
 };
 
@@ -168,7 +168,7 @@ fn intent_stellar_template_mapping_happy_paths() {
 
     let plan = build_action_plan(
         "Deploy contract alias hello-demo wasm ./contracts/hello.wasm",
-        &decision(IntentStellarLabel::Unknown),
+        &decision(IntentStellarLabel::ContractDeploy),
     );
     match &plan.actions[0] {
         Action::SorobanContractDeploy { alias, wasm } => {
@@ -182,7 +182,7 @@ fn intent_stellar_template_mapping_happy_paths() {
 
     let plan = build_action_plan(
         "Deploy contract alias hello-demo wasm .\\contracts\\hello.wasm",
-        &decision(IntentStellarLabel::Unknown),
+        &decision(IntentStellarLabel::ContractDeploy),
     );
     match &plan.actions[0] {
         Action::SorobanContractDeploy { alias, wasm } => {
@@ -874,6 +874,59 @@ fn soroban_deep_template_can_expand_policy_alias_from_unknown_label() {
 }
 
 #[test]
+fn soroban_deep_template_does_not_match_inside_deploy_alias() {
+    let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }},
+  "intent_templates": {{
+    "hello": {{
+      "aliases": ["say hello"],
+      "function": "hello",
+      "args": {{
+        "to": {{
+          "source": "after_to",
+          "type": "symbol"
+        }}
+      }}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let prompt = "Deploy contract alias hello-demo wasm ./contracts/hello.wasm";
+    let mut plan = build_action_plan(prompt, &decision(IntentStellarLabel::Unknown));
+    let report = apply_contract_intent_templates(prompt, &mut plan, &[policy]);
+
+    assert!(!report.expanded, "template must not expand: {report:?}");
+    assert!(has_intent_blocking_issue(&plan));
+    assert!(matches!(plan.actions[0], Action::Unknown { .. }));
+}
+
+#[test]
+fn intent_unknown_deploy_prompt_stays_blocking_without_template() {
+    let prompt = "Deploy contract alias hello-demo wasm ./contracts/hello.wasm";
+    let plan = build_action_plan(prompt, &decision(IntentStellarLabel::Unknown));
+
+    assert!(has_intent_blocking_issue(&plan));
+    assert!(matches!(plan.actions[0], Action::Unknown { .. }));
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|w| w == "intent_error: slot_missing: Unknown intent has no action mapping"));
+}
+
+#[test]
 fn soroban_deep_template_leaves_unmatched_intent_blocking() {
     let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
     let policy: ContractPolicy = serde_json::from_str(&format!(
@@ -911,6 +964,46 @@ fn soroban_deep_template_leaves_unmatched_intent_blocking() {
     assert!(!report.expanded);
     assert!(has_intent_blocking_issue(&plan));
     assert!(matches!(plan.actions[0], Action::Unknown { .. }));
+}
+
+#[test]
+fn soroban_policy_rejects_unexpected_invoke_args_as_error() {
+    let contract = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    let prompt = format!(
+        "Invoke contract {contract} function hello args={{\"to\":\"World\",\"extra\":\"boom\"}}"
+    );
+    let plan = build_action_plan(&prompt, &decision(IntentStellarLabel::ContractInvoke));
+    assert_eq!(plan.actions[0].kind(), "soroban.contract.invoke");
+
+    let policy: ContractPolicy = serde_json::from_str(&format!(
+        r#"{{
+  "contract_id": "{contract}",
+  "allowed_functions": ["hello"],
+  "args_schema": {{
+    "hello": {{
+      "required": {{
+        "to": "symbol"
+      }},
+      "optional": {{}}
+    }}
+  }}
+}}"#
+    ))
+    .expect("parse policy");
+
+    let (warnings, errors) = validate_contract_policies(&plan, &[policy]);
+    assert!(
+        warnings
+            .iter()
+            .all(|w| !w.starts_with("policy_args_unknown:")),
+        "unexpected policy warning for unknown arg: {warnings:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e == &format!("policy_args_unknown: {contract}:hello unexpected arg extra")),
+        "missing policy error for unexpected arg: {errors:?}"
+    );
 }
 
 #[test]
