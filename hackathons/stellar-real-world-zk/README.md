@@ -24,9 +24,10 @@ permission. `requires_approval` remains a no-submit boundary.
 
 ```text
 shared/      dependency-free Rust data contract and canonical encoding
-guest/       future RISC Zero evaluator boundary
-host/        future proof generation and journal parsing boundary
+guest/       dependency-free evaluator and commitment adapter
+host/        dependency-free receipt verification and journal adapter
 contracts/   dependency-free Soroban-style verification and replay boundary
+e2e/         fixture-only guest -> host -> contract integration tests
 fixtures/    public examples of typed inputs and journal outcomes
 ```
 
@@ -135,6 +136,7 @@ Implemented:
 - dependency-free guest input/output adapter with a required SHA-256 provider
 - strict public journal decoder and host receipt-verifier provider boundary
 - dependency-free attestation/replay boundary with atomic nullifier consume
+- fixture-only cross-crate E2E coverage for decisions, tamper and replay
 - exit `0` / `3` / `4` / `5` semantic validation
 - audit nullifier preimage binding
 - JSON fixture matrix and tests
@@ -163,5 +165,8 @@ cargo clippy --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml --
 cargo fmt --manifest-path hackathons/stellar-real-world-zk/contracts/Cargo.toml --check
 cargo test --manifest-path hackathons/stellar-real-world-zk/contracts/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/contracts/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --check
+cargo test --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml
+cargo clippy --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --all-targets -- -D warnings
 cargo test --test zk_guardrail_contract
 ```
