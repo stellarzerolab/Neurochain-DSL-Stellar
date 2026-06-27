@@ -18,7 +18,8 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134
+            --ignore RUSTSEC-2025-0134 \
+            --ignore RUSTSEC-2026-0186
 ```
 
 Note: `cargo test` includes AI model smoke tests (`src/ai/model/tests.rs`). These tests auto-skip if the referenced ONNX files are missing (useful if you clone without `models/`). For end-to-end validation, run the example scripts that load models (see `docs/getting_started.md` and `examples/`).
@@ -29,7 +30,12 @@ x402 audit/store/facilitator-boundary safety note (Stellar server path): `/api/x
 
 RustSec note: `RUSTSEC-2026-0097` was resolved by updating the transitive
 `rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by
-updating `rustls-webpki 0.103.12 -> 0.103.13`.
+updating `rustls-webpki 0.103.12 -> 0.103.13`. `RUSTSEC-2026-0185` was
+resolved by updating `quinn-proto 0.11.14 -> 0.11.15`. The temporary
+`RUSTSEC-2026-0186` ignore covers `memmap2 0.9.9`, which is transitive through
+`tract-onnx 0.21.13`; the advisory currently has no patched release. Keep the
+ignore scoped to this advisory and remove it when the ONNX dependency can move
+to a fixed `memmap2` release.
 
 ## 3. CI/CD Gatekeepers (GitHub Actions Example)
 Keep audit as a separate job; combining fmt+clippy saves time.
@@ -64,10 +70,11 @@ jobs:
         run: cargo install cargo-audit
       - name: Run Audit
         run: |
-          # Known unmaintained warnings via transitive deps.
+          # Known transitive warnings are scoped and documented in docs/security.md.
           cargo audit --deny warnings \
             --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134
+            --ignore RUSTSEC-2025-0134 \
+            --ignore RUSTSEC-2026-0186
 ```
 
 ## 4. Supply Chain Hardening (Later)
@@ -91,5 +98,6 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134
+            --ignore RUSTSEC-2025-0134 \
+            --ignore RUSTSEC-2026-0186
 ```

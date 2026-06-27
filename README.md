@@ -317,7 +317,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
             --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0097
+            --ignore RUSTSEC-2026-0186
 ```
 
 Focused Stellar guardrail/parity tests:
