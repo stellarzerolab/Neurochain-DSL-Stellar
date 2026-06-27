@@ -26,7 +26,7 @@ permission. `requires_approval` remains a no-submit boundary.
 shared/      dependency-free Rust data contract and canonical encoding
 guest/       future RISC Zero evaluator boundary
 host/        future proof generation and journal parsing boundary
-contracts/   future Soroban verification and replay boundary
+contracts/   dependency-free Soroban-style verification and replay boundary
 fixtures/    public examples of typed inputs and journal outcomes
 ```
 
@@ -134,6 +134,7 @@ Implemented:
 - dependency-free deterministic guardrail evaluator
 - dependency-free guest input/output adapter with a required SHA-256 provider
 - strict public journal decoder and host receipt-verifier provider boundary
+- dependency-free attestation/replay boundary with atomic nullifier consume
 - exit `0` / `3` / `4` / `5` semantic validation
 - audit nullifier preimage binding
 - JSON fixture matrix and tests
@@ -143,8 +144,8 @@ Not implemented yet:
 - RISC Zero guest or receipt generation
 - concrete cryptographic SHA-256 provider in the RISC Zero guest
 - concrete RISC Zero receipt verifier in the host
-- Soroban receipt verifier
-- replay storage
+- concrete Soroban SDK contract and RISC Zero receipt verifier adapter
+- persistent Soroban replay storage adapter
 - API or submit integration
 
 ## Local checks
@@ -159,5 +160,8 @@ cargo clippy --manifest-path hackathons/stellar-real-world-zk/guest/Cargo.toml -
 cargo fmt --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml --check
 cargo test --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path hackathons/stellar-real-world-zk/contracts/Cargo.toml --check
+cargo test --manifest-path hackathons/stellar-real-world-zk/contracts/Cargo.toml
+cargo clippy --manifest-path hackathons/stellar-real-world-zk/contracts/Cargo.toml --all-targets -- -D warnings
 cargo test --test zk_guardrail_contract
 ```
