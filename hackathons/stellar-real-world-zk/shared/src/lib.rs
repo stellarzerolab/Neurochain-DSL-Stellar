@@ -203,6 +203,123 @@ pub enum ReasonCode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GuardrailDecision {
+    pub decision_status: DecisionStatus,
+    pub exit_code: ExitCode,
+    pub reason_code: ReasonCode,
+    pub requires_approval: bool,
+}
+
+impl GuardrailDecision {
+    pub const fn approved() -> Self {
+        Self {
+            decision_status: DecisionStatus::Approved,
+            exit_code: ExitCode::Passed,
+            reason_code: ReasonCode::Passed,
+            requires_approval: false,
+        }
+    }
+
+    pub const fn requires_approval() -> Self {
+        Self {
+            decision_status: DecisionStatus::RequiresApproval,
+            exit_code: ExitCode::Passed,
+            reason_code: ReasonCode::ApprovalThreshold,
+            requires_approval: true,
+        }
+    }
+
+    pub const fn blocked(exit_code: ExitCode, reason_code: ReasonCode) -> Self {
+        Self {
+            decision_status: DecisionStatus::Blocked,
+            exit_code,
+            reason_code,
+            requires_approval: false,
+        }
+    }
+
+    pub fn into_journal(
+        self,
+        evaluator_image_id: Digest32,
+        action_plan_hash: Digest32,
+        policy_commitment: Digest32,
+        policy_version: u32,
+        audit_nullifier: Digest32,
+    ) -> PublicJournal {
+        PublicJournal {
+            contract_version: CONTRACT_VERSION,
+            evaluator_image_id,
+            action_plan_hash,
+            policy_commitment,
+            policy_version,
+            decision_status: self.decision_status,
+            exit_code: self.exit_code,
+            reason_code: self.reason_code,
+            requires_approval: self.requires_approval,
+            audit_nullifier,
+        }
+    }
+}
+
+pub fn evaluate(plan: &TypedActionPlan<'_>, policy: &PrivatePolicy<'_>) -> GuardrailDecision {
+    if plan.validate_shape().is_err() {
+        return GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety);
+    }
+    if policy.validate_shape().is_err() {
+        return GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy);
+    }
+
+    if !contains_sorted(policy.allowed_contracts, plan.contract_id) {
+        return GuardrailDecision::blocked(ExitCode::Allowlist, ReasonCode::Allowlist);
+    }
+
+    let contract_function = format!("{}:{}", plan.contract_id, plan.function);
+    if !contains_sorted(
+        policy.allowed_contract_functions,
+        contract_function.as_str(),
+    ) {
+        return GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy);
+    }
+
+    if plan.intent_confidence_bps < policy.min_intent_confidence_bps {
+        return GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety);
+    }
+
+    let Some(TypedValue::U64(amount_minor)) = find_arg(plan.args, "amount") else {
+        return GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety);
+    };
+    let Some(TypedValue::Symbol(asset)) = find_arg(plan.args, "asset") else {
+        return GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety);
+    };
+    let Some(TypedValue::Address(recipient)) = find_arg(plan.args, "recipient") else {
+        return GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety);
+    };
+
+    if !contains_sorted(policy.allowed_assets, asset)
+        || !contains_sorted(policy.allowed_recipients, recipient)
+        || amount_minor > policy.max_amount_minor
+    {
+        return GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy);
+    }
+
+    if amount_minor >= policy.approval_threshold_minor {
+        GuardrailDecision::requires_approval()
+    } else {
+        GuardrailDecision::approved()
+    }
+}
+
+fn contains_sorted(values: &[&str], target: &str) -> bool {
+    values.binary_search(&target).is_ok()
+}
+
+fn find_arg<'a>(args: &'a [TypedArg<'a>], name: &str) -> Option<TypedValue<'a>> {
+    args.binary_search_by(|arg| arg.name.cmp(name))
+        .ok()
+        .map(|index| args[index].value)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicJournal {
     pub contract_version: u32,
     pub evaluator_image_id: Digest32,
@@ -351,7 +468,13 @@ mod tests {
     use super::*;
 
     const CONTRACT: &str = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+    const OTHER_CONTRACT: &str = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
     const RECIPIENT: &str = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+    const ALLOWED_CONTRACTS: &[&str] = &[CONTRACT];
+    const ALLOWED_CONTRACT_FUNCTIONS: &[&str] =
+        &["CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ:purchase_credits"];
+    const ALLOWED_ASSETS: &[&str] = &["USDC"];
+    const ALLOWED_RECIPIENTS: &[&str] = &[RECIPIENT];
 
     fn to_hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()
@@ -372,6 +495,38 @@ mod tests {
                 value: TypedValue::Address(RECIPIENT),
             },
         ]
+    }
+
+    fn plan<'a>(
+        args: &'a [TypedArg<'a>],
+        contract_id: &'a str,
+        function: &'a str,
+        intent_confidence_bps: u16,
+    ) -> TypedActionPlan<'a> {
+        TypedActionPlan {
+            schema_version: CONTRACT_VERSION,
+            intent_label: "ContractInvoke",
+            action_kind: "soroban_contract_invoke",
+            contract_id,
+            function,
+            args,
+            intent_confidence_bps,
+        }
+    }
+
+    fn policy(max_amount_minor: u64, approval_threshold_minor: u64) -> PrivatePolicy<'static> {
+        PrivatePolicy {
+            schema_version: CONTRACT_VERSION,
+            policy_version: 1,
+            commitment_salt: [0x55; 32],
+            allowed_contracts: ALLOWED_CONTRACTS,
+            allowed_contract_functions: ALLOWED_CONTRACT_FUNCTIONS,
+            allowed_assets: ALLOWED_ASSETS,
+            allowed_recipients: ALLOWED_RECIPIENTS,
+            max_amount_minor,
+            approval_threshold_minor,
+            min_intent_confidence_bps: 9_000,
+        }
     }
 
     fn journal(
@@ -514,6 +669,152 @@ mod tests {
             invalid.validate_semantics(),
             Err(ContractError::InvalidJournalSemantics)
         );
+    }
+
+    #[test]
+    fn evaluator_covers_approved_requires_approval_and_exit_3_4_5() {
+        let args = args();
+        let action = plan(&args, CONTRACT, "purchase_credits", 9_800);
+
+        assert_eq!(
+            evaluate(&action, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::approved()
+        );
+        assert_eq!(
+            evaluate(&action, &policy(1_000_000_000, 400_000_000)),
+            GuardrailDecision::requires_approval()
+        );
+
+        let disallowed_contract = plan(&args, OTHER_CONTRACT, "purchase_credits", 9_800);
+        assert_eq!(
+            evaluate(&disallowed_contract, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::blocked(ExitCode::Allowlist, ReasonCode::Allowlist)
+        );
+
+        assert_eq!(
+            evaluate(&action, &policy(250_000_000, 200_000_000)),
+            GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy)
+        );
+
+        let missing_recipient_args = &args[..2];
+        let missing_recipient = plan(missing_recipient_args, CONTRACT, "purchase_credits", 9_800);
+        assert_eq!(
+            evaluate(&missing_recipient, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety)
+        );
+    }
+
+    #[test]
+    fn evaluator_preserves_allowlist_then_policy_then_intent_order() {
+        let args = args();
+        let disallowed_and_low_confidence = plan(&args, OTHER_CONTRACT, "purchase_credits", 1_000);
+        assert_eq!(
+            evaluate(
+                &disallowed_and_low_confidence,
+                &policy(1_000_000_000, 600_000_000)
+            ),
+            GuardrailDecision::blocked(ExitCode::Allowlist, ReasonCode::Allowlist)
+        );
+
+        let disallowed_function_and_low_confidence =
+            plan(&args, CONTRACT, "withdraw_everything", 1_000);
+        assert_eq!(
+            evaluate(
+                &disallowed_function_and_low_confidence,
+                &policy(1_000_000_000, 600_000_000)
+            ),
+            GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy)
+        );
+
+        let low_confidence = plan(&args, CONTRACT, "purchase_credits", 1_000);
+        assert_eq!(
+            evaluate(&low_confidence, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety)
+        );
+    }
+
+    #[test]
+    fn evaluator_enforces_asset_recipient_and_typed_amount_policy() {
+        let disallowed_asset_args = [
+            TypedArg {
+                name: "amount",
+                value: TypedValue::U64(500_000_000),
+            },
+            TypedArg {
+                name: "asset",
+                value: TypedValue::Symbol("XLM"),
+            },
+            TypedArg {
+                name: "recipient",
+                value: TypedValue::Address(RECIPIENT),
+            },
+        ];
+        let disallowed_asset = plan(&disallowed_asset_args, CONTRACT, "purchase_credits", 9_800);
+        assert_eq!(
+            evaluate(&disallowed_asset, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy)
+        );
+
+        let disallowed_recipient_args = [
+            TypedArg {
+                name: "amount",
+                value: TypedValue::U64(500_000_000),
+            },
+            TypedArg {
+                name: "asset",
+                value: TypedValue::Symbol("USDC"),
+            },
+            TypedArg {
+                name: "recipient",
+                value: TypedValue::Address("GDISALLOWEDRECIPIENT"),
+            },
+        ];
+        let disallowed_recipient = plan(
+            &disallowed_recipient_args,
+            CONTRACT,
+            "purchase_credits",
+            9_800,
+        );
+        assert_eq!(
+            evaluate(&disallowed_recipient, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::blocked(ExitCode::ContractPolicy, ReasonCode::ContractPolicy)
+        );
+
+        let wrongly_typed_amount_args = [
+            TypedArg {
+                name: "amount",
+                value: TypedValue::Symbol("500000000"),
+            },
+            TypedArg {
+                name: "asset",
+                value: TypedValue::Symbol("USDC"),
+            },
+            TypedArg {
+                name: "recipient",
+                value: TypedValue::Address(RECIPIENT),
+            },
+        ];
+        let wrongly_typed_amount = plan(
+            &wrongly_typed_amount_args,
+            CONTRACT,
+            "purchase_credits",
+            9_800,
+        );
+        assert_eq!(
+            evaluate(&wrongly_typed_amount, &policy(1_000_000_000, 600_000_000)),
+            GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety)
+        );
+    }
+
+    #[test]
+    fn evaluator_decision_projects_to_valid_public_journal() {
+        let args = args();
+        let action = plan(&args, CONTRACT, "purchase_credits", 9_800);
+        let decision = evaluate(&action, &policy(1_000_000_000, 400_000_000));
+        let journal = decision.into_journal([1; 32], [2; 32], [3; 32], 1, [4; 32]);
+        assert!(journal.validate_semantics().is_ok());
+        assert_eq!(journal.decision_status, DecisionStatus::RequiresApproval);
+        assert!(journal.requires_approval);
     }
 
     #[test]

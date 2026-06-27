@@ -99,6 +99,7 @@ fn private_policy_fixtures_are_canonical_and_keep_rules_private() {
     for name in [
         "private_policy_approved.json",
         "private_policy_requires_approval.json",
+        "private_policy_blocked_exit_3.json",
         "private_policy_blocked_exit_4.json",
     ] {
         let value = fixture(name);
@@ -141,6 +142,21 @@ fn private_policy_fixtures_are_canonical_and_keep_rules_private() {
         assert!(approval <= max);
         assert!(policy["min_intent_confidence_bps"].as_u64().unwrap() <= 10_000);
     }
+}
+
+#[test]
+fn exit_5_action_plan_fixture_is_missing_required_recipient() {
+    let value = fixture("typed_action_plan_blocked_exit_5.json");
+    let plan = object(&value, "exit 5 typed ActionPlan");
+    assert_eq!(plan["intent_label"], "ContractInvoke");
+    assert_eq!(plan["action_kind"], "soroban_contract_invoke");
+    let args = plan["args"].as_array().expect("args array");
+    let names: Vec<&str> = args
+        .iter()
+        .map(|arg| arg["name"].as_str().expect("arg name"))
+        .collect();
+    assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(!names.contains(&"recipient"));
 }
 
 #[test]

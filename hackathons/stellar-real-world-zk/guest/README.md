@@ -8,5 +8,9 @@ The RISC Zero guest will:
 4. evaluate allowlist, contract policy, intent safety and approval threshold
 5. commit only the public journal
 
+The dependency-free evaluator is already implemented as `shared::evaluate`.
+The guest must call that exact evaluator rather than reimplementing guardrail
+semantics in guest-only code.
+
 The guest must not sign, submit, broadcast, call x402 or contact a network.
 Its image id is part of the public verification contract.

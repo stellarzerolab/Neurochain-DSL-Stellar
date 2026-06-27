@@ -83,6 +83,18 @@ Invalid receipt, wrong image id and replay are rejected by the Soroban
 verification boundary. They map to the existing exit `4` policy boundary but
 are not valid guest-produced journal decisions.
 
+The deterministic evaluator runs guardrails in this order:
+
+1. ActionPlan and policy shape validation
+2. contract allowlist, exit `3`
+3. `contract:function` policy, exit `4`
+4. required typed args and confidence, exit `5`
+5. asset, recipient and maximum amount policy, exit `4`
+6. inclusive approval threshold (`amount >= threshold`)
+
+An invalid private policy is an exit `4` policy failure. A missing or wrongly
+typed `amount`, `asset` or `recipient` is an exit `5` intent-safety failure.
+
 ## Canonical encoding
 
 `shared/src/lib.rs` is the contract source of truth. All integers use
@@ -119,6 +131,7 @@ Implemented:
 - existing `ContractInvoke` label binding
 - private policy shape
 - public journal shape
+- dependency-free deterministic guardrail evaluator
 - exit `0` / `3` / `4` / `5` semantic validation
 - audit nullifier preimage binding
 - JSON fixture matrix and tests
