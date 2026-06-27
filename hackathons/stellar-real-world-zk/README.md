@@ -133,6 +133,7 @@ Implemented:
 - public journal shape
 - dependency-free deterministic guardrail evaluator
 - dependency-free guest input/output adapter with a required SHA-256 provider
+- strict public journal decoder and host receipt-verifier provider boundary
 - exit `0` / `3` / `4` / `5` semantic validation
 - audit nullifier preimage binding
 - JSON fixture matrix and tests
@@ -141,6 +142,7 @@ Not implemented yet:
 
 - RISC Zero guest or receipt generation
 - concrete cryptographic SHA-256 provider in the RISC Zero guest
+- concrete RISC Zero receipt verifier in the host
 - Soroban receipt verifier
 - replay storage
 - API or submit integration
@@ -154,5 +156,8 @@ cargo clippy --manifest-path hackathons/stellar-real-world-zk/shared/Cargo.toml 
 cargo fmt --manifest-path hackathons/stellar-real-world-zk/guest/Cargo.toml --check
 cargo test --manifest-path hackathons/stellar-real-world-zk/guest/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/guest/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml --check
+cargo test --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml
+cargo clippy --manifest-path hackathons/stellar-real-world-zk/host/Cargo.toml --all-targets -- -D warnings
 cargo test --test zk_guardrail_contract
 ```

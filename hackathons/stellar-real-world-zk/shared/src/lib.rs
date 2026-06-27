@@ -16,6 +16,8 @@ pub enum ContractError {
     InvalidConfidence,
     InvalidPolicyThresholds,
     InvalidJournalSemantics,
+    InvalidEncoding,
+    InvalidEnumTag,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +183,17 @@ pub enum DecisionStatus {
     RequiresApproval = 2,
 }
 
+impl DecisionStatus {
+    fn from_tag(tag: u8) -> Result<Self, ContractError> {
+        match tag {
+            0 => Ok(Self::Approved),
+            1 => Ok(Self::Blocked),
+            2 => Ok(Self::RequiresApproval),
+            _ => Err(ContractError::InvalidEnumTag),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ExitCode {
@@ -188,6 +201,18 @@ pub enum ExitCode {
     Allowlist = 3,
     ContractPolicy = 4,
     IntentSafety = 5,
+}
+
+impl ExitCode {
+    fn from_tag(tag: u8) -> Result<Self, ContractError> {
+        match tag {
+            0 => Ok(Self::Passed),
+            3 => Ok(Self::Allowlist),
+            4 => Ok(Self::ContractPolicy),
+            5 => Ok(Self::IntentSafety),
+            _ => Err(ContractError::InvalidEnumTag),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +225,21 @@ pub enum ReasonCode {
     ApprovalThreshold = 4,
     InvalidAttestation = 5,
     Replay = 6,
+}
+
+impl ReasonCode {
+    fn from_tag(tag: u8) -> Result<Self, ContractError> {
+        match tag {
+            0 => Ok(Self::Passed),
+            1 => Ok(Self::Allowlist),
+            2 => Ok(Self::ContractPolicy),
+            3 => Ok(Self::IntentSafety),
+            4 => Ok(Self::ApprovalThreshold),
+            5 => Ok(Self::InvalidAttestation),
+            6 => Ok(Self::Replay),
+            _ => Err(ContractError::InvalidEnumTag),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,6 +434,41 @@ impl PublicJournal {
         out.fixed32(&self.audit_nullifier);
         Ok(out.finish())
     }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, ContractError> {
+        let mut input = Decoder::new(bytes);
+        input.domain(PUBLIC_JOURNAL_DOMAIN)?;
+        let contract_version = input.u32()?;
+        let evaluator_image_id = input.fixed32()?;
+        let action_plan_hash = input.fixed32()?;
+        let policy_commitment = input.fixed32()?;
+        let policy_version = input.u32()?;
+        let decision_status = DecisionStatus::from_tag(input.u8()?)?;
+        let exit_code = ExitCode::from_tag(input.u8()?)?;
+        let reason_code = ReasonCode::from_tag(input.u8()?)?;
+        let requires_approval = match input.u8()? {
+            0 => false,
+            1 => true,
+            _ => return Err(ContractError::InvalidEncoding),
+        };
+        let audit_nullifier = input.fixed32()?;
+        input.finish()?;
+
+        let journal = Self {
+            contract_version,
+            evaluator_image_id,
+            action_plan_hash,
+            policy_commitment,
+            policy_version,
+            decision_status,
+            exit_code,
+            reason_code,
+            requires_approval,
+            audit_nullifier,
+        };
+        journal.validate_semantics()?;
+        Ok(journal)
+    }
 }
 
 pub fn audit_nullifier_preimage(
@@ -412,6 +487,65 @@ pub fn audit_nullifier_preimage(
 
 struct Encoder {
     bytes: Vec<u8>,
+}
+
+struct Decoder<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Decoder<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn domain(&mut self, expected: &[u8]) -> Result<(), ContractError> {
+        let actual = self.take(expected.len() + 1)?;
+        if actual[..expected.len()] == *expected && actual[expected.len()] == 0 {
+            Ok(())
+        } else {
+            Err(ContractError::InvalidEncoding)
+        }
+    }
+
+    fn u8(&mut self) -> Result<u8, ContractError> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u32(&mut self) -> Result<u32, ContractError> {
+        let bytes: [u8; 4] = self
+            .take(4)?
+            .try_into()
+            .map_err(|_| ContractError::InvalidEncoding)?;
+        Ok(u32::from_be_bytes(bytes))
+    }
+
+    fn fixed32(&mut self) -> Result<Digest32, ContractError> {
+        self.take(32)?
+            .try_into()
+            .map_err(|_| ContractError::InvalidEncoding)
+    }
+
+    fn take(&mut self, len: usize) -> Result<&'a [u8], ContractError> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(ContractError::InvalidEncoding)?;
+        let value = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or(ContractError::InvalidEncoding)?;
+        self.offset = end;
+        Ok(value)
+    }
+
+    fn finish(self) -> Result<(), ContractError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(ContractError::InvalidEncoding)
+        }
+    }
 }
 
 impl Encoder {
@@ -668,6 +802,53 @@ mod tests {
         assert_eq!(
             invalid.validate_semantics(),
             Err(ContractError::InvalidJournalSemantics)
+        );
+    }
+
+    #[test]
+    fn public_journal_strict_decode_roundtrips_and_rejects_tampering() {
+        let journal = journal(
+            DecisionStatus::Approved,
+            ExitCode::Passed,
+            ReasonCode::Passed,
+            false,
+        );
+        let encoded = journal.encode().unwrap();
+        assert_eq!(PublicJournal::decode(&encoded), Ok(journal));
+
+        let mut wrong_domain = encoded.clone();
+        wrong_domain[0] ^= 1;
+        assert_eq!(
+            PublicJournal::decode(&wrong_domain),
+            Err(ContractError::InvalidEncoding)
+        );
+
+        let tag_offset = PUBLIC_JOURNAL_DOMAIN.len() + 1 + 4 + (32 * 3) + 4;
+        let mut invalid_tag = encoded.clone();
+        invalid_tag[tag_offset] = 9;
+        assert_eq!(
+            PublicJournal::decode(&invalid_tag),
+            Err(ContractError::InvalidEnumTag)
+        );
+
+        let mut semantic_mismatch = encoded.clone();
+        semantic_mismatch[tag_offset + 1] = ExitCode::ContractPolicy as u8;
+        semantic_mismatch[tag_offset + 2] = ReasonCode::ContractPolicy as u8;
+        assert_eq!(
+            PublicJournal::decode(&semantic_mismatch),
+            Err(ContractError::InvalidJournalSemantics)
+        );
+
+        let mut trailing_data = encoded.clone();
+        trailing_data.push(0);
+        assert_eq!(
+            PublicJournal::decode(&trailing_data),
+            Err(ContractError::InvalidEncoding)
+        );
+
+        assert_eq!(
+            PublicJournal::decode(&encoded[..encoded.len() - 1]),
+            Err(ContractError::InvalidEncoding)
         );
     }
 
