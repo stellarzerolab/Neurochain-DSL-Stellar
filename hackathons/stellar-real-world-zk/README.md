@@ -29,6 +29,7 @@ host/        dependency-free receipt verification and journal adapter
 contracts/   dependency-free Soroban-style verification and replay boundary
 e2e/         fixture-only guest -> host -> contract integration tests
 fixtures/    public examples of typed inputs and journal outcomes
+risc0/       real RISC Zero guest, receipt generation and host verification
 ```
 
 ## Public and private inputs
@@ -110,9 +111,9 @@ Domain separators:
 - `NC_ZK_PUBLIC_JOURNAL_V1\0`
 - `NC_ZK_AUDIT_NULLIFIER_V1\0`
 
-The next proof milestone hashes the ActionPlan and policy preimages with
-SHA-256 inside the guest/host boundary. No JSON byte representation is hashed.
-This avoids whitespace, key-order and number-format ambiguity.
+The RISC Zero guest hashes the ActionPlan and policy preimages with SHA-256.
+No JSON byte representation is hashed. This avoids whitespace, key-order and
+number-format ambiguity.
 
 Typed value tags:
 
@@ -134,6 +135,11 @@ Implemented:
 - public journal shape
 - dependency-free deterministic guardrail evaluator
 - dependency-free guest input/output adapter with a required SHA-256 provider
+- real RISC Zero 3.0.5 guest using the existing deterministic evaluator
+- SHA-256 commitments computed inside the RISC Zero guest
+- genuine receipt generation with development mode disabled
+- serialized receipt verification through the host and contract boundaries
+- approved receipt E2E with replay rejected as exit `4`
 - strict public journal decoder and host receipt-verifier provider boundary
 - dependency-free attestation/replay boundary with atomic nullifier consume
 - fixture-only cross-crate E2E coverage for decisions, tamper and replay
@@ -144,23 +150,29 @@ Implemented:
 
 Not implemented yet:
 
-- RISC Zero guest or receipt generation
-- concrete cryptographic SHA-256 provider in the RISC Zero guest
-- concrete RISC Zero receipt verifier in the host
 - concrete Soroban SDK contract and RISC Zero receipt verifier adapter
 - persistent Soroban replay storage adapter
 - API or submit integration
 
+The current `risc0/host` runner proves and verifies a real receipt locally,
+serializes it, then passes it through the existing host and Soroban-style
+contract boundaries. The Soroban-style boundary is dependency-free Rust and
+is not yet an on-chain Soroban contract. A valid receipt only makes an
+approved action eligible for a later, separate approval flow.
+
 ## Local checks
 
 The preflight script only inspects local commands and Rust targets. It never
-installs tools, changes configuration or accesses a network. `-RequireReady`
+installs tools, changes configuration or accesses a network. RISC Zero may be
+native or in WSL2; the default WSL distribution is `Ubuntu`. `-RequireReady`
 returns exit code `2` when a required component is absent.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -Format Json
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -RequireReady
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -WslDistribution Ubuntu -RequireReady
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1
 ```
 
 RISC Zero's official readiness check is `cargo risczero --version` after an
@@ -184,4 +196,16 @@ cargo fmt --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --chec
 cargo test --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --all-targets -- -D warnings
 cargo test --test zk_guardrail_contract
+```
+
+The RISC Zero runner uses WSL2 by default, explicitly removes
+`RISC0_DEV_MODE`, and builds the host with RISC Zero's `disable-dev-mode`
+feature. A successful run prints:
+
+```text
+receipt_verified=true
+decision=approved
+exit_code=0
+next_step=eligible_for_separate_approval_flow
+replay=blocked_exit_4
 ```
