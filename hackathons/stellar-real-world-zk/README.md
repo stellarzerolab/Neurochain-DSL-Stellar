@@ -137,6 +137,7 @@ Implemented:
 - strict public journal decoder and host receipt-verifier provider boundary
 - dependency-free attestation/replay boundary with atomic nullifier consume
 - fixture-only cross-crate E2E coverage for decisions, tamper and replay
+- read-only local toolchain preflight for Rust, Stellar and RISC Zero
 - exit `0` / `3` / `4` / `5` semantic validation
 - audit nullifier preimage binding
 - JSON fixture matrix and tests
@@ -151,6 +152,20 @@ Not implemented yet:
 - API or submit integration
 
 ## Local checks
+
+The preflight script only inspects local commands and Rust targets. It never
+installs tools, changes configuration or accesses a network. `-RequireReady`
+returns exit code `2` when a required component is absent.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -Format Json
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -RequireReady
+```
+
+RISC Zero's official readiness check is `cargo risczero --version` after an
+`rzup install`. Stellar contract builds require a current Rust toolchain,
+Stellar CLI and the `wasm32v1-none` target.
 
 ```powershell
 cargo fmt --manifest-path hackathons/stellar-real-world-zk/shared/Cargo.toml --check
