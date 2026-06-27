@@ -1282,7 +1282,7 @@ Optional x402 server environment variables:
 | `NC_X402_STELLAR_NETWORK` | Payment network label | `stellar:testnet` |
 | `NC_X402_STELLAR_RECEIVER` | Receiver label/account placeholder | `mock-receiver` |
 | `NC_X402_STELLAR_TTL_SECS` | Challenge lifetime | `300` |
-| `NC_X402_STELLAR_VERIFIER` | Verifier boundary mode. `mock` is the local dev bridge; real facilitator modes fail closed until implemented | `mock` |
+| `NC_X402_STELLAR_VERIFIER` | Verifier boundary mode: `mock` for local development or `facilitator` for the explicit fail-closed verify/settle stub | `mock` |
 | `NC_X402_STELLAR_AUDIT_PATH` | Optional safe JSONL audit output path | unset |
 | `NC_X402_STELLAR_STORE_PATH` | Optional file-backed challenge/replay store path | unset |
 | `NC_ENV` / `APP_ENV` / `RUST_ENV` | When set to `production`, disables the mock x402 verifier and fails closed until a real facilitator verifier is configured | unset |
@@ -1308,8 +1308,11 @@ Implementation note:
 - `src/x402_facilitator.rs` owns the payment verifier boundary
 - current verifier kind: `mock` in development
 - current boundary kind: `mock_header_store`
-- production envs disable the mock verifier until a real facilitator verifier
-  is implemented/configured
+- `NC_X402_STELLAR_VERIFIER=facilitator` selects the explicit
+  `facilitator_verify_settle` boundary, but it currently returns
+  `state_unavailable` because real verify/settle transport is not implemented
+- production envs disable the mock verifier; production payment requests stay
+  fail closed until the facilitator transport is implemented and configured
 - future real facilitator support should be added behind that verifier boundary
   while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
   finalized `plan` stable for clients

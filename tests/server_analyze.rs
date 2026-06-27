@@ -2601,6 +2601,66 @@ fn api_x402_stellar_mock_verifier_is_fenced_in_production_mode() {
 }
 
 #[test]
+fn api_x402_stellar_facilitator_mode_is_explicit_fail_closed_stub() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[("NC_X402_STELLAR_VERIFIER", "facilitator")]);
+    wait_for_listen(addr, Duration::from_secs(3));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Check balance for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX asset XLM",
+        "threshold": 0.0
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
+    assert_eq!(status, 500);
+
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
+    assert_eq!(resp["error"], "x402_state_unavailable");
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_verifier: facilitator"),
+        "expected explicit facilitator verifier identity"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_facilitator_boundary: facilitator_verify_settle"),
+        "expected explicit facilitator verify/settle boundary"
+    );
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|log| log.contains("verify/settle transport is not implemented")),
+        "expected fail-closed facilitator stub log"
+    );
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", "paid:mock-proof-must-not-pass")],
+    );
+    assert_eq!(status, 500);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
+    assert_eq!(resp["error"], "x402_state_unavailable");
+    assert!(
+        resp["logs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .any(|log| log == "x402_verifier: facilitator"),
+        "facilitator mode must not interpret mock proof as a real payment"
+    );
+}
+
+#[test]
 fn api_x402_stellar_configured_store_load_failure_fails_closed() {
     let store_path = std::env::temp_dir().join("nc_x402_stellar_unreadable_store_dir");
     let _ = fs::remove_file(&store_path);

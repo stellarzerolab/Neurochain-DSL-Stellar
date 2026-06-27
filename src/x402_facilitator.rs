@@ -38,6 +38,9 @@ pub trait X402PaymentVerifier {
 #[derive(Debug, Default)]
 struct MockX402PaymentVerifier;
 
+#[derive(Debug, Default)]
+struct FacilitatorX402PaymentVerifier;
+
 #[derive(Debug)]
 struct UnavailableX402PaymentVerifier {
     reason: String,
@@ -92,6 +95,31 @@ impl X402PaymentVerifier for MockX402PaymentVerifier {
     }
 }
 
+impl X402PaymentVerifier for FacilitatorX402PaymentVerifier {
+    fn verifier_kind(&self) -> &'static str {
+        "facilitator"
+    }
+
+    fn boundary_kind(&self) -> &'static str {
+        "facilitator_verify_settle"
+    }
+
+    fn create_challenge(
+        &self,
+        _store: &mut dyn X402ChallengeStore,
+    ) -> Result<X402ChallengeRecord, String> {
+        Err(facilitator_transport_unavailable())
+    }
+
+    fn verify_and_finalize(
+        &self,
+        _payment_signature: &str,
+        _store: &mut dyn X402ChallengeStore,
+    ) -> Result<X402PaymentVerification, String> {
+        Err(facilitator_transport_unavailable())
+    }
+}
+
 impl X402PaymentVerifier for UnavailableX402PaymentVerifier {
     fn verifier_kind(&self) -> &'static str {
         "unavailable"
@@ -123,19 +151,25 @@ pub fn build_x402_payment_verifier() -> Box<dyn X402PaymentVerifier + Send + Syn
         .trim()
         .to_ascii_lowercase();
 
-    if x402_runtime_is_production() && mode == "mock" {
-        return Box::new(UnavailableX402PaymentVerifier {
-            reason: "mock x402 verifier is disabled in production; configure a real facilitator verifier".to_string(),
-        });
+    match mode.as_str() {
+        "mock" if x402_runtime_is_production() => Box::new(UnavailableX402PaymentVerifier {
+            reason:
+                "mock x402 verifier is disabled in production; configure the facilitator verifier"
+                    .to_string(),
+        }),
+        "mock" => Box::<MockX402PaymentVerifier>::default(),
+        "facilitator" => Box::<FacilitatorX402PaymentVerifier>::default(),
+        _ => Box::new(UnavailableX402PaymentVerifier {
+            reason: format!(
+                "unsupported x402 verifier mode {mode:?}; expected \"mock\" or \"facilitator\""
+            ),
+        }),
     }
+}
 
-    if mode != "mock" {
-        return Box::new(UnavailableX402PaymentVerifier {
-            reason: format!("x402 verifier mode {mode:?} is not available yet"),
-        });
-    }
-
-    Box::<MockX402PaymentVerifier>::default()
+fn facilitator_transport_unavailable() -> String {
+    "facilitator x402 verifier is selected, but verify/settle transport is not implemented"
+        .to_string()
 }
 
 fn mock_challenge_from_signature(signature: &str) -> Option<&str> {
