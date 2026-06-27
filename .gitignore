@@ -1,4 +1,5 @@
 /target
+/hackathons/**/target/
 /demo_contracts/**/target
 /logs
 /dist
