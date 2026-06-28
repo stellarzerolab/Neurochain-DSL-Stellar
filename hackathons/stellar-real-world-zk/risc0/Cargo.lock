@@ -1557,12 +1557,16 @@ name = "neurochain-zk-risc0-host"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "hex",
  "neurochain-zk-guardrail-contract",
  "neurochain-zk-guardrail-host-adapter",
  "neurochain-zk-guardrail-soroban-boundary",
  "neurochain-zk-risc0-methods",
  "neurochain-zk-risc0-types",
  "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

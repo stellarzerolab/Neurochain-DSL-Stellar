@@ -80,6 +80,7 @@ $rustup = Get-ToolStatus -Name "rustup"
 $stellar = Get-ToolStatus -Name "stellar"
 $rzup = Get-ToolStatus -Name "rzup"
 $r0vm = Get-ToolStatus -Name "r0vm"
+$docker = Get-ToolStatus -Name "docker"
 $cargoRiscZero = Get-ToolStatus `
     -Name "cargo-risczero" `
     -VersionExecutable "cargo" `
@@ -94,6 +95,11 @@ $wslRiscZero = [pscustomobject][ordered]@{
     cargo_risczero_path = $null
     r0vm_path = $null
     cargo_risczero_version = $null
+    groth16_available = $false
+    groth16_version = $null
+    docker_path = $null
+    docker_version = $null
+    docker_server_version = $null
 }
 if ($wsl.available) {
     $wslHome = Get-WslText `
@@ -105,6 +111,7 @@ if ($wsl.available) {
         $candidateCargo = "$wslHome/.cargo/bin/cargo"
         $candidateCargoRiscZero = "$wslHome/.cargo/bin/cargo-risczero"
         $candidateR0vm = "$wslHome/.cargo/bin/r0vm"
+        $candidateDocker = "/usr/bin/docker"
         $wslRzupVersion = Get-WslText `
             -Distribution $WslDistribution `
             -Executable $candidateRzup `
@@ -117,6 +124,21 @@ if ($wsl.available) {
             -Distribution $WslDistribution `
             -Executable $candidateR0vm `
             -Arguments @("--version")
+        $wslRzupShow = Get-WslText `
+            -Distribution $WslDistribution `
+            -Executable $candidateRzup `
+            -Arguments @("show")
+        if ($wslRzupShow -match "risc0-groth16\s+\*\s+([0-9.]+)") {
+            $wslGroth16Version = $Matches[1]
+        }
+        $wslDockerVersion = Get-WslText `
+            -Distribution $WslDistribution `
+            -Executable $candidateDocker `
+            -Arguments @("--version")
+        $wslDockerServerVersion = Get-WslText `
+            -Distribution $WslDistribution `
+            -Executable $candidateDocker `
+            -Arguments @("info", "--format", "{{.ServerVersion}}")
         if (-not [string]::IsNullOrWhiteSpace($wslRzupVersion)) {
             $wslRzupPath = $candidateRzup
         }
@@ -125,6 +147,9 @@ if ($wsl.available) {
         }
         if (-not [string]::IsNullOrWhiteSpace($wslR0vmVersion)) {
             $wslR0vmPath = $candidateR0vm
+        }
+        if (-not [string]::IsNullOrWhiteSpace($wslDockerVersion)) {
+            $wslDockerPath = $candidateDocker
         }
     }
     $wslRiscZero = [pscustomobject][ordered]@{
@@ -139,6 +164,11 @@ if ($wsl.available) {
         cargo_risczero_path = $wslCargoRiscZeroPath
         r0vm_path = $wslR0vmPath
         cargo_risczero_version = $wslCargoRiscZeroVersion
+        groth16_available = -not [string]::IsNullOrWhiteSpace($wslGroth16Version)
+        groth16_version = $wslGroth16Version
+        docker_path = $wslDockerPath
+        docker_version = $wslDockerVersion
+        docker_server_version = $wslDockerServerVersion
     }
 }
 
@@ -158,7 +188,17 @@ if ($rustup.available) {
 $rustReady = $rustc.available -and $cargo.available -and $rustup.available
 $stellarReady = $stellar.available -and ($installedTargets -contains "wasm32v1-none")
 $nativeRiscZeroReady = $rzup.available -and $cargoRiscZero.available -and $r0vm.available
+$nativeRzupShow = if ($rzup.available) {
+    Get-VersionText -Executable "rzup" -Arguments @("show")
+}
+$nativeGroth16Ready = $nativeRzupShow -match "risc0-groth16\s+\*\s+([0-9.]+)"
+$nativeDockerServerVersion = if ($docker.available) {
+    Get-VersionText -Executable "docker" -Arguments @("info", "--format", "{{.ServerVersion}}")
+}
+$nativeDockerReady = -not [string]::IsNullOrWhiteSpace($nativeDockerServerVersion)
 $riscZeroReady = $nativeRiscZeroReady -or $wslRiscZero.available
+$groth16Ready = $nativeGroth16Ready -or $wslRiscZero.groth16_available
+$dockerReady = $nativeDockerReady -or -not [string]::IsNullOrWhiteSpace($wslRiscZero.docker_server_version)
 $riscZeroEnvironment = if ($nativeRiscZeroReady) {
     "native"
 }
@@ -168,7 +208,7 @@ elseif ($wslRiscZero.available) {
 else {
     "missing"
 }
-$ready = $rustReady -and $stellarReady -and $riscZeroReady
+$ready = $rustReady -and $stellarReady -and $riscZeroReady -and $groth16Ready -and $dockerReady
 
 $missing = [System.Collections.Generic.List[string]]::new()
 if (-not $rustc.available) { $missing.Add("rustc") }
@@ -179,6 +219,8 @@ if ($installedTargets -notcontains "wasm32v1-none") { $missing.Add("rust target 
 if (-not $riscZeroReady) {
     $missing.Add("RISC Zero toolchain (rzup, cargo risczero, r0vm)")
 }
+if (-not $groth16Ready) { $missing.Add("RISC Zero Groth16 component") }
+if (-not $dockerReady) { $missing.Add("running Docker daemon") }
 
 $result = [pscustomobject][ordered]@{
     schema_version = 1
@@ -186,6 +228,8 @@ $result = [pscustomobject][ordered]@{
     rust_ready = $rustReady
     stellar_ready = $stellarReady
     risc_zero_ready = $riscZeroReady
+    groth16_ready = $groth16Ready
+    docker_ready = $dockerReady
     risc_zero_environment = $riscZeroEnvironment
     missing = @($missing)
     installed_targets = $installedTargets
@@ -196,6 +240,7 @@ $result = [pscustomobject][ordered]@{
         stellar = $stellar
         rzup = $rzup
         r0vm = $r0vm
+        docker = $docker
         cargo_risczero = $cargoRiscZero
         wsl = $wsl
         wsl_risc_zero = $wslRiscZero
@@ -210,6 +255,8 @@ else {
     Write-Output "Rust:      $(if ($rustReady) { 'READY' } else { 'BLOCKED' })"
     Write-Output "Stellar:   $(if ($stellarReady) { 'READY' } else { 'BLOCKED' })"
     Write-Output "RISC Zero: $(if ($riscZeroReady) { 'READY' } else { 'BLOCKED' })"
+    Write-Output "Groth16:   $(if ($groth16Ready) { 'READY' } else { 'BLOCKED' })"
+    Write-Output "Docker:    $(if ($dockerReady) { 'READY' } else { 'BLOCKED' })"
     Write-Output "RISC env:  $riscZeroEnvironment"
     Write-Output "Overall:   $(if ($ready) { 'READY' } else { 'BLOCKED' })"
     if ($missing.Count -gt 0) {

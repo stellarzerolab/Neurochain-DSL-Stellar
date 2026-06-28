@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fs, path::Path};
 
 use neurochain_zk_guardrail_contract::{
     DecisionStatus, Digest32, ExitCode, ReasonCode, CONTRACT_VERSION,
@@ -14,10 +14,62 @@ use neurochain_zk_risc0_methods::{NEUROCHAIN_ZK_RISC0_GUEST_ELF, NEUROCHAIN_ZK_R
 use neurochain_zk_risc0_types::{
     OwnedActionPlan, OwnedPrivatePolicy, OwnedTypedArg, OwnedTypedValue, ProofInput,
 };
-use risc0_zkvm::{default_prover, sha::Digest, ExecutorEnv, Receipt};
+use risc0_zkvm::{
+    default_prover, sha::Digest, ExecutorEnv, InnerReceipt, ProverOpts, Receipt,
+};
+use serde::Serialize;
+use sha2::{Digest as Sha2Digest, Sha256};
 
 const CONTRACT: &str = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
 const RECIPIENT: &str = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
+const STELLAR_PROOF_ARTIFACT: &str = "target/neurochain-zk-stellar-proof.json";
+
+#[derive(Debug, Serialize)]
+struct StellarProofArtifact {
+    schema_version: u32,
+    seal_hex: String,
+    image_id_hex: String,
+    journal_hex: String,
+    journal_digest_hex: String,
+}
+
+impl StellarProofArtifact {
+    fn from_receipt(receipt: &Receipt, image_id: Digest32) -> Result<Self, String> {
+        let seal = encode_stellar_seal(receipt)?;
+        if seal.len() <= 4 {
+            return Err("Groth16 seal must contain a routing selector and proof".to_owned());
+        }
+        let journal_digest: Digest32 = Sha256::digest(&receipt.journal.bytes).into();
+
+        Ok(Self {
+            schema_version: 1,
+            seal_hex: hex::encode(seal),
+            image_id_hex: hex::encode(image_id),
+            journal_hex: hex::encode(&receipt.journal.bytes),
+            journal_digest_hex: hex::encode(journal_digest),
+        })
+    }
+
+    fn write(&self, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let bytes = serde_json::to_vec_pretty(self).map_err(|error| error.to_string())?;
+        fs::write(path, bytes).map_err(|error| error.to_string())
+    }
+}
+
+fn encode_stellar_seal(receipt: &Receipt) -> Result<Vec<u8>, String> {
+    let InnerReceipt::Groth16(groth16) = &receipt.inner else {
+        return Err("Stellar verifier requires a genuine Groth16 receipt".to_owned());
+    };
+
+    let selector = &groth16.verifier_parameters.as_bytes()[..4];
+    let mut encoded = Vec::with_capacity(selector.len() + groth16.seal.len());
+    encoded.extend_from_slice(selector);
+    encoded.extend_from_slice(groth16.seal.as_ref());
+    Ok(encoded)
+}
 
 struct RealReceiptVerifier {
     method_id: Digest,
@@ -142,14 +194,19 @@ fn main() {
         .expect("executor environment must build");
 
     let receipt = default_prover()
-        .prove(env, NEUROCHAIN_ZK_RISC0_GUEST_ELF)
-        .expect("RISC Zero proving must succeed")
+        .prove_with_opts(env, NEUROCHAIN_ZK_RISC0_GUEST_ELF, &ProverOpts::groth16())
+        .expect("RISC Zero Groth16 proving must succeed")
         .receipt;
     receipt
         .verify(method_id)
         .expect("generated receipt must verify against the guest image id");
     let receipt_bytes =
         bincode::serialize(&receipt).expect("genuine receipt serialization must succeed");
+    let stellar_artifact = StellarProofArtifact::from_receipt(&receipt, evaluator_image_id)
+        .expect("Stellar Groth16 proof artifact must encode");
+    stellar_artifact
+        .write(Path::new(STELLAR_PROOF_ARTIFACT))
+        .expect("Stellar proof artifact must be written under target");
 
     let verifier = RealReceiptVerifier {
         method_id,
@@ -210,4 +267,6 @@ fn main() {
     println!("exit_code=0");
     println!("next_step=eligible_for_separate_approval_flow");
     println!("replay=blocked_exit_4");
+    println!("proof_kind=groth16");
+    println!("stellar_artifact={STELLAR_PROOF_ARTIFACT}");
 }

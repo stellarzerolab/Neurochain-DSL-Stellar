@@ -137,7 +137,8 @@ Implemented:
 - dependency-free guest input/output adapter with a required SHA-256 provider
 - real RISC Zero 3.0.5 guest using the existing deterministic evaluator
 - SHA-256 commitments computed inside the RISC Zero guest
-- genuine receipt generation with development mode disabled
+- genuine Groth16 receipt generation with development mode disabled
+- Stellar verifier-compatible `seal`, image ID and journal digest artifact
 - serialized receipt verification through the host and contract boundaries
 - approved receipt E2E with replay rejected as exit `4`
 - strict public journal decoder and host receipt-verifier provider boundary
@@ -154,18 +155,39 @@ Not implemented yet:
 - persistent Soroban replay storage adapter
 - API or submit integration
 
+Dependency audit is not clean yet. The pinned RISC Zero 3.0.5 toolchain
+currently brings in `RUSTSEC-2023-0071` (`rsa`, no fixed release available)
+and `RUSTSEC-2025-0055` (`tracing-subscriber`) transitively, plus
+unmaintained-crate warnings for `bincode`, `derivative` and `paste`. These are
+toolchain/upstream constraints, not ignored findings. This milestone is a
+hackathon prototype and must not be represented as production-audited.
+
 The current `risc0/host` runner proves and verifies a real receipt locally,
 serializes it, then passes it through the existing host and Soroban-style
 contract boundaries. The Soroban-style boundary is dependency-free Rust and
 is not yet an on-chain Soroban contract. A valid receipt only makes an
 approved action eligible for a later, separate approval flow.
 
+The runner writes `risc0/target/neurochain-zk-stellar-proof.json`. The ignored
+local artifact contains only public proof material:
+
+- `seal_hex`: Groth16 seal with the verifier-router selector prefix
+- `image_id_hex`: expected 32-byte evaluator image ID
+- `journal_hex`: canonical public NeuroChain journal
+- `journal_digest_hex`: SHA-256 of the raw journal bytes
+
+The private policy, commitment salt and audit nonce are not written to the
+artifact. The future Soroban application contract will hash `journal_hex`,
+call the verifier router with the seal/image/digest tuple, decode the journal
+and atomically consume its audit nullifier.
+
 ## Local checks
 
 The preflight script only inspects local commands and Rust targets. It never
 installs tools, changes configuration or accesses a network. RISC Zero may be
-native or in WSL2; the default WSL distribution is `Ubuntu`. `-RequireReady`
-returns exit code `2` when a required component is absent.
+native or in WSL2; the default WSL distribution is `Ubuntu`. Groth16 proving
+also requires the `risc0-groth16` component and a running Docker daemon.
+`-RequireReady` returns exit code `2` when a required component is absent.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1
@@ -200,7 +222,8 @@ cargo test --test zk_guardrail_contract
 
 The RISC Zero runner uses WSL2 by default, explicitly removes
 `RISC0_DEV_MODE`, and builds the host with RISC Zero's `disable-dev-mode`
-feature. A successful run prints:
+feature. It also validates the generated artifact field allowlist, lengths,
+hex encoding and journal digest. A successful run prints:
 
 ```text
 receipt_verified=true
@@ -208,4 +231,7 @@ decision=approved
 exit_code=0
 next_step=eligible_for_separate_approval_flow
 replay=blocked_exit_4
+proof_kind=groth16
+stellar_artifact=target/neurochain-zk-stellar-proof.json
+stellar_artifact_valid=true
 ```
