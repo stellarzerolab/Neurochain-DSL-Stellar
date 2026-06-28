@@ -1,5 +1,8 @@
 /target
 /hackathons/**/target/
+/hackathons/**/test_snapshots/
+/hackathons/**/.soroban/
+/hackathons/**/.stellar/
 /demo_contracts/**/target
 /logs
 /dist

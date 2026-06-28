@@ -1,0 +1,34 @@
+[package]
+name = "neurochain-zk-guardrail-soroban"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+neurochain-zk-guardrail-contract = { path = "../shared", default-features = false }
+risc0-interface = { git = "https://github.com/NethermindEth/stellar-risc0-verifier", rev = "e8ff6ea202db195352c0141ecc533ff649393fe4", package = "risc0-interface" }
+soroban-sdk = "=25.1.0"
+
+[dev-dependencies]
+mock-verifier = { git = "https://github.com/NethermindEth/stellar-risc0-verifier", rev = "e8ff6ea202db195352c0141ecc533ff649393fe4", package = "mock-verifier" }
+neurochain-zk-guardrail-contract = { path = "../shared", features = ["alloc"] }
+# Soroban 25.1 testutils requires its support crates from the same minor line.
+soroban-ledger-snapshot = "=25.1.0"
+soroban-sdk = { version = "=25.1.0", features = ["testutils"] }
+soroban-sdk-macros = "=25.1.0"
+soroban-spec = "=25.1.0"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true

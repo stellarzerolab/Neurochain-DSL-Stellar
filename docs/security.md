@@ -28,6 +28,22 @@ Runtime safety note (Stellar path): in addition to toolchain checks, `neurochain
 
 x402 audit/store/facilitator-boundary safety note (Stellar server path): `/api/x402/stellar/intent-plan` is an access/payment gate in front of the same guardrail pipeline, not a submit path. Payment verification sits behind `src/x402_facilitator.rs`; `NC_X402_STELLAR_VERIFIER=mock` selects the local development verifier (`PAYMENT-SIGNATURE: paid:<challenge_id>`), while `NC_X402_STELLAR_VERIFIER=facilitator` selects an explicit `facilitator_verify_settle` fail-closed stub. The facilitator stub returns `state_unavailable` until real verify/settle transport is implemented; it must never accept mock proof as real payment. Production runtime envs (`NC_ENV`, `APP_ENV`, or `RUST_ENV` set to `production`) disable the mock verifier. Real facilitator logic must be added behind the same boundary without changing the agent/frontend response envelope. `requires_approval` is an explicit no-submit approval boundary: payment can be finalized and guardrails can pass, but the response still must not sign, submit, or broadcast. If `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit rows for payment-required, approved, `requires_approval`, blocked, replay, expired, and invalid payment states. If `NC_X402_STELLAR_STORE_PATH` is set, the server persists local challenge/replay state across restarts; if the configured store cannot be loaded, x402 requests fail closed with `state_unavailable` instead of falling back to memory. Audit rows and the store must not persist the raw `PAYMENT-SIGNATURE` header, invalid payment proofs, or the mock `paid:<challenge_id>` signature material. `/api/stellar/intent-plan` accepts server-side model ids, not arbitrary client-provided `model_path` values.
 
+ZK guardrail attestation safety note: the hackathon Soroban contract under
+`hackathons/stellar-real-world-zk/soroban/` has an immutable verifier address
+and evaluator image ID set by its constructor. It hashes the exact canonical
+public journal inside Soroban, calls the verifier before reading or writing
+replay state, strictly decodes the journal, checks the configured image ID and
+only then consumes the audit nullifier in persistent storage. A valid proof is
+not submit permission: `approved` is only eligible for a separate approval
+flow, while `requires_approval` and blocked exit `3` / `4` / `5` remain
+non-submit outcomes. Nullifier and instance TTLs are extended to the network
+maximum when accessed; deployments intended to outlive that horizon still
+need an explicit state-maintenance/restore policy. Current unit tests use the
+upstream testing-only mock verifier and do not claim cryptographic on-chain
+verification. The pinned Nethermind verifier repository is not audited, so a
+real-router localnet E2E and an independent security review remain required
+before production use.
+
 RustSec note: `RUSTSEC-2026-0097` was resolved by updating the transitive
 `rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by
 updating `rustls-webpki 0.103.12 -> 0.103.13`. `RUSTSEC-2026-0185` was

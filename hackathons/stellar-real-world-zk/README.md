@@ -27,6 +27,7 @@ shared/      dependency-free Rust data contract and canonical encoding
 guest/       dependency-free evaluator and commitment adapter
 host/        dependency-free receipt verification and journal adapter
 contracts/   dependency-free Soroban-style verification and replay boundary
+soroban/     real Soroban SDK contract, verifier call and persistent replay state
 e2e/         fixture-only guest -> host -> contract integration tests
 fixtures/    public examples of typed inputs and journal outcomes
 risc0/       real RISC Zero guest, receipt generation and host verification
@@ -139,6 +140,10 @@ Implemented:
 - SHA-256 commitments computed inside the RISC Zero guest
 - genuine Groth16 receipt generation with development mode disabled
 - Stellar verifier-compatible `seal`, image ID and journal digest artifact
+- real Soroban SDK application contract using the pinned verifier interface
+- strict no-allocation journal decoding inside Soroban WASM
+- verifier call before any replay-state read or write
+- persistent audit-nullifier consume with maximum network TTL extension
 - serialized receipt verification through the host and contract boundaries
 - approved receipt E2E with replay rejected as exit `4`
 - strict public journal decoder and host receipt-verifier provider boundary
@@ -151,8 +156,8 @@ Implemented:
 
 Not implemented yet:
 
-- concrete Soroban SDK contract and RISC Zero receipt verifier adapter
-- persistent Soroban replay storage adapter
+- localnet E2E against the real router and Groth16 verifier contract
+- long-lived state-maintenance/restore policy beyond the network maximum TTL
 - API or submit integration
 
 Dependency audit is not clean yet. The pinned RISC Zero 3.0.5 toolchain
@@ -161,6 +166,9 @@ and `RUSTSEC-2025-0055` (`tracing-subscriber`) transitively, plus
 unmaintained-crate warnings for `bincode`, `derivative` and `paste`. These are
 toolchain/upstream constraints, not ignored findings. This milestone is a
 hackathon prototype and must not be represented as production-audited.
+The Soroban test lock has no known vulnerability advisory, but still reports
+the transitive unmaintained-crate warnings `RUSTSEC-2024-0388` (`derivative`)
+and `RUSTSEC-2024-0436` (`paste`).
 
 The current `risc0/host` runner proves and verifies a real receipt locally,
 serializes it, then passes it through the existing host and Soroban-style
@@ -177,9 +185,11 @@ local artifact contains only public proof material:
 - `journal_digest_hex`: SHA-256 of the raw journal bytes
 
 The private policy, commitment salt and audit nonce are not written to the
-artifact. The future Soroban application contract will hash `journal_hex`,
-call the verifier router with the seal/image/digest tuple, decode the journal
-and atomically consume its audit nullifier.
+artifact. The Soroban application contract hashes `journal_hex`, calls the
+configured verifier address through the pinned router interface with the
+seal/image/digest tuple, decodes the journal and atomically consumes its audit
+nullifier. Unit tests currently use Nethermind's testing-only mock verifier;
+real Groth16 verification in localnet is the next milestone.
 
 ## Local checks
 
@@ -218,6 +228,9 @@ cargo fmt --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --chec
 cargo test --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --all-targets -- -D warnings
 cargo test --test zk_guardrail_contract
+cargo test --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
+cargo clippy --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --all-targets -- -D warnings
+stellar contract build --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
 ```
 
 The RISC Zero runner uses WSL2 by default, explicitly removes

@@ -1,8 +1,18 @@
+#![cfg_attr(not(test), no_std)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "alloc")]
+use alloc::{format, vec::Vec};
+
 pub const CONTRACT_VERSION: u32 = 1;
 pub const ACTION_PLAN_DOMAIN: &[u8] = b"NC_ZK_ACTION_PLAN_V1";
 pub const PRIVATE_POLICY_DOMAIN: &[u8] = b"NC_ZK_PRIVATE_POLICY_V1";
 pub const PUBLIC_JOURNAL_DOMAIN: &[u8] = b"NC_ZK_PUBLIC_JOURNAL_V1";
 pub const AUDIT_NULLIFIER_DOMAIN: &[u8] = b"NC_ZK_AUDIT_NULLIFIER_V1";
+pub const PUBLIC_JOURNAL_ENCODED_LEN: usize =
+    PUBLIC_JOURNAL_DOMAIN.len() + 1 + 4 + (32 * 3) + 4 + 4 + 32;
 
 pub type Digest32 = [u8; 32];
 
@@ -29,6 +39,7 @@ pub enum TypedValue<'a> {
 }
 
 impl TypedValue<'_> {
+    #[cfg(feature = "alloc")]
     fn tag(self) -> u8 {
         match self {
             Self::Address(_) => 1,
@@ -94,6 +105,7 @@ impl TypedActionPlan<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     pub fn canonical_preimage(&self) -> Result<Vec<u8>, ContractError> {
         self.validate_shape()?;
         let mut out = Encoder::with_domain(ACTION_PLAN_DOMAIN);
@@ -158,6 +170,7 @@ impl PrivatePolicy<'_> {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     pub fn canonical_preimage(&self) -> Result<Vec<u8>, ContractError> {
         self.validate_shape()?;
         let mut out = Encoder::with_domain(PRIVATE_POLICY_DOMAIN);
@@ -301,6 +314,7 @@ impl GuardrailDecision {
     }
 }
 
+#[cfg(feature = "alloc")]
 pub fn evaluate(plan: &TypedActionPlan<'_>, policy: &PrivatePolicy<'_>) -> GuardrailDecision {
     if plan.validate_shape().is_err() {
         return GuardrailDecision::blocked(ExitCode::IntentSafety, ReasonCode::IntentSafety);
@@ -349,10 +363,12 @@ pub fn evaluate(plan: &TypedActionPlan<'_>, policy: &PrivatePolicy<'_>) -> Guard
     }
 }
 
+#[cfg(feature = "alloc")]
 fn contains_sorted(values: &[&str], target: &str) -> bool {
     values.binary_search(&target).is_ok()
 }
 
+#[cfg(feature = "alloc")]
 fn find_arg<'a>(args: &'a [TypedArg<'a>], name: &str) -> Option<TypedValue<'a>> {
     args.binary_search_by(|arg| arg.name.cmp(name))
         .ok()
@@ -419,6 +435,7 @@ impl PublicJournal {
         }
     }
 
+    #[cfg(feature = "alloc")]
     pub fn encode(&self) -> Result<Vec<u8>, ContractError> {
         self.validate_semantics()?;
         let mut out = Encoder::with_domain(PUBLIC_JOURNAL_DOMAIN);
@@ -471,6 +488,7 @@ impl PublicJournal {
     }
 }
 
+#[cfg(feature = "alloc")]
 pub fn audit_nullifier_preimage(
     evaluator_image_id: &Digest32,
     action_plan_hash: &Digest32,
@@ -485,6 +503,7 @@ pub fn audit_nullifier_preimage(
     out.finish()
 }
 
+#[cfg(feature = "alloc")]
 struct Encoder {
     bytes: Vec<u8>,
 }
@@ -548,6 +567,7 @@ impl<'a> Decoder<'a> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl Encoder {
     fn with_domain(domain: &[u8]) -> Self {
         let mut bytes = Vec::with_capacity(256);
@@ -814,6 +834,7 @@ mod tests {
             false,
         );
         let encoded = journal.encode().unwrap();
+        assert_eq!(encoded.len(), PUBLIC_JOURNAL_ENCODED_LEN);
         assert_eq!(PublicJournal::decode(&encoded), Ok(journal));
 
         let mut wrong_domain = encoded.clone();
