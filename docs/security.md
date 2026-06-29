@@ -38,11 +38,14 @@ not submit permission: `approved` is only eligible for a separate approval
 flow, while `requires_approval` and blocked exit `3` / `4` / `5` remain
 non-submit outcomes. Nullifier and instance TTLs are extended to the network
 maximum when accessed; deployments intended to outlive that horizon still
-need an explicit state-maintenance/restore policy. Current unit tests use the
-upstream testing-only mock verifier and do not claim cryptographic on-chain
-verification. The pinned Nethermind verifier repository is not audited, so a
-real-router localnet E2E and an independent security review remain required
-before production use.
+need an explicit state-maintenance/restore policy. The decision/replay matrix
+uses the upstream testing-only mock verifier. A separate Soroban SDK
+integration test verifies the genuine RISC Zero Groth16 artifact through the
+pinned real Groth16 verifier contract and then consumes the attested
+nullifier. This is real cryptographic contract execution in the local test
+environment, not a deployed localnet or network transaction. The pinned
+Nethermind verifier repository is not audited, so a real-router localnet E2E
+and an independent security review remain required before production use.
 
 RustSec note: `RUSTSEC-2026-0097` was resolved by updating the transitive
 `rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by

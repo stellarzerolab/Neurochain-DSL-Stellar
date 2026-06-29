@@ -15,8 +15,12 @@ risc0-interface = { git = "https://github.com/NethermindEth/stellar-risc0-verifi
 soroban-sdk = "=25.1.0"
 
 [dev-dependencies]
+groth16-verifier = { git = "https://github.com/NethermindEth/stellar-risc0-verifier", rev = "e8ff6ea202db195352c0141ecc533ff649393fe4", package = "groth16-verifier" }
+hex = "0.4.3"
 mock-verifier = { git = "https://github.com/NethermindEth/stellar-risc0-verifier", rev = "e8ff6ea202db195352c0141ecc533ff649393fe4", package = "mock-verifier" }
 neurochain-zk-guardrail-contract = { path = "../shared", features = ["alloc"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 # Soroban 25.1 testutils requires its support crates from the same minor line.
 soroban-ledger-snapshot = "=25.1.0"
 soroban-sdk = { version = "=25.1.0", features = ["testutils"] }

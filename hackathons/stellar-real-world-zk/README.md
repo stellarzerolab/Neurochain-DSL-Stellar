@@ -141,6 +141,8 @@ Implemented:
 - genuine Groth16 receipt generation with development mode disabled
 - Stellar verifier-compatible `seal`, image ID and journal digest artifact
 - real Soroban SDK application contract using the pinned verifier interface
+- genuine Groth16 proof verification through the pinned verifier contract in
+  the Soroban SDK test environment
 - strict no-allocation journal decoding inside Soroban WASM
 - verifier call before any replay-state read or write
 - persistent audit-nullifier consume with maximum network TTL extension
@@ -156,7 +158,7 @@ Implemented:
 
 Not implemented yet:
 
-- localnet E2E against the real router and Groth16 verifier contract
+- localnet deployment E2E through the real verifier router
 - long-lived state-maintenance/restore policy beyond the network maximum TTL
 - API or submit integration
 
@@ -171,10 +173,11 @@ the transitive unmaintained-crate warnings `RUSTSEC-2024-0388` (`derivative`)
 and `RUSTSEC-2024-0436` (`paste`).
 
 The current `risc0/host` runner proves and verifies a real receipt locally,
-serializes it, then passes it through the existing host and Soroban-style
-contract boundaries. The Soroban-style boundary is dependency-free Rust and
-is not yet an on-chain Soroban contract. A valid receipt only makes an
-approved action eligible for a later, separate approval flow.
+serializes it, then passes it through the existing host and dependency-free
+contract boundaries. The Soroban SDK application contract separately verifies
+the exported proof with the pinned Nethermind Groth16 verifier contract in the
+Soroban SDK test environment. A valid receipt only makes an approved action
+eligible for a later, separate approval flow.
 
 The runner writes `risc0/target/neurochain-zk-stellar-proof.json`. The ignored
 local artifact contains only public proof material:
@@ -188,8 +191,11 @@ The private policy, commitment salt and audit nonce are not written to the
 artifact. The Soroban application contract hashes `journal_hex`, calls the
 configured verifier address through the pinned router interface with the
 seal/image/digest tuple, decodes the journal and atomically consumes its audit
-nullifier. Unit tests currently use Nethermind's testing-only mock verifier;
-real Groth16 verification in localnet is the next milestone.
+nullifier. `fixtures/groth16_approved.json` contains the same public proof
+material as a reproducible regression fixture. Unit tests cover both
+Nethermind's testing-only mock verifier and genuine cryptographic verification
+through the pinned Groth16 verifier contract. Router deployment and invocation
+in localnet remain the next milestone.
 
 ## Local checks
 
