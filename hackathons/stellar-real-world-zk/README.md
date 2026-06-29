@@ -145,6 +145,9 @@ Implemented:
   the Soroban SDK test environment
 - selector-based dispatch through the pinned real verifier router to the
   Groth16 verifier contract in the Soroban SDK test environment
+- Protocol 26 localnet deployment and invocation through the full application
+  -> router -> Groth16 verifier chain with a genuine public proof
+- localnet replay rejection and cryptographically invalid proof rejection
 - strict no-allocation journal decoding inside Soroban WASM
 - verifier call before any replay-state read or write
 - persistent audit-nullifier consume with maximum network TTL extension
@@ -160,7 +163,6 @@ Implemented:
 
 Not implemented yet:
 
-- localnet deployment E2E through the real verifier router
 - long-lived state-maintenance/restore policy beyond the network maximum TTL
 - API or submit integration
 
@@ -197,8 +199,9 @@ nullifier. `fixtures/groth16_approved.json` contains the same public proof
 material as a reproducible regression fixture. Unit tests cover Nethermind's
 testing-only mock verifier, direct genuine cryptographic verification through
 the pinned Groth16 verifier contract, and selector-based dispatch through the
-pinned real verifier router. Contract deployment and invocation in localnet
-remain the next milestone.
+pinned real verifier router. The localnet runner deploys the same three-contract
+chain, accepts the genuine proof, persists its nullifier, rejects replay as
+contract error `3` and rejects a mutated proof as contract error `2`.
 
 ## Local checks
 
@@ -214,7 +217,15 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -RequireReady
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -WslDistribution Ubuntu -RequireReady
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1
 ```
+
+The Soroban runner uses the official Stellar Quickstart image in a standalone
+Protocol 26 localnet. It pins the verifier source commit, deploys the verifier,
+checks the expected WASM SHA-256 values, deploys the verifier, router and
+application contracts, exercises accepted/replay/invalid-proof paths, and
+removes its temporary local identity and container in `finally`. It does not
+connect to testnet or mainnet.
 
 RISC Zero's official readiness check is `cargo risczero --version` after an
 `rzup install`. Stellar contract builds require a current Rust toolchain,

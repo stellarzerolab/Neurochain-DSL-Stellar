@@ -34,9 +34,11 @@ cryptographic pairing check and confirms that the application consumes the
 attested nullifier. A second integration test registers the pinned real
 verifier router, maps the seal selector to the Groth16 verifier and proves the
 same artifact through the complete application -> router -> verifier contract
-call chain. These are local Soroban SDK contract executions, not deployed
-localnet transactions. The next milestone is deploying and invoking the same
-chain in localnet.
+call chain. `../scripts/run_soroban_localnet_e2e.ps1` additionally deploys and
+invokes the same chain in a standalone Protocol 26 localnet. It confirms a
+genuine proof, persistent nullifier consumption, replay rejection and invalid
+proof rejection. The runner does not connect to testnet or mainnet and removes
+its temporary local identity and container after the run.
 
 The public regression fixture is
 `../fixtures/groth16_approved.json`. It contains only the seal, evaluator image

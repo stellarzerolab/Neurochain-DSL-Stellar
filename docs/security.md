@@ -44,10 +44,12 @@ integration test verifies the genuine RISC Zero Groth16 artifact through the
 pinned real Groth16 verifier contract and then consumes the attested
 nullifier. A second integration test routes the same proof by its four-byte
 seal selector through the pinned real verifier router before the verifier call.
-These are real cryptographic contract executions in the local test environment,
-not deployed localnet or network transactions. The pinned Nethermind verifier
-repository is not audited, so a localnet deployment E2E and an independent
-security review remain required before production use.
+The localnet E2E runner also deploys the application, router and Groth16
+verifier into a standalone Protocol 26 network. It verifies a genuine proof,
+persists its nullifier, rejects replay and rejects a mutated proof. This is a
+local development network only, not testnet, mainnet or submit permission. The
+pinned Nethermind verifier repository is not audited, so an independent
+security review remains required before production use.
 
 RustSec note: `RUSTSEC-2026-0097` was resolved by updating the transitive
 `rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by
