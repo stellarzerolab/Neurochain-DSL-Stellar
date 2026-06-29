@@ -143,6 +143,8 @@ Implemented:
 - real Soroban SDK application contract using the pinned verifier interface
 - genuine Groth16 proof verification through the pinned verifier contract in
   the Soroban SDK test environment
+- selector-based dispatch through the pinned real verifier router to the
+  Groth16 verifier contract in the Soroban SDK test environment
 - strict no-allocation journal decoding inside Soroban WASM
 - verifier call before any replay-state read or write
 - persistent audit-nullifier consume with maximum network TTL extension
@@ -192,10 +194,11 @@ artifact. The Soroban application contract hashes `journal_hex`, calls the
 configured verifier address through the pinned router interface with the
 seal/image/digest tuple, decodes the journal and atomically consumes its audit
 nullifier. `fixtures/groth16_approved.json` contains the same public proof
-material as a reproducible regression fixture. Unit tests cover both
-Nethermind's testing-only mock verifier and genuine cryptographic verification
-through the pinned Groth16 verifier contract. Router deployment and invocation
-in localnet remain the next milestone.
+material as a reproducible regression fixture. Unit tests cover Nethermind's
+testing-only mock verifier, direct genuine cryptographic verification through
+the pinned Groth16 verifier contract, and selector-based dispatch through the
+pinned real verifier router. Contract deployment and invocation in localnet
+remain the next milestone.
 
 ## Local checks
 
