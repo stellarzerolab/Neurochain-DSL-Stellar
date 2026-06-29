@@ -28,6 +28,7 @@ use neurochain::{
         x402_stellar_decision_response, X402PaymentContext, X402StellarIntentPlanOutcome,
     },
     x402_store::{build_x402_challenge_store, now_unix_secs, X402ChallengeStore},
+    zk_attestation::{inspect_zk_attestation, ZkAttestationViewRequest, ZkAttestationViewResponse},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -292,6 +293,10 @@ async fn main() {
         .route("/analyze", post(api_analyze))
         .route("/stellar/intent-plan", post(api_stellar_intent_plan))
         .route(
+            "/stellar/zk-attestation/view",
+            post(api_stellar_zk_attestation_view),
+        )
+        .route(
             "/x402/stellar/intent-plan",
             post(api_x402_stellar_intent_plan),
         )
@@ -497,6 +502,41 @@ async fn api_stellar_intent_plan(
     }
 
     build_stellar_intent_plan_response(req, logs)
+}
+
+async fn api_stellar_zk_attestation_view(
+    headers: HeaderMap,
+    Json(req): Json<ZkAttestationViewRequest>,
+) -> Response {
+    let mut logs = vec!["zk_attestation: read-only public artifact view".to_string()];
+    if let Some(required) = required_api_key() {
+        let ok = provided_api_key(&headers)
+            .map(|got| secure_eq(got, required))
+            .unwrap_or(false);
+        if !ok {
+            logs.push("auth: missing or invalid api key".to_string());
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ZkAttestationViewResponse::failure("unauthorized", logs)),
+            )
+                .into_response();
+        }
+    }
+
+    match inspect_zk_attestation(req) {
+        Ok(mut response) => {
+            response.logs.splice(0..0, logs);
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => {
+            logs.push(format!("zk_attestation: rejected code={}", error.code()));
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ZkAttestationViewResponse::failure(error.code(), logs)),
+            )
+                .into_response()
+        }
+    }
 }
 
 async fn api_x402_stellar_intent_plan(

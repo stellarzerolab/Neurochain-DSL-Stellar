@@ -12,6 +12,7 @@ pub mod x402_audit;
 pub mod x402_facilitator;
 pub mod x402_stellar;
 pub mod x402_store;
+pub mod zk_attestation;
 
 pub use engine::analyze;
 pub use lexer::tokenize;

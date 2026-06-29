@@ -302,6 +302,106 @@ fn assert_schema_required_contains(schema_node: &Value, required_fields: &[&str]
     }
 }
 
+fn zk_fixture(name: &str) -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("hackathons")
+        .join("stellar-real-world-zk")
+        .join("fixtures")
+        .join(name);
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+    serde_json::from_str(&raw)
+        .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
+}
+
+#[test]
+fn api_zk_attestation_view_binds_public_artifact_and_fails_closed_on_tamper() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[]);
+    wait_for_listen(addr, Duration::from_secs(30));
+
+    let action_plan = zk_fixture("typed_action_plan.json");
+    let proof = zk_fixture("groth16_approved.json");
+    let body = json!({
+        "action_plan": action_plan,
+        "proof": proof,
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/zk-attestation/view", &body);
+    assert_eq!(status, 200, "{resp_body}");
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(
+        resp["zk_attestation"]["verification_state"],
+        "binding_validated"
+    );
+    assert_eq!(resp["zk_attestation"]["cryptographically_verified"], false);
+    assert_eq!(
+        resp["zk_attestation"]["stellar_verification_required"],
+        true
+    );
+    assert_eq!(
+        resp["zk_attestation"]["attested_decision"]["status"],
+        "approved"
+    );
+    assert_eq!(resp["zk_attestation"]["attested_decision"]["exit_code"], 0);
+    assert_eq!(resp["execution"]["state"], "blocked");
+    assert_eq!(resp["execution"]["submit_allowed"], false);
+    assert_eq!(resp["execution"]["reason"], "stellar_verification_required");
+    assert!(
+        resp.get("seal_hex").is_none(),
+        "proof seal must not be echoed"
+    );
+
+    let mut tampered_plan = zk_fixture("typed_action_plan.json");
+    tampered_plan["args"][0]["value"] = Value::String("500000001".to_string());
+    let tampered_body = json!({
+        "action_plan": tampered_plan,
+        "proof": zk_fixture("groth16_approved.json"),
+    })
+    .to_string();
+    let (status, resp_body) =
+        http_post_json(addr, "/api/stellar/zk-attestation/view", &tampered_body);
+    assert_eq!(status, 422, "{resp_body}");
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["error"], "action_plan_hash_mismatch");
+    assert_eq!(resp["execution"]["state"], "blocked");
+    assert_eq!(resp["execution"]["submit_allowed"], false);
+    assert!(resp.get("zk_attestation").is_none());
+}
+
+#[test]
+fn api_zk_attestation_view_uses_existing_api_key_boundary() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let _server = spawn_server(port, &[("NC_API_KEY", "zk-view-test-key")]);
+    wait_for_listen(addr, Duration::from_secs(30));
+
+    let body = json!({
+        "action_plan": zk_fixture("typed_action_plan.json"),
+        "proof": zk_fixture("groth16_approved.json"),
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/zk-attestation/view", &body);
+    assert_eq!(status, 401, "{resp_body}");
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["error"], "unauthorized");
+    assert_eq!(resp["execution"]["submit_allowed"], false);
+
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/stellar/zk-attestation/view",
+        &body,
+        &[("X-API-Key", "zk-view-test-key")],
+    );
+    assert_eq!(status, 200, "{resp_body}");
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["execution"]["submit_allowed"], false);
+}
+
 fn assert_json_schema_subset(schema: &Value, value: &Value, label: &str) {
     let mut errors = Vec::new();
     validate_json_schema_subset(schema, value, "$", &mut errors);

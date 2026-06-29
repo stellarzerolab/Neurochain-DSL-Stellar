@@ -148,6 +148,8 @@ Implemented:
 - Protocol 26 localnet deployment and invocation through the full application
   -> router -> Groth16 verifier chain with a genuine public proof
 - localnet replay rejection and cryptographically invalid proof rejection
+- read-only `/api/stellar/zk-attestation/view` inspection that binds the typed
+  ActionPlan to the public journal without granting submit permission
 - strict no-allocation journal decoding inside Soroban WASM
 - verifier call before any replay-state read or write
 - persistent audit-nullifier consume with maximum network TTL extension
@@ -164,7 +166,7 @@ Implemented:
 Not implemented yet:
 
 - long-lived state-maintenance/restore policy beyond the network maximum TTL
-- API or submit integration
+- production cryptographic verifier provider and submit integration
 
 Dependency audit is not clean yet. The pinned RISC Zero 3.0.5 toolchain
 currently brings in `RUSTSEC-2023-0071` (`rsa`, no fixed release available)
@@ -221,11 +223,18 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
 ```
 
 The Soroban runner uses the official Stellar Quickstart image in a standalone
-Protocol 26 localnet. It pins the verifier source commit, deploys the verifier,
-checks the expected WASM SHA-256 values, deploys the verifier, router and
-application contracts, exercises accepted/replay/invalid-proof paths, and
-removes its temporary local identity and container in `finally`. It does not
-connect to testnet or mainnet.
+Protocol 26 localnet. It pins the verifier source commit, checks the expected
+WASM SHA-256 values, deploys the verifier, router and application contracts,
+exercises accepted/replay/invalid-proof paths, and removes its temporary local
+identity and container in `finally`. It does not connect to testnet or mainnet.
+
+The read-only API view accepts `typed_action_plan.json` plus the public proof
+artifact. It recomputes the canonical ActionPlan hash, validates the journal
+digest, image ID and journal semantics, and exposes the attested decision. It
+does not cryptographically verify the Groth16 seal: the response therefore sets
+`cryptographically_verified = false`, `stellar_verification_required = true`
+and `execution.submit_allowed = false`. The real cryptographic check remains
+the Soroban verifier boundary demonstrated by the localnet runner.
 
 RISC Zero's official readiness check is `cargo risczero --version` after an
 `rzup install`. Stellar contract builds require a current Rust toolchain,

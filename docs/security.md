@@ -51,7 +51,16 @@ local development network only, not testnet, mainnet or submit permission. The
 pinned Nethermind verifier repository is not audited, so an independent
 security review remains required before production use.
 
-RustSec note: `RUSTSEC-2026-0097` was resolved by updating the transitive
+The read-only `/api/stellar/zk-attestation/view` endpoint validates only the
+public artifact bindings: canonical ActionPlan hash, journal digest, evaluator
+image ID and journal semantics. It deliberately does not claim Groth16
+verification. Successful inspection still returns
+`cryptographically_verified=false`, `stellar_verification_required=true` and
+`execution.submit_allowed=false`. Tampered plans, digests or journals fail
+closed, and the endpoint uses the existing `NC_API_KEY` authentication boundary.
+
+RustSec note: `RUSTSEC-2026-0190` was resolved by updating `anyhow 1.0.100 ->
+1.0.103`. `RUSTSEC-2026-0097` was resolved by updating the transitive
 `rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by
 updating `rustls-webpki 0.103.12 -> 0.103.13`. `RUSTSEC-2026-0185` was
 resolved by updating `quinn-proto 0.11.14 -> 0.11.15`. The temporary

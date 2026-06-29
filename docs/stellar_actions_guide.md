@@ -1316,3 +1316,41 @@ Implementation note:
 - future real facilitator support should be added behind that verifier boundary
   while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
   finalized `plan` stable for clients
+
+## 13) Read-Only ZK Attestation View
+
+The server exposes a separate inspection endpoint for the hackathon public
+proof artifact:
+
+```text
+POST /api/stellar/zk-attestation/view
+```
+
+```powershell
+$actionPlan = Get-Content -Raw hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json | ConvertFrom-Json
+$proof = Get-Content -Raw hackathons/stellar-real-world-zk/fixtures/groth16_approved.json | ConvertFrom-Json
+$body = @{ action_plan = $actionPlan; proof = $proof } | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8081/api/stellar/zk-attestation/view" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+This endpoint recomputes the canonical typed ActionPlan hash and validates the
+public journal digest, image ID and decision semantics. It does not perform the
+Groth16 cryptographic verification itself. A successful response therefore
+still has:
+
+- `zk_attestation.verification_state = "binding_validated"`
+- `zk_attestation.cryptographically_verified = false`
+- `zk_attestation.stellar_verification_required = true`
+- `execution.state = "blocked"`
+- `execution.submit_allowed = false`
+- `execution.next_step = "verify_on_stellar_then_separate_approval"`
+
+The genuine cryptographic proof path is the Soroban verifier demonstrated by
+`run_soroban_localnet_e2e.ps1`. Changing the ActionPlan, journal digest or
+journal bytes makes the API view fail closed. `NC_API_KEY` protects this route
+when configured. The route never signs, submits or broadcasts.
