@@ -380,6 +380,29 @@ fn api_zk_attestation_view_binds_public_artifact_and_fails_closed_on_tamper() {
     );
     assert_eq!(resp["execution"]["submit_allowed"], false);
 
+    let allowlist_block_body = json!({
+        "action_plan": zk_fixture("typed_action_plan.json"),
+        "proof": zk_fixture("groth16_blocked_exit_3.json"),
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(
+        addr,
+        "/api/stellar/zk-attestation/view",
+        &allowlist_block_body,
+    );
+    assert_eq!(status, 200, "{resp_body}");
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(
+        resp["zk_attestation"]["attested_decision"]["status"],
+        "blocked"
+    );
+    assert_eq!(resp["zk_attestation"]["attested_decision"]["exit_code"], 3);
+    assert_eq!(
+        resp["zk_attestation"]["attested_decision"]["reason"],
+        "allowlist"
+    );
+    assert_eq!(resp["execution"]["submit_allowed"], false);
+
     let mut tampered_plan = zk_fixture("typed_action_plan.json");
     tampered_plan["args"][0]["value"] = Value::String("500000001".to_string());
     let tampered_body = json!({

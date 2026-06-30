@@ -19,15 +19,19 @@ use serde::Serialize;
 use sha2::{Digest as Sha2Digest, Sha256};
 
 const CONTRACT: &str = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
+const BLOCKED_CONTRACT: &str = "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
 const RECIPIENT: &str = "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX";
 const APPROVED_PROOF_ARTIFACT: &str = "target/neurochain-zk-stellar-proof.json";
 const REQUIRES_APPROVAL_PROOF_ARTIFACT: &str =
     "target/neurochain-zk-stellar-proof-requires-approval.json";
+const BLOCKED_ALLOWLIST_PROOF_ARTIFACT: &str =
+    "target/neurochain-zk-stellar-proof-blocked-allowlist.json";
 
 #[derive(Clone, Copy, Debug)]
 enum Scenario {
     Approved,
     RequiresApproval,
+    BlockedAllowlist,
 }
 
 impl Scenario {
@@ -36,9 +40,10 @@ impl Scenario {
         let scenario = match args.next().as_deref() {
             None | Some("approved") => Self::Approved,
             Some("requires_approval") => Self::RequiresApproval,
+            Some("blocked_allowlist") => Self::BlockedAllowlist,
             Some(value) => {
                 return Err(format!(
-                    "unsupported scenario '{value}'; expected approved or requires_approval"
+                    "unsupported scenario '{value}'; expected approved, requires_approval or blocked_allowlist"
                 ));
             }
         };
@@ -52,6 +57,7 @@ impl Scenario {
         match self {
             Self::Approved => "approved",
             Self::RequiresApproval => "requires_approval",
+            Self::BlockedAllowlist => "blocked_allowlist",
         }
     }
 
@@ -59,6 +65,7 @@ impl Scenario {
         match self {
             Self::Approved => APPROVED_PROOF_ARTIFACT,
             Self::RequiresApproval => REQUIRES_APPROVAL_PROOF_ARTIFACT,
+            Self::BlockedAllowlist => BLOCKED_ALLOWLIST_PROOF_ARTIFACT,
         }
     }
 
@@ -66,6 +73,14 @@ impl Scenario {
         match self {
             Self::Approved => DecisionStatus::Approved,
             Self::RequiresApproval => DecisionStatus::RequiresApproval,
+            Self::BlockedAllowlist => DecisionStatus::Blocked,
+        }
+    }
+
+    fn expected_exit(self) -> ExitCode {
+        match self {
+            Self::Approved | Self::RequiresApproval => ExitCode::Passed,
+            Self::BlockedAllowlist => ExitCode::Allowlist,
         }
     }
 
@@ -73,6 +88,7 @@ impl Scenario {
         match self {
             Self::Approved => ReasonCode::Passed,
             Self::RequiresApproval => ReasonCode::ApprovalThreshold,
+            Self::BlockedAllowlist => ReasonCode::Allowlist,
         }
     }
 
@@ -80,6 +96,7 @@ impl Scenario {
         match self {
             Self::Approved => VerifiedNextStep::EligibleForSeparateApprovalFlow,
             Self::RequiresApproval => VerifiedNextStep::RequiresApproval,
+            Self::BlockedAllowlist => VerifiedNextStep::Blocked,
         }
     }
 
@@ -87,6 +104,7 @@ impl Scenario {
         match self {
             Self::Approved => ContractNextStep::EligibleForSeparateApprovalFlow,
             Self::RequiresApproval => ContractNextStep::RequiresApproval,
+            Self::BlockedAllowlist => ContractNextStep::Blocked,
         }
     }
 
@@ -94,6 +112,16 @@ impl Scenario {
         match self {
             Self::Approved => "eligible_for_separate_approval_flow",
             Self::RequiresApproval => "requires_approval",
+            Self::BlockedAllowlist => "blocked",
+        }
+    }
+
+    fn exit_code_number(self) -> u8 {
+        match self.expected_exit() {
+            ExitCode::Passed => 0,
+            ExitCode::Allowlist => 3,
+            ExitCode::ContractPolicy => 4,
+            ExitCode::IntentSafety => 5,
         }
     }
 }
@@ -217,10 +245,14 @@ fn digest_bytes(digest: Digest) -> Digest32 {
 }
 
 fn proof_input(scenario: Scenario, evaluator_image_id: Digest32) -> ProofInput {
-    let (policy_version, commitment_salt, approval_threshold_minor, audit_nonce) = match scenario {
-        Scenario::Approved => (7, [0x55; 32], 600_000_000, [0x22; 32]),
-        Scenario::RequiresApproval => (8, [0x56; 32], 500_000_000, [0x23; 32]),
-    };
+    let (policy_version, commitment_salt, allowed_contract, approval_threshold_minor, audit_nonce) =
+        match scenario {
+            Scenario::Approved => (7, [0x55; 32], CONTRACT, 600_000_000, [0x22; 32]),
+            Scenario::RequiresApproval => (8, [0x56; 32], CONTRACT, 500_000_000, [0x23; 32]),
+            Scenario::BlockedAllowlist => {
+                (9, [0x57; 32], BLOCKED_CONTRACT, 600_000_000, [0x24; 32])
+            }
+        };
 
     ProofInput {
         evaluator_image_id,
@@ -250,8 +282,8 @@ fn proof_input(scenario: Scenario, evaluator_image_id: Digest32) -> ProofInput {
             schema_version: CONTRACT_VERSION,
             policy_version,
             commitment_salt,
-            allowed_contracts: vec![CONTRACT.to_owned()],
-            allowed_contract_functions: vec![format!("{CONTRACT}:purchase_credits")],
+            allowed_contracts: vec![allowed_contract.to_owned()],
+            allowed_contract_functions: vec![format!("{allowed_contract}:purchase_credits")],
             allowed_assets: vec!["USDC".to_owned()],
             allowed_recipients: vec![RECIPIENT.to_owned()],
             max_amount_minor: 1_000_000_000,
@@ -306,7 +338,7 @@ fn main() {
         host_verified.journal.decision_status,
         scenario.expected_decision()
     );
-    assert_eq!(host_verified.journal.exit_code, ExitCode::Passed);
+    assert_eq!(host_verified.journal.exit_code, scenario.expected_exit());
     assert_eq!(
         host_verified.journal.reason_code,
         scenario.expected_reason()
@@ -347,7 +379,7 @@ fn main() {
 
     println!("receipt_verified=true");
     println!("decision={}", scenario.name());
-    println!("exit_code=0");
+    println!("exit_code={}", scenario.exit_code_number());
     println!("next_step={}", scenario.next_step_name());
     println!("replay=blocked_exit_4");
     println!("proof_kind=groth16");

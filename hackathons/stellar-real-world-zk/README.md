@@ -149,6 +149,8 @@ Implemented:
   -> router -> Groth16 verifier chain with a genuine public proof
 - genuine `requires_approval` Groth16 proof through the same router/verifier
   chain, with exit `0` and an explicit no-submit next step
+- genuine private-policy allowlist block proof through the same chain, with
+  decision `blocked`, exit `3` and reason `allowlist`
 - localnet replay rejection and cryptographically invalid proof rejection
 - read-only `/api/stellar/zk-attestation/view` inspection that binds the typed
   ActionPlan to the public journal without granting submit permission
@@ -187,11 +189,10 @@ the exported proof with the pinned Nethermind Groth16 verifier contract in the
 Soroban SDK test environment. A valid receipt only makes an approved action
 eligible for a later, separate approval flow.
 
-The runner accepts `-Scenario approved` (default) or
-`-Scenario requires_approval`. It writes the corresponding ignored artifact to
-`risc0/target/neurochain-zk-stellar-proof.json` or
-`risc0/target/neurochain-zk-stellar-proof-requires-approval.json`. Each local
-artifact contains only public proof material:
+The runner accepts `-Scenario approved` (default),
+`-Scenario requires_approval` or `-Scenario blocked_allowlist`. It writes the
+corresponding ignored artifact under `risc0/target/`. Each local artifact
+contains only public proof material:
 
 - `seal_hex`: Groth16 seal with the verifier-router selector prefix
 - `image_id_hex`: expected 32-byte evaluator image ID
@@ -202,14 +203,16 @@ The private policy, commitment salt and audit nonce are not written to the
 artifact. The Soroban application contract hashes `journal_hex`, calls the
 configured verifier address through the pinned router interface with the
 seal/image/digest tuple, decodes the journal and atomically consumes its audit
-nullifier. `fixtures/groth16_approved.json` and
-`fixtures/groth16_requires_approval.json` contain the corresponding public proof
+nullifier. `fixtures/groth16_approved.json`,
+`fixtures/groth16_requires_approval.json` and
+`fixtures/groth16_blocked_exit_3.json` contain the corresponding public proof
 material as reproducible regression fixtures. Unit tests cover Nethermind's
 testing-only mock verifier, direct genuine cryptographic verification through
 the pinned Groth16 verifier contract, and selector-based dispatch through the
 pinned real verifier router. The localnet runner deploys the same three-contract
-chain, accepts either genuine scenario, persists its nullifier, rejects replay
-as contract error `3` and rejects a mutated proof as contract error `2`.
+chain, accepts each genuine scenario as its attested decision, persists its
+nullifier, rejects replay as contract error `3` and rejects a mutated proof as
+contract error `2`.
 
 ## Local checks
 
@@ -226,8 +229,10 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/zk_toolchain_preflight.ps1 -WslDistribution Ubuntu -RequireReady
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1 -Scenario requires_approval
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1 -Scenario blocked_allowlist
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1 -Scenario requires_approval
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1 -Scenario blocked_allowlist
 ```
 
 The Soroban runner uses the official Stellar Quickstart image in a standalone

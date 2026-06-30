@@ -1,6 +1,6 @@
 param(
     [string]$WslDistribution = "Ubuntu",
-    [ValidateSet("approved", "requires_approval")]
+    [ValidateSet("approved", "requires_approval", "blocked_allowlist")]
     [string]$Scenario = "approved"
 )
 
@@ -25,11 +25,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "RISC Zero end-to-end run failed with exit code $LASTEXITCODE."
 }
 
-$artifactName = if ($Scenario -eq "approved") {
-    "neurochain-zk-stellar-proof.json"
-}
-else {
-    "neurochain-zk-stellar-proof-requires-approval.json"
+$artifactName = switch ($Scenario) {
+    "approved" { "neurochain-zk-stellar-proof.json" }
+    "requires_approval" { "neurochain-zk-stellar-proof-requires-approval.json" }
+    "blocked_allowlist" { "neurochain-zk-stellar-proof-blocked-allowlist.json" }
 }
 $artifactPath = Join-Path $risc0WindowsPath "target\$artifactName"
 $artifact = Get-Content -Raw -LiteralPath $artifactPath | ConvertFrom-Json

@@ -344,6 +344,25 @@ mod tests {
     }
 
     #[test]
+    fn allowlist_block_artifact_exposes_exit_3_without_granting_submit() {
+        let mut request = approved_request();
+        request.proof = serde_json::from_str(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_blocked_exit_3.json"
+        ))
+        .expect("exit-3 Groth16 fixture");
+
+        let response = inspect_zk_attestation(request).expect("binding must validate");
+        let attestation = response.zk_attestation.expect("attestation view");
+
+        assert_eq!(attestation.attested_decision.status, "blocked");
+        assert_eq!(attestation.attested_decision.exit_code, 3);
+        assert_eq!(attestation.attested_decision.reason, "allowlist");
+        assert!(!attestation.attested_decision.requires_approval);
+        assert!(!response.execution.submit_allowed);
+        assert_eq!(response.execution.state, "blocked");
+    }
+
+    #[test]
     fn changed_action_plan_fails_closed_before_any_execution_state() {
         let mut request = approved_request();
         request.action_plan.args[0].value = "500000001".to_string();

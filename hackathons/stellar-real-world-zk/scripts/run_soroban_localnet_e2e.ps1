@@ -2,7 +2,7 @@ param(
     [string]$WslDistribution = "Ubuntu",
     [string]$QuickstartImage = "stellar/quickstart:testing",
     [int]$ProtocolVersion = 26,
-    [ValidateSet("approved", "requires_approval")]
+    [ValidateSet("approved", "requires_approval", "blocked_allowlist")]
     [string]$Scenario = "approved"
 )
 
@@ -22,26 +22,28 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $OutDir = Join-Path $ProjectRoot "target\localnet"
 $UpstreamDir = Join-Path $OutDir "stellar-risc0-verifier"
-$FixtureName = if ($Scenario -eq "approved") {
-    "groth16_approved.json"
-}
-else {
-    "groth16_requires_approval.json"
+$FixtureName = switch ($Scenario) {
+    "approved" { "groth16_approved.json" }
+    "requires_approval" { "groth16_requires_approval.json" }
+    "blocked_allowlist" { "groth16_blocked_exit_3.json" }
 }
 $FixturePath = Join-Path $ProjectRoot "fixtures\$FixtureName"
 $AppManifest = Join-Path $ProjectRoot "soroban\Cargo.toml"
-$ExpectedDecisionStatus = if ($Scenario -eq "approved") { 0 } else { 2 }
-$ExpectedNextStep = if ($Scenario -eq "approved") {
-    "EligibleForSeparateApprovalFlow"
+$ExpectedDecisionStatus = switch ($Scenario) {
+    "approved" { 0 }
+    "requires_approval" { 2 }
+    "blocked_allowlist" { 1 }
 }
-else {
-    "RequiresApproval"
+$ExpectedExitCode = if ($Scenario -eq "blocked_allowlist") { 3 } else { 0 }
+$ExpectedNextStep = switch ($Scenario) {
+    "approved" { "EligibleForSeparateApprovalFlow" }
+    "requires_approval" { "RequiresApproval" }
+    "blocked_allowlist" { "Blocked" }
 }
-$ExpectedNextStepOutput = if ($Scenario -eq "approved") {
-    "eligible_for_separate_approval_flow"
-}
-else {
-    "requires_approval"
+$ExpectedNextStepOutput = switch ($Scenario) {
+    "approved" { "eligible_for_separate_approval_flow" }
+    "requires_approval" { "requires_approval" }
+    "blocked_allowlist" { "blocked" }
 }
 $ExpectedRequiresApproval = $Scenario -eq "requires_approval"
 
@@ -236,7 +238,7 @@ try {
     )
     $accepted = Last-OutputLine (Invoke-Stellar -Arguments $verifyArguments) | ConvertFrom-Json
     if ($accepted.decision_status -ne $ExpectedDecisionStatus -or
-        $accepted.exit_code -ne 0 -or
+        $accepted.exit_code -ne $ExpectedExitCode -or
         $accepted.requires_approval -ne $ExpectedRequiresApproval -or
         $accepted.next_step -ne $ExpectedNextStep) {
         throw "Localnet accepted an unexpected attestation result"
@@ -271,7 +273,7 @@ try {
     Write-Output "router_contract=$routerId"
     Write-Output "application_contract=$appId"
     Write-Output "decision=$Scenario"
-    Write-Output "exit_code=0"
+    Write-Output "exit_code=$ExpectedExitCode"
     Write-Output "next_step=$ExpectedNextStepOutput"
     Write-Output "nullifier_consumed=true"
     Write-Output "replay=contract_error_3"
