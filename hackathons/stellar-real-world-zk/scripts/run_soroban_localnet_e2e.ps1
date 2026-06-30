@@ -3,7 +3,8 @@ param(
     [string]$QuickstartImage = "stellar/quickstart:testing",
     [int]$ProtocolVersion = 26,
     [ValidateSet("approved", "requires_approval", "blocked_allowlist")]
-    [string]$Scenario = "approved"
+    [string]$Scenario = "approved",
+    [switch]$Offline
 )
 
 $ErrorActionPreference = "Stop"
@@ -146,21 +147,40 @@ function Wait-Localnet {
 $keeper = $null
 $containerStarted = $false
 $identityCreated = $false
+$quickstartImageId = "not-recorded"
+$previousCargoNetOffline = $env:CARGO_NET_OFFLINE
 
 try {
     New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
-    if (-not (Test-Path (Join-Path $UpstreamDir ".git"))) {
+    if ($Offline) {
+        if (-not (Test-Path (Join-Path $UpstreamDir ".git"))) {
+            throw "Offline mode requires the pinned verifier checkout at '$UpstreamDir'."
+        }
         Invoke-Native -Command "git.exe" -Arguments @(
-            "clone", "--filter=blob:none", $VerifierRepository, $UpstreamDir
+            "-C", $UpstreamDir, "cat-file", "-e", "$VerifierCommit`^{commit}"
+        ) | Out-Null
+        $env:CARGO_NET_OFFLINE = "true"
+    }
+    else {
+        if (-not (Test-Path (Join-Path $UpstreamDir ".git"))) {
+            Invoke-Native -Command "git.exe" -Arguments @(
+                "clone", "--filter=blob:none", $VerifierRepository, $UpstreamDir
+            ) | Out-Null
+        }
+        Invoke-Native -Command "git.exe" -Arguments @(
+            "-C", $UpstreamDir, "fetch", "origin", $VerifierCommit, "--depth", "1"
         ) | Out-Null
     }
     Invoke-Native -Command "git.exe" -Arguments @(
-        "-C", $UpstreamDir, "fetch", "origin", $VerifierCommit, "--depth", "1"
-    ) | Out-Null
-    Invoke-Native -Command "git.exe" -Arguments @(
         "-C", $UpstreamDir, "checkout", "--detach", $VerifierCommit
     ) | Out-Null
+    $resolvedVerifierCommit = Last-OutputLine (Invoke-Native -Command "git.exe" -Arguments @(
+            "-C", $UpstreamDir, "rev-parse", "HEAD"
+        ))
+    if ($resolvedVerifierCommit -ne $VerifierCommit) {
+        throw "Verifier checkout does not match the pinned commit."
+    }
 
     $UpstreamManifest = Join-Path $UpstreamDir "Cargo.toml"
     Invoke-Stellar -Arguments @(
@@ -190,12 +210,25 @@ try {
     }
 
     Invoke-WslRoot -Arguments @("service", "docker", "start") | Out-Null
-    $containerStarted = $true
-    Invoke-WslRoot -Arguments @(
-        "docker", "run", "-d", "-p", "8000:8000", "--name", $ContainerName,
+    $dockerRunArguments = @("docker", "run")
+    if ($Offline) {
+        $quickstartImageId = Last-OutputLine (Invoke-WslRoot -Arguments @(
+                "docker", "image", "inspect", "--format", "{{.Id}}", $QuickstartImage
+            ))
+        $dockerRunArguments += "--pull=never"
+    }
+    $dockerRunArguments += @(
+        "-d", "-p", "8000:8000", "--name", $ContainerName,
         $QuickstartImage, "--local", "--protocol-version", "$ProtocolVersion",
         "--limits", "unlimited", "--enable", "rpc,horizon"
-    ) | Out-Null
+    )
+    Invoke-WslRoot -Arguments $dockerRunArguments | Out-Null
+    $containerStarted = $true
+    if (-not $Offline) {
+        $quickstartImageId = Last-OutputLine (Invoke-WslRoot -Arguments @(
+                "docker", "image", "inspect", "--format", "{{.Id}}", $QuickstartImage
+            ))
+    }
     Wait-Localnet
 
     $identityCreated = $true
@@ -269,6 +302,9 @@ try {
         -Pattern "Error\(Contract, #2\)" -Label "Invalid proof"
 
     Write-Output "localnet_protocol=$ProtocolVersion"
+    Write-Output "offline_mode=$($Offline.ToString().ToLowerInvariant())"
+    Write-Output "verifier_commit=$resolvedVerifierCommit"
+    Write-Output "quickstart_image_id=$quickstartImageId"
     Write-Output "verifier_contract=$verifierId"
     Write-Output "router_contract=$routerId"
     Write-Output "application_contract=$appId"
@@ -303,5 +339,11 @@ finally {
     }
     if ($null -ne $keeper -and -not $keeper.HasExited) {
         Stop-Process -Id $keeper.Id -Force
+    }
+    if ($null -eq $previousCargoNetOffline) {
+        Remove-Item Env:CARGO_NET_OFFLINE -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:CARGO_NET_OFFLINE = $previousCargoNetOffline
     }
 }

@@ -2,7 +2,8 @@ param(
     [ValidateSet("approved", "requires_approval", "blocked_allowlist")]
     [string]$Scenario = "blocked_allowlist",
     [string]$WslDistribution = "Ubuntu",
-    [switch]$IncludeLocalnet
+    [switch]$IncludeLocalnet,
+    [switch]$OfflineLocalnet
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +11,10 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ReadinessScript = Join-Path $PSScriptRoot "check_submission_package.ps1"
 $LocalnetScript = Join-Path $PSScriptRoot "run_soroban_localnet_e2e.ps1"
+
+if ($OfflineLocalnet -and -not $IncludeLocalnet) {
+    throw "-OfflineLocalnet requires -IncludeLocalnet."
+}
 
 function Invoke-ChildPowerShell {
     param(
@@ -71,11 +76,16 @@ Write-Output "private_policy_revealed=false"
 
 if ($IncludeLocalnet) {
     Write-Output "demo_stage=protocol_26_localnet"
-    Invoke-ChildPowerShell -Path $LocalnetScript -Arguments @(
+    $localnetArguments = @(
         "-WslDistribution", $WslDistribution,
         "-Scenario", $Scenario
     )
+    if ($OfflineLocalnet) {
+        $localnetArguments += "-Offline"
+    }
+    Invoke-ChildPowerShell -Path $LocalnetScript -Arguments $localnetArguments
     Write-Output "localnet_included=true"
+    Write-Output "localnet_offline=$($OfflineLocalnet.ToString().ToLowerInvariant())"
 }
 else {
     Write-Output "localnet_included=false"

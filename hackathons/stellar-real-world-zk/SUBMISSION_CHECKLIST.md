@@ -13,6 +13,8 @@
 - [x] No private policy values, wallet secrets or local-only files are included.
 - [x] One-command proof-only video rehearsal is available without Stellar
   network or wallet activity.
+- [x] Full Protocol 26 rehearsal supports fail-closed offline verifier, Cargo
+  and Docker cache use.
 
 Run the package gate:
 

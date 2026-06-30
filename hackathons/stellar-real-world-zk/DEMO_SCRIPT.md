@@ -52,19 +52,22 @@ Point out that the test uses the pinned real verifier and covers:
 
 ## 1:20-2:15 - Stellar localnet verification
 
-For a live full localnet take, run:
+For a live full localnet take without fetches or image pulls during recording,
+run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1 -IncludeLocalnet
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1 -IncludeLocalnet -OfflineLocalnet
 ```
 
-Otherwise show the previously recorded successful output from the direct
-localnet runner.
+Offline mode fails closed unless the pinned verifier commit, Cargo dependencies
+and Quickstart image are already cached. Otherwise show the previously recorded
+successful output from the direct localnet runner.
 
 Highlight these lines:
 
 ```text
 localnet_protocol=26
+offline_mode=true
 decision=blocked_allowlist
 exit_code=3
 next_step=blocked

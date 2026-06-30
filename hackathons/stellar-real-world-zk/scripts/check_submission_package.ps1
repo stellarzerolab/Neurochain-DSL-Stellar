@@ -145,10 +145,14 @@ if ($demoRunnerReady) {
     $demoRunner = Get-Content -Raw -LiteralPath $demoRunnerPath
     $demoRunnerReady = $demoRunner.Contains("check_submission_package.ps1") -and
         $demoRunner.Contains("run_soroban_localnet_e2e.ps1") -and
-        $demoRunner.Contains('switch]$IncludeLocalnet')
+        $demoRunner.Contains('switch]$IncludeLocalnet') -and
+        $demoRunner.Contains('switch]$OfflineLocalnet') -and
+        $localnetRunner.Contains('switch]$Offline') -and
+        $localnetRunner.Contains('CARGO_NET_OFFLINE') -and
+        $localnetRunner.Contains('--pull=never')
 }
 Add-Check "runner:demo-rehearsal" $demoRunnerReady $(
-    if ($demoRunnerReady) { "proof gate plus explicit localnet opt-in" } else { "missing or incomplete" }
+    if ($demoRunnerReady) { "proof gate plus explicit offline localnet opt-in" } else { "missing or incomplete" }
 )
 
 if ($RunTests) {
