@@ -1,0 +1,144 @@
+# NeuroChain ZK Guardrail Attestation
+
+## One-line description
+
+Prove that a known deterministic AI-agent guardrail program evaluated a typed
+Stellar ActionPlan against a private owner policy, then verify that decision in
+Soroban without revealing the policy.
+
+## The problem
+
+AI agents can prepare payments and contract calls, but an owner may not want to
+publish the policy that controls those actions. A normal off-chain policy API
+forces the user and the chain to trust the service that reports `approved` or
+`blocked`.
+
+NeuroChain makes the safety decision verifiable. The ActionPlan is public, the
+owner policy stays private, and a RISC Zero proof attests that the committed
+NeuroChain evaluator produced the published decision. Soroban verifies the
+proof and consumes an audit nullifier so the same attestation cannot be reused.
+
+## Why zero knowledge is essential
+
+The proof is not decoration or an identity check. It proves execution of the
+actual deterministic guardrail evaluator across multiple policy fields:
+
+- contract allowlist
+- contract and function policy
+- asset and recipient policy
+- maximum amount
+- approval threshold
+- required typed inputs and intent confidence.
+
+Without the proof, Soroban would have to trust an off-chain server's claim.
+Without privacy, the owner would have to publish the policy itself.
+
+## How it works
+
+1. NeuroChain creates a canonical typed `ContractInvoke` ActionPlan.
+2. The RISC Zero guest receives the ActionPlan, private policy and private audit
+   nonce.
+3. The guest runs the known NeuroChain evaluator and commits a public journal.
+4. A Groth16 receipt proves execution of the evaluator image.
+5. The Soroban application calls the pinned verifier router and Groth16
+   verifier.
+6. After successful verification, Soroban strictly decodes the journal and
+   atomically consumes the audit nullifier.
+7. The result is `approved`, `requires_approval` or `blocked` with the existing
+   NeuroChain exit semantics.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete trust and data flow.
+
+## Public result
+
+The public journal binds:
+
+- evaluator image ID
+- ActionPlan hash
+- private policy commitment and version
+- decision status
+- exit code and reason code
+- approval state
+- audit nullifier.
+
+The private policy, commitment salt and audit nonce are not included in the
+public proof artifact.
+
+## Stellar integration
+
+The implementation contains a real Soroban application contract with:
+
+- an immutable evaluator image ID and verifier-router address
+- SHA-256 of the canonical journal inside Soroban
+- selector-based routing to the pinned RISC Zero Groth16 verifier
+- strict no-allocation journal decoding in contract WASM
+- persistent audit-nullifier consumption
+- replay and invalid-proof rejection.
+
+The full application -> router -> Groth16 verifier chain is exercised in a
+standalone Stellar Protocol 26 localnet. No testnet or mainnet claim is made by
+this submission package.
+
+## Demonstrated scenarios
+
+| Scenario | Proven result | Soroban next step |
+| --- | --- | --- |
+| valid private policy | `approved`, exit `0` | eligible only for a separate approval flow |
+| private approval threshold reached | `requires_approval`, exit `0` | `RequiresApproval`, no submit |
+| contract absent from private allowlist | `blocked`, exit `3`, `allowlist` | `Blocked` |
+| reused audit nullifier | contract error `3` | rejected as replay |
+| mutated Groth16 proof | contract error `2` | rejected as invalid attestation |
+
+Payment or proof verification is never direct submit permission.
+
+## Reproduce locally
+
+Run the genuine Groth16/Soroban regression matrix:
+
+```powershell
+cargo test --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --test groth16_proof
+```
+
+Run a full standalone Protocol 26 localnet scenario:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1 -Scenario blocked_allowlist
+```
+
+Generate a genuine RISC Zero Groth16 proof from private inputs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1 -Scenario requires_approval
+```
+
+The RISC Zero command needs the documented WSL2 toolchain and Docker. The
+localnet runner removes its temporary identity and container after the run.
+
+## Repository map
+
+- [`risc0/`](risc0/) - genuine RISC Zero guest and proof host
+- [`shared/`](shared/) - canonical data contract and deterministic evaluator
+- [`soroban/`](soroban/) - Soroban application and verifier boundary
+- [`fixtures/`](fixtures/) - public ActionPlan, journal and proof artifacts
+- [`scripts/`](scripts/) - reproducible proof and Protocol 26 localnet runners
+- [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) - concise video recording runbook
+
+## Security boundaries and limitations
+
+- No private keys, seed phrases or wallet secrets are stored in the package.
+- No transaction signing or agent-controlled submit path is introduced.
+- `requires_approval` is explicitly a no-submit result.
+- The read-only API view validates public bindings but deliberately reports
+  `cryptographically_verified=false`; cryptographic verification belongs to
+  Soroban.
+- The pinned verifier repository states that it is not audited. This is a
+  hackathon prototype, not a production security claim.
+- Persistent replay protection beyond the network maximum TTL still requires a
+  maintenance and restore policy.
+
+## Differentiation
+
+This is not a generic hidden-number range proof, payment privacy pool, identity
+proof or agent-membership product. NeuroChain proves that a committed,
+multi-field safety program evaluated an agent's typed on-chain action correctly
+against a private policy.

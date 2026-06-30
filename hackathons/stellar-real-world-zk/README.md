@@ -20,6 +20,14 @@ agent intent
 Payment is optional ingress. Payment or a valid proof is never submit
 permission. `requires_approval` remains a no-submit boundary.
 
+## Submission materials
+
+- [SUBMISSION.md](SUBMISSION.md) - judge-facing problem, ZK value, Stellar
+  integration, evidence and limitations
+- [ARCHITECTURE.md](ARCHITECTURE.md) - proof, trust and decision-boundary
+  diagrams
+- [DEMO_SCRIPT.md](DEMO_SCRIPT.md) - 2-3 minute recording runbook
+
 ## Package layout
 
 ```text
