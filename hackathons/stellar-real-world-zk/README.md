@@ -161,6 +161,8 @@ Implemented:
   chain, with exit `0` and an explicit no-submit next step
 - genuine private-policy allowlist block proof through the same chain, with
   decision `blocked`, exit `3` and reason `allowlist`
+- one-command proof-only video rehearsal with an explicit Protocol 26 localnet
+  opt-in
 - localnet replay rejection and cryptographically invalid proof rejection
 - read-only `/api/stellar/zk-attestation/view` inspection that binds the typed
   ActionPlan to the public journal without granting submit permission

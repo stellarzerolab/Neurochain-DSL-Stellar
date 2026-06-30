@@ -139,6 +139,18 @@ foreach ($scenario in @("approved", "requires_approval", "blocked_allowlist")) {
     Add-Check "scenario:$scenario" $present "present in proof and localnet runners"
 }
 
+$demoRunnerPath = Join-Path $PSScriptRoot "run_demo_rehearsal.ps1"
+$demoRunnerReady = Test-Path -LiteralPath $demoRunnerPath -PathType Leaf
+if ($demoRunnerReady) {
+    $demoRunner = Get-Content -Raw -LiteralPath $demoRunnerPath
+    $demoRunnerReady = $demoRunner.Contains("check_submission_package.ps1") -and
+        $demoRunner.Contains("run_soroban_localnet_e2e.ps1") -and
+        $demoRunner.Contains('switch]$IncludeLocalnet')
+}
+Add-Check "runner:demo-rehearsal" $demoRunnerReady $(
+    if ($demoRunnerReady) { "proof gate plus explicit localnet opt-in" } else { "missing or incomplete" }
+)
+
 if ($RunTests) {
     Push-Location $RepoRoot
     $previousErrorActionPreference = $ErrorActionPreference

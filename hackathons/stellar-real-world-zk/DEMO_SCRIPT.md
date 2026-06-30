@@ -7,6 +7,11 @@
 - Confirm no standalone localnet container is already using port `8000`.
 - Do not show local environment files, identities or wallet material.
 - Use the public fixtures for explanation; private policy values are not shown.
+- Rehearse the proof-only recording path once from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1
+```
 
 ## 0:00-0:25 - Problem and promise
 
@@ -32,7 +37,8 @@ Explain:
 
 ## 0:55-1:20 - Genuine proof matrix
 
-Run:
+Run the proof-only rehearsal command shown above. Point out that its readiness
+stage runs:
 
 ```powershell
 cargo test --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --test groth16_proof
@@ -46,11 +52,14 @@ Point out that the test uses the pinned real verifier and covers:
 
 ## 1:20-2:15 - Stellar localnet verification
 
-Run or show the recorded output of:
+For a live full localnet take, run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1 -Scenario blocked_allowlist
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1 -IncludeLocalnet
 ```
+
+Otherwise show the previously recorded successful output from the direct
+localnet runner.
 
 Highlight these lines:
 

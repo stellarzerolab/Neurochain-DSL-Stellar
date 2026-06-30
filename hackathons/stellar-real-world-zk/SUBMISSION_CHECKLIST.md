@@ -11,6 +11,8 @@
   localnet.
 - [x] Security limitations and unaudited verifier status are disclosed.
 - [x] No private policy values, wallet secrets or local-only files are included.
+- [x] One-command proof-only video rehearsal is available without Stellar
+  network or wallet activity.
 
 Run the package gate:
 
