@@ -175,14 +175,12 @@ pub fn validate_plan(plan: &ActionPlan, allowlist: &Allowlist) -> Vec<AllowlistV
                 asset_code,
                 asset_issuer,
                 ..
-            } => {
-                if !allowlist.is_asset_allowed(asset_code, Some(asset_issuer)) {
-                    violations.push(AllowlistViolation {
-                        index: idx,
-                        action: action.kind().to_string(),
-                        reason: format!("asset {asset_code}:{asset_issuer} not in allowlist"),
-                    });
-                }
+            } if !allowlist.is_asset_allowed(asset_code, Some(asset_issuer)) => {
+                violations.push(AllowlistViolation {
+                    index: idx,
+                    action: action.kind().to_string(),
+                    reason: format!("asset {asset_code}:{asset_issuer} not in allowlist"),
+                });
             }
             _ => {}
         }

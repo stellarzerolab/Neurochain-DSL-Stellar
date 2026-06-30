@@ -6,6 +6,47 @@ The core idea is simple: natural-language intent is never turned directly into a
 
 This repository contains the Stellar integration layer for NeuroChain DSL.
 
+## Current ZK Milestone
+
+The repository now includes **NeuroChain ZK Guardrail Attestation**, a complete
+RISC Zero and Soroban proof path for private owner policies:
+
+- a known RISC Zero guest runs the deterministic NeuroChain guardrail evaluator
+- the private policy can enforce contract, function, asset, recipient, amount,
+  confidence, and approval-threshold rules
+- the public journal binds the evaluator image ID, ActionPlan hash, policy
+  commitment/version, decision, exit/reason, and audit nullifier
+- the Soroban application contract verifies a genuine Groth16 receipt through
+  the pinned verifier router and consumes the nullifier to prevent replay
+- genuine proofs cover `approved`, `requires_approval`, and private-policy
+  allowlist block with exit `3`
+- a standalone Protocol 26 localnet demonstrates verification, persistent
+  replay rejection, and invalid-proof rejection
+
+A valid proof is not submit permission. `requires_approval` remains a
+no-submit state, and the read-only API view always reports
+`submit_allowed=false`.
+
+Start with the public package:
+
+- [`hackathons/stellar-real-world-zk/README.md`](hackathons/stellar-real-world-zk/README.md)
+- [`hackathons/stellar-real-world-zk/SUBMISSION.md`](hackathons/stellar-real-world-zk/SUBMISSION.md)
+- [`hackathons/stellar-real-world-zk/ARCHITECTURE.md`](hackathons/stellar-real-world-zk/ARCHITECTURE.md)
+- [`hackathons/stellar-real-world-zk/DEMO_SCRIPT.md`](hackathons/stellar-real-world-zk/DEMO_SCRIPT.md)
+
+Run the repository evidence gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/check_submission_package.ps1 -RunTests
+```
+
+Run the complete local recording rehearsal without verifier fetches, Cargo
+downloads, or Docker image pulls after prerequisites are cached:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1 -IncludeLocalnet -OfflineLocalnet
+```
+
 ## What It Does
 
 `neurochain-stellar` supports one unified workflow across `.nc` scripts, an interactive REPL, and the server API:
