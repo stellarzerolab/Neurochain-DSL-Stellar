@@ -99,3 +99,46 @@ fn genuine_groth16_proof_routes_by_selector_and_consumes_nullifier() {
     );
     assert!(client.is_consumed(&accepted.audit_nullifier));
 }
+
+#[test]
+fn genuine_requires_approval_proof_routes_without_granting_execution() {
+    let fixture: Groth16Fixture = serde_json::from_str(include_str!(
+        "../../fixtures/groth16_requires_approval.json"
+    ))
+    .expect("requires-approval Groth16 fixture must be valid JSON");
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let seal_raw = decode_hex(&fixture.seal_hex);
+    let seal = Bytes::from_slice(&env, &seal_raw);
+    let journal_bytes = Bytes::from_slice(&env, &decode_hex(&fixture.journal_hex));
+    let image_id = BytesN::from_array(&env, &decode_digest(&fixture.image_id_hex));
+    let expected_journal_digest = decode_digest(&fixture.journal_digest_hex);
+    let actual_journal_digest: BytesN<32> = env.crypto().sha256(&journal_bytes).into();
+    assert_eq!(actual_journal_digest.to_array(), expected_journal_digest);
+    let selector = BytesN::from_array(
+        &env,
+        &seal_raw[..4]
+            .try_into()
+            .expect("Groth16 seal must contain a four-byte selector"),
+    );
+
+    let verifier_id = env.register(RiscZeroGroth16Verifier, ());
+    let admin = Address::generate(&env);
+    let router_id = env.register(RiscZeroVerifierRouter, (admin,));
+    let router = RiscZeroVerifierRouterClient::new(&env, &router_id);
+    router.add_verifier(&selector, &verifier_id);
+
+    let contract_id = env.register(NeuroChainZkGuardrail, (router_id, image_id));
+    let client = NeuroChainZkGuardrailClient::new(&env, &contract_id);
+    let accepted = client.verify_and_consume(&seal, &journal_bytes);
+
+    assert_eq!(
+        accepted.decision_status,
+        DecisionStatus::RequiresApproval as u32
+    );
+    assert_eq!(accepted.exit_code, ExitCode::Passed as u32);
+    assert!(accepted.requires_approval);
+    assert_eq!(accepted.next_step, NextStep::RequiresApproval);
+    assert!(client.is_consumed(&accepted.audit_nullifier));
+}

@@ -45,9 +45,12 @@ pinned real Groth16 verifier contract and then consumes the attested
 nullifier. A second integration test routes the same proof by its four-byte
 seal selector through the pinned real verifier router before the verifier call.
 The localnet E2E runner also deploys the application, router and Groth16
-verifier into a standalone Protocol 26 network. It verifies a genuine proof,
-persists its nullifier, rejects replay and rejects a mutated proof. This is a
-local development network only, not testnet, mainnet or submit permission. The
+verifier into a standalone Protocol 26 network. It verifies genuine `approved`
+and `requires_approval` proofs, persists each nullifier, rejects replay and
+rejects a mutated proof. The `requires_approval` proof returns exit `0` but its
+contract next step remains `RequiresApproval`; no proof result directly grants
+submit permission. This is a local development network only, not testnet,
+mainnet or submit permission. The
 pinned Nethermind verifier repository is not audited, so an independent
 security review remains required before production use.
 

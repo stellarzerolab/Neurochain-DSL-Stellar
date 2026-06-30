@@ -1,5 +1,7 @@
 param(
-    [string]$WslDistribution = "Ubuntu"
+    [string]$WslDistribution = "Ubuntu",
+    [ValidateSet("approved", "requires_approval")]
+    [string]$Scenario = "approved"
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,12 +20,18 @@ $relativePath = $Matches[2].Replace('\', '/')
 $risc0WslPath = "/mnt/$drive/$relativePath"
 
 $toolPath = "$wslHome/.risc0/bin:$wslHome/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-& wsl.exe -d $WslDistribution --cd $risc0WslPath -- env -u RISC0_DEV_MODE "PATH=$toolPath" cargo run --release -p neurochain-zk-risc0-host
+& wsl.exe -d $WslDistribution --cd $risc0WslPath -- env -u RISC0_DEV_MODE "PATH=$toolPath" cargo run --release -p neurochain-zk-risc0-host -- $Scenario
 if ($LASTEXITCODE -ne 0) {
     throw "RISC Zero end-to-end run failed with exit code $LASTEXITCODE."
 }
 
-$artifactPath = Join-Path $risc0WindowsPath "target\neurochain-zk-stellar-proof.json"
+$artifactName = if ($Scenario -eq "approved") {
+    "neurochain-zk-stellar-proof.json"
+}
+else {
+    "neurochain-zk-stellar-proof-requires-approval.json"
+}
+$artifactPath = Join-Path $risc0WindowsPath "target\$artifactName"
 $artifact = Get-Content -Raw -LiteralPath $artifactPath | ConvertFrom-Json
 $expectedFields = @(
     "schema_version",
@@ -67,3 +75,4 @@ if ($computedDigest -ne $artifact.journal_digest_hex) {
 }
 
 Write-Output "stellar_artifact_valid=true"
+Write-Output "scenario=$Scenario"

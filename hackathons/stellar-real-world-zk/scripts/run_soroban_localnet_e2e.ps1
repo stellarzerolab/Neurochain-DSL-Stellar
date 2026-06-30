@@ -1,7 +1,9 @@
 param(
     [string]$WslDistribution = "Ubuntu",
     [string]$QuickstartImage = "stellar/quickstart:testing",
-    [int]$ProtocolVersion = 26
+    [int]$ProtocolVersion = 26,
+    [ValidateSet("approved", "requires_approval")]
+    [string]$Scenario = "approved"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,8 +22,28 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
 $OutDir = Join-Path $ProjectRoot "target\localnet"
 $UpstreamDir = Join-Path $OutDir "stellar-risc0-verifier"
-$FixturePath = Join-Path $ProjectRoot "fixtures\groth16_approved.json"
+$FixtureName = if ($Scenario -eq "approved") {
+    "groth16_approved.json"
+}
+else {
+    "groth16_requires_approval.json"
+}
+$FixturePath = Join-Path $ProjectRoot "fixtures\$FixtureName"
 $AppManifest = Join-Path $ProjectRoot "soroban\Cargo.toml"
+$ExpectedDecisionStatus = if ($Scenario -eq "approved") { 0 } else { 2 }
+$ExpectedNextStep = if ($Scenario -eq "approved") {
+    "EligibleForSeparateApprovalFlow"
+}
+else {
+    "RequiresApproval"
+}
+$ExpectedNextStepOutput = if ($Scenario -eq "approved") {
+    "eligible_for_separate_approval_flow"
+}
+else {
+    "requires_approval"
+}
+$ExpectedRequiresApproval = $Scenario -eq "requires_approval"
 
 function Invoke-Native {
     param(
@@ -213,8 +235,10 @@ try {
         "--journal_bytes", $fixture.journal_hex
     )
     $accepted = Last-OutputLine (Invoke-Stellar -Arguments $verifyArguments) | ConvertFrom-Json
-    if ($accepted.decision_status -ne 0 -or $accepted.exit_code -ne 0 -or
-        $accepted.next_step -ne "EligibleForSeparateApprovalFlow") {
+    if ($accepted.decision_status -ne $ExpectedDecisionStatus -or
+        $accepted.exit_code -ne 0 -or
+        $accepted.requires_approval -ne $ExpectedRequiresApproval -or
+        $accepted.next_step -ne $ExpectedNextStep) {
         throw "Localnet accepted an unexpected attestation result"
     }
 
@@ -246,9 +270,9 @@ try {
     Write-Output "verifier_contract=$verifierId"
     Write-Output "router_contract=$routerId"
     Write-Output "application_contract=$appId"
-    Write-Output "decision=approved"
+    Write-Output "decision=$Scenario"
     Write-Output "exit_code=0"
-    Write-Output "next_step=eligible_for_separate_approval_flow"
+    Write-Output "next_step=$ExpectedNextStepOutput"
     Write-Output "nullifier_consumed=true"
     Write-Output "replay=contract_error_3"
     Write-Output "invalid_proof=contract_error_2"

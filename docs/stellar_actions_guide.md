@@ -1329,6 +1329,7 @@ POST /api/stellar/zk-attestation/view
 ```powershell
 $actionPlan = Get-Content -Raw hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json | ConvertFrom-Json
 $proof = Get-Content -Raw hackathons/stellar-real-world-zk/fixtures/groth16_approved.json | ConvertFrom-Json
+# Use groth16_requires_approval.json to inspect the proven approval boundary.
 $body = @{ action_plan = $actionPlan; proof = $proof } | ConvertTo-Json -Depth 10
 
 Invoke-RestMethod `
@@ -1351,6 +1352,9 @@ still has:
 - `execution.next_step = "verify_on_stellar_then_separate_approval"`
 
 The genuine cryptographic proof path is the Soroban verifier demonstrated by
-`run_soroban_localnet_e2e.ps1`. Changing the ActionPlan, journal digest or
-journal bytes makes the API view fail closed. `NC_API_KEY` protects this route
-when configured. The route never signs, submits or broadcasts.
+`run_soroban_localnet_e2e.ps1`. Pass `-Scenario requires_approval` to prove and
+verify the approval-threshold scenario in the standalone Protocol 26 localnet.
+It returns exit `0` with `NextStep::RequiresApproval`, not execution permission.
+Changing the ActionPlan, journal digest or journal bytes makes the API view fail
+closed. `NC_API_KEY` protects this route when configured. The route never signs,
+submits or broadcasts.

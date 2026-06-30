@@ -354,6 +354,32 @@ fn api_zk_attestation_view_binds_public_artifact_and_fails_closed_on_tamper() {
         "proof seal must not be echoed"
     );
 
+    let requires_approval_body = json!({
+        "action_plan": zk_fixture("typed_action_plan.json"),
+        "proof": zk_fixture("groth16_requires_approval.json"),
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(
+        addr,
+        "/api/stellar/zk-attestation/view",
+        &requires_approval_body,
+    );
+    assert_eq!(status, 200, "{resp_body}");
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(
+        resp["zk_attestation"]["attested_decision"]["status"],
+        "requires_approval"
+    );
+    assert_eq!(
+        resp["zk_attestation"]["attested_decision"]["reason"],
+        "approval_threshold"
+    );
+    assert_eq!(
+        resp["zk_attestation"]["attested_decision"]["requires_approval"],
+        true
+    );
+    assert_eq!(resp["execution"]["submit_allowed"], false);
+
     let mut tampered_plan = zk_fixture("typed_action_plan.json");
     tampered_plan["args"][0]["value"] = Value::String("500000001".to_string());
     let tampered_body = json!({
