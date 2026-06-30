@@ -27,6 +27,8 @@ permission. `requires_approval` remains a no-submit boundary.
 - [ARCHITECTURE.md](ARCHITECTURE.md) - proof, trust and decision-boundary
   diagrams
 - [DEMO_SCRIPT.md](DEMO_SCRIPT.md) - 2-3 minute recording runbook
+- [SUBMISSION_CHECKLIST.md](SUBMISSION_CHECKLIST.md) - automated package gate
+  and remaining manual submission items
 
 ## Package layout
 
