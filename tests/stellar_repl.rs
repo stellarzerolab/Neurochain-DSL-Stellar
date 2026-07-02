@@ -65,7 +65,7 @@ fn create_fake_zk_stellar_cli_with_action_plan_hash(
     let cli_path = dir.path().join("stellar-zk");
 
     let accepted = format!(
-        r#"{{"action_plan_hash":"{action_plan_hash}","policy_commitment":"f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150","policy_version":7,"decision_status":0,"exit_code":0,"reason_code":0,"requires_approval":false,"audit_nullifier":"94c105f9200bf90245d33940c0fa25c91d4ce952198c9075f4ce9fb6495858aa","next_step":"EligibleForSeparateApprovalFlow"}}"#
+        r#"{{"action_plan_hash":"{action_plan_hash}","policy_commitment":"f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150","policy_version":7,"decision_status":0,"exit_code":0,"reason_code":0,"requires_approval":false,"audit_nullifier":"c62e6a97e27f67c0370a45b52ff84f27796b9d7f55df02ad35aff2e90b7328da","next_step":"EligibleForSeparateApprovalFlow"}}"#
     );
     #[cfg(windows)]
     let script = format!(
