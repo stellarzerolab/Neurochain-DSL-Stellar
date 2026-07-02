@@ -42,17 +42,17 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
 - [ ] Confirm the final deadline shown by the DoraHacks submission UI.
 - [ ] Submit the BUIDL and read back the published entry.
 
-## Optional testnet evidence
+## Testnet evidence
 
-- [ ] Decide whether testnet evidence adds enough value beyond the complete
+- [x] Decide whether testnet evidence adds enough value beyond the complete
   Protocol 26 localnet proof.
-- [ ] Obtain explicit approval before any testnet deploy or submit.
-- [ ] If approved, use a dedicated test identity and record contract IDs and
+- [x] Obtain explicit approval before any testnet deploy or submit.
+- [x] Use a dedicated test identity and record contract IDs and
   transaction links without storing secret material.
-- [ ] Run `scripts/deploy_testnet.ps1` only with explicit `-Execute` approval
+- [x] Run `scripts/deploy_testnet.ps1` only with explicit `-Execute` approval
   and confirm that `deployments/testnet.json` was created.
 - [ ] Configure the hosted demo with `NC_ZK_GUARDRAIL_CONTRACT` and a read-only
   simulation source, then verify all three `zk.stellar.verify` scenarios.
 
 The package gate validates repository evidence only. It does not claim that
-the video, DoraHacks form or optional testnet step has been completed.
+the video, DoraHacks form or hosted-demo configuration has been completed.

@@ -80,9 +80,11 @@ The implementation contains a real Soroban application contract with:
 - owner-authenticated persistent audit-nullifier consumption
 - replay and invalid-proof rejection.
 
-The full application -> router -> Groth16 verifier chain is exercised in a
-standalone Stellar Protocol 26 localnet. No testnet or mainnet claim is made by
-this submission package.
+The full application -> router -> Groth16 verifier chain is exercised both in a
+standalone Stellar Protocol 26 localnet and in an approved Stellar testnet
+deployment. The secret-free [`deployments/testnet.json`](deployments/testnet.json)
+manifest records the contract IDs, pinned hashes and three read-only verified
+policy scenarios. No mainnet claim is made.
 
 The existing NeuroChain CLI/REPL is the judge-facing bridge. It locally binds
 the ActionPlan and journal, calls Soroban with `zk.stellar.verify <scenario>`
@@ -158,8 +160,8 @@ localnet runner removes its temporary identity and container after the run.
   hackathon prototype, not a production security claim.
 - Persistent replay protection beyond the network maximum TTL still requires a
   maintenance and restore policy.
-- Testnet is not claimed until an explicitly approved deployment creates the
-  secret-free `deployments/testnet.json` evidence file.
+- Testnet evidence is limited to contract deployment, policy authorization and
+  read-only proof verification; it does not submit the underlying ActionPlan.
 
 ## Differentiation
 

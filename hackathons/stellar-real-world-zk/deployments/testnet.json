@@ -1,0 +1,50 @@
+﻿{
+    "schema_version":  1,
+    "generated_at_utc":  "2026-07-02T13:51:25.0071028Z",
+    "network":  "testnet",
+    "repository_commit":  "12ef1d45dce4dfc34bb9a911cda90c18bd61420f",
+    "verifier_upstream_commit":  "e8ff6ea202db195352c0141ecc533ff649393fe4",
+    "selector":  "73c457ba",
+    "evaluator_image_id":  "d12dc4e578c8000108c739bc4a071a451791ac4011c2688033ee13f5d60b3473",
+    "contracts":  {
+                      "groth16_verifier":  "CB75V7KJE3MPEWYZTWR7MQJ24G554RXEEUYI4YMVJBBAAG6NGU4GEZJE",
+                      "risc0_router":  "CAMWXTDWJEQAQCTB4A3A3ETMKDWSIFOEVZRT5YUP3LYJPYHB5WIXMCUA",
+                      "neurochain_zk_guardrail":  "CAAHGPTAPNSUC67NIU2M23BB5RSMK6RMYAH7ISATOKYLRHTNC7QJUN5B"
+                  },
+    "wasm_sha256":  {
+                        "groth16_verifier":  "f6a1f928de93db9b1e4176ef247d4a8c5d45a07a16cafd0bce9e641d7eaa03d8",
+                        "risc0_router":  "03f6e4c26ac5d662b60b6230a1a498b8d69d726b4291d17f56812ecb81797659",
+                        "neurochain_zk_guardrail":  "dbe89ddc76717b50b66934af39cfaf3153e3cef218267c0a01ab3d4bc0a1a70f"
+                    },
+    "authorized_policies":  [
+                                {
+                                    "scenario":  "approved",
+                                    "commitment":  "f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150",
+                                    "version":  7,
+                                    "action_plan_hash":  "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+                                    "audit_nullifier":  "c62e6a97e27f67c0370a45b52ff84f27796b9d7f55df02ad35aff2e90b7328da",
+                                    "read_only_verified":  true
+                                },
+                                {
+                                    "scenario":  "requires_approval",
+                                    "commitment":  "36a74cbb2381c4d64b6353381900443122ceae88b230d2be9d2ad96b2cf50d57",
+                                    "version":  8,
+                                    "action_plan_hash":  "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+                                    "audit_nullifier":  "f5230330518b05993829479a56a47fd24c90d805370cd745fbe003f761a96317",
+                                    "read_only_verified":  true
+                                },
+                                {
+                                    "scenario":  "blocked",
+                                    "commitment":  "bc449ba9b823e0d70da31d4bd30732acee2da49351209e8c517ed98d9d6ac304",
+                                    "version":  9,
+                                    "action_plan_hash":  "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+                                    "audit_nullifier":  "bbb254fea8d2cf184924d7f5efad03c8b0aee3b88745d35942d23a2179de4071",
+                                    "read_only_verified":  true
+                                }
+                            ],
+    "safety":  {
+                   "read_only_verify_is_repeatable":  true,
+                   "consume_requires_owner_auth":  true,
+                   "underlying_action_submit_allowed":  false
+               }
+}

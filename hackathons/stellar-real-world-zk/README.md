@@ -181,6 +181,8 @@ Implemented:
   Groth16 verifier contract in the Soroban SDK test environment
 - Protocol 26 localnet deployment and invocation through the full application
   -> router -> Groth16 verifier chain with a genuine public proof
+- approved Stellar testnet deployment of the same three-contract chain, with
+  all three bundled policy scenarios verified through read-only simulations
 - owner-authorized policy commitment/version registry with owner-only mutation
 - permissionless read-only proof verification without nullifier consumption
 - owner-authenticated consume that prevents public-proof nullifier front-running
@@ -212,8 +214,6 @@ Not implemented yet:
 
 - long-lived state-maintenance/restore policy beyond the network maximum TTL
 - production security audit and underlying ActionPlan submit integration
-- public testnet deployment evidence; the repository includes a guarded
-  deployment script but does not claim deployment without `deployments/testnet.json`
 
 Dependency audit is not clean yet. The pinned RISC Zero 3.0.5 toolchain
 currently brings in `RUSTSEC-2023-0071` (`rsa`, no fixed release available)
@@ -323,6 +323,12 @@ It is hard-limited to testnet, requires explicit `-Execute`, verifies pinned
 WASM hashes, authorizes all bundled policy commitments, runs read-only checks,
 and writes a secret-free deployment manifest. Do not run it without explicit
 network-submit approval.
+
+The approved deployment is recorded in [`deployments/testnet.json`](deployments/testnet.json).
+Its NeuroChain application contract is
+`CAAHGPTAPNSUC67NIU2M23BB5RSMK6RMYAH7ISATOKYLRHTNC7QJUN5B`; the manifest also
+pins the router, verifier, evaluator image ID, WASM hashes and all three
+read-only verified policy bindings. No underlying ActionPlan was submitted.
 
 The read-only API view accepts `typed_action_plan.json` plus the public proof
 artifact. It recomputes the canonical ActionPlan hash, validates the journal
