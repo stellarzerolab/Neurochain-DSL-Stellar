@@ -16,7 +16,8 @@ forces the user and the chain to trust the service that reports `approved` or
 NeuroChain makes the safety decision verifiable. The ActionPlan is public, the
 owner policy stays private, and a RISC Zero proof attests that the committed
 NeuroChain evaluator produced the published decision. Soroban verifies the
-proof and consumes an audit nullifier so the same attestation cannot be reused.
+proof against an owner-authorized policy commitment. A separate owner call can
+consume the audit nullifier so the same attestation cannot be reused.
 
 ## Why zero knowledge is essential
 
@@ -42,9 +43,11 @@ Without privacy, the owner would have to publish the policy itself.
 4. A Groth16 receipt proves execution of the evaluator image.
 5. The Soroban application calls the pinned verifier router and Groth16
    verifier.
-6. After successful verification, Soroban strictly decodes the journal and
-   atomically consumes the audit nullifier.
-7. The result is `approved`, `requires_approval` or `blocked` with the existing
+6. Soroban checks the evaluator image and owner-authorized policy commitment,
+   then strictly decodes the journal.
+7. Permissionless `verify` returns the result without changing state;
+   owner-authenticated `verify_and_consume` atomically records the nullifier.
+8. The result is `approved`, `requires_approval` or `blocked` with the existing
    NeuroChain exit semantics.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete trust and data flow.
@@ -68,16 +71,24 @@ public proof artifact.
 
 The implementation contains a real Soroban application contract with:
 
-- an immutable evaluator image ID and verifier-router address
+- an owner, evaluator image ID and verifier-router address
+- an owner-authorized policy commitment/version registry
 - SHA-256 of the canonical journal inside Soroban
 - selector-based routing to the pinned RISC Zero Groth16 verifier
 - strict no-allocation journal decoding in contract WASM
-- persistent audit-nullifier consumption
+- repeatable read-only verification
+- owner-authenticated persistent audit-nullifier consumption
 - replay and invalid-proof rejection.
 
 The full application -> router -> Groth16 verifier chain is exercised in a
 standalone Stellar Protocol 26 localnet. No testnet or mainnet claim is made by
 this submission package.
+
+The existing NeuroChain CLI/REPL is the judge-facing bridge. It locally binds
+the ActionPlan and journal, calls Soroban with `zk.stellar.verify <scenario>`
+using `--send no`, and fails closed if the contract result differs from the
+local binding. The separate `zk.stellar.consume` command is local-only and
+never submits the underlying ActionPlan.
 
 ## Demonstrated scenarios
 
@@ -86,6 +97,7 @@ this submission package.
 | valid private policy | `approved`, exit `0` | eligible only for a separate approval flow |
 | private approval threshold reached | `requires_approval`, exit `0` | `RequiresApproval`, no submit |
 | contract absent from private allowlist | `blocked`, exit `3`, `allowlist` | `Blocked` |
+| repeatable read-only verification | same typed result, nullifier unused | no state change |
 | reused audit nullifier | contract error `3` | rejected as replay |
 | mutated Groth16 proof | contract error `2` | rejected as invalid attestation |
 
@@ -103,6 +115,14 @@ Run a full standalone Protocol 26 localnet scenario:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_soroban_localnet_e2e.ps1 -Scenario blocked_allowlist
+```
+
+Use the same bridge that is intended for the hosted CLI demo after configuring
+a deployed contract and source alias:
+
+```text
+zk.demo blocked
+zk.stellar.verify blocked
 ```
 
 Generate a genuine RISC Zero Groth16 proof from private inputs:
@@ -128,6 +148,9 @@ localnet runner removes its temporary identity and container after the run.
 - No private keys, seed phrases or wallet secrets are stored in the package.
 - No transaction signing or agent-controlled submit path is introduced.
 - `requires_approval` is explicitly a no-submit result.
+- Policy commitments can be authorized or revoked only by the configured owner.
+- Stateful consume requires owner authentication; public read-only verification
+  cannot burn a nullifier.
 - The read-only API view validates public bindings but deliberately reports
   `cryptographically_verified=false`; cryptographic verification belongs to
   Soroban.
@@ -135,6 +158,8 @@ localnet runner removes its temporary identity and container after the run.
   hackathon prototype, not a production security claim.
 - Persistent replay protection beyond the network maximum TTL still requires a
   maintenance and restore policy.
+- Testnet is not claimed until an explicitly approved deployment creates the
+  secret-free `deployments/testnet.json` evidence file.
 
 ## Differentiation
 

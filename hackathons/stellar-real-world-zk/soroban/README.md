@@ -2,15 +2,22 @@
 
 This crate is the first real Soroban SDK boundary for the hackathon MVP. It:
 
-1. reads an immutable verifier-router address and evaluator image ID set by
-   the constructor
+1. reads an owner, verifier-router address and evaluator image ID set by the
+   constructor
 2. strictly decodes the canonical public NeuroChain journal
 3. requires the journal image ID to match the configured evaluator
 4. computes `SHA-256(journal_bytes)` inside Soroban
 5. calls the pinned Nethermind RISC Zero verifier interface with
    `verify(seal, image_id, journal_digest)`
-6. consumes the journal audit nullifier in persistent storage only after proof
-   verification succeeds.
+6. requires the journal policy commitment/version to be owner-authorized
+7. exposes repeatable `verify` without a storage write
+8. exposes owner-authenticated `verify_and_consume` for persistent replay state.
+
+The owner can add or revoke commitment/version pairs with `authorize_policy`
+and `revoke_policy`. This makes the proof statement "the configured owner
+authorized this hidden policy", rather than merely "some hidden policy was
+used". Only commitments and versions are stored; private policy fields remain
+outside the contract.
 
 The accepted `approved` result is only
 `EligibleForSeparateApprovalFlow`. `requires_approval` and all blocked exits
@@ -20,6 +27,9 @@ Stellar transactions.
 `AttestationError::InvalidAttestation` and `AttestationError::Replay` are
 contract errors, not NeuroChain exit codes. The existing client/boundary maps
 both to exit `4`, with reason `invalid_attestation` or `replay` respectively.
+An unknown or revoked policy pair is an invalid attestation. Consume requires
+owner authentication so a public proof cannot be front-run only to burn its
+nullifier.
 
 The interface dependency is pinned to Nethermind commit
 `e8ff6ea202db195352c0141ecc533ff649393fe4`. The repository states that its
@@ -37,9 +47,10 @@ verifier router, maps the seal selector to the Groth16 verifier and proves
 through the complete application -> router -> verifier contract call chain.
 `../scripts/run_soroban_localnet_e2e.ps1` additionally deploys and
 invokes the same chain in a standalone Protocol 26 localnet. It confirms a
-genuine proof, persistent nullifier consumption, replay rejection and invalid
-proof rejection. The runner does not connect to testnet or mainnet and removes
-its temporary local identity and container after the run.
+genuine read-only verification, proves that read-only verification does not
+consume the nullifier, performs the owner consume, and checks replay plus
+invalid-proof rejection. The runner does not connect to testnet or mainnet and
+removes its temporary local identity and container after the run.
 
 The public regression fixtures are `../fixtures/groth16_approved.json`,
 `../fixtures/groth16_requires_approval.json` and

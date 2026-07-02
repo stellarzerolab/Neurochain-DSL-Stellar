@@ -138,6 +138,37 @@ foreach ($scenario in @("approved", "requires_approval", "blocked_allowlist")) {
     $present = $risc0Runner.Contains($scenario) -and $localnetRunner.Contains($scenario)
     Add-Check "scenario:$scenario" $present "present in proof and localnet runners"
 }
+$customInputReady = $risc0Runner.Contains('[string]$InputPath') -and
+    $risc0Runner.Contains('[switch]$CheckInput') -and
+    (Test-Path -LiteralPath (Join-Path $ProjectRoot "risc0\private_input.example.json") -PathType Leaf)
+Add-Check "runner:custom-private-input" $customInputReady $(
+    if ($customInputReady) { "private input check and proving path" } else { "missing or incomplete" }
+)
+
+$sorobanSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot "soroban\src\lib.rs")
+$bridgeReady = $sorobanSource.Contains("pub fn verify(") -and
+    $sorobanSource.Contains("pub fn verify_and_consume(") -and
+    $sorobanSource.Contains("pub fn authorize_policy(") -and
+    $sorobanSource.Contains("config.owner.require_auth()") -and
+    $localnetRunner.Contains('"--", "verify"') -and
+    $localnetRunner.Contains('"--", "verify_and_consume"') -and
+    $localnetRunner.Contains('if ($consumedBefore -ne "false")')
+Add-Check "bridge:owner-policy-read-only-consume" $bridgeReady $(
+    if ($bridgeReady) { "owner policy plus separate read-only and consume paths" } else { "incomplete" }
+)
+
+$testnetDeployPath = Join-Path $PSScriptRoot "deploy_testnet.ps1"
+$testnetDeployReady = Test-Path -LiteralPath $testnetDeployPath -PathType Leaf
+if ($testnetDeployReady) {
+    $testnetDeploy = Get-Content -Raw -LiteralPath $testnetDeployPath
+    $testnetDeployReady = $testnetDeploy.Contains('if ($Network -ne "testnet")') -and
+        $testnetDeploy.Contains('if (-not $Execute)') -and
+        $testnetDeploy.Contains('Refusing network deployment') -and
+        $testnetDeploy.Contains('deployments\testnet.json')
+}
+Add-Check "runner:testnet-explicit-execute" $testnetDeployReady $(
+    if ($testnetDeployReady) { "testnet-only and explicit -Execute" } else { "missing or unsafe" }
+)
 
 $demoRunnerPath = Join-Path $PSScriptRoot "run_demo_rehearsal.ps1"
 $demoRunnerReady = Test-Path -LiteralPath $demoRunnerPath -PathType Leaf
@@ -173,6 +204,12 @@ if ($RunTests) {
         $proofPassed = $LASTEXITCODE -eq 0
         Add-Check "tests:genuine-groth16" $proofPassed $(
             if ($proofPassed) { "passed" } else { $proofOutput.Trim() }
+        )
+
+        $replOutput = (& cargo test --test stellar_repl zk_stellar 2>&1 | Out-String)
+        $replPassed = $LASTEXITCODE -eq 0
+        Add-Check "tests:cli-soroban-bridge" $replPassed $(
+            if ($replPassed) { "passed" } else { $replOutput.Trim() }
         )
     }
     finally {

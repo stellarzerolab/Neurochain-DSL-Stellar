@@ -3,6 +3,8 @@
 /hackathons/**/test_snapshots/
 /hackathons/**/.soroban/
 /hackathons/**/.stellar/
+/hackathons/stellar-real-world-zk/risc0/private_input*.json
+!/hackathons/stellar-real-world-zk/risc0/private_input.example.json
 /demo_contracts/**/target
 /logs
 /dist

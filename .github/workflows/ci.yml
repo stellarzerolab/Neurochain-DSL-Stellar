@@ -25,6 +25,19 @@ jobs:
       - name: Test all targets and features
         run: cargo test --all-targets --all-features
 
+  zk_soroban:
+    name: ZK Soroban Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup component add clippy rustfmt
+      - name: Format nested Soroban workspace
+        run: cargo fmt --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --check
+      - name: Clippy nested Soroban workspace
+        run: cargo clippy --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --all-targets -- -D warnings
+      - name: Test contract and genuine Groth16 fixtures
+        run: cargo test --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
+
   audit:
     name: Cargo Audit
     runs-on: ubuntu-latest

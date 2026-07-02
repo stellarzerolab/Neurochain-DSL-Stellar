@@ -1,4 +1,8 @@
-use std::{collections::HashSet, env, fs, path::Path};
+use std::{
+    collections::HashSet,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use neurochain_zk_guardrail_contract::{
     DecisionStatus, Digest32, ExitCode, ReasonCode, CONTRACT_VERSION,
@@ -15,7 +19,7 @@ use neurochain_zk_risc0_types::{
     OwnedActionPlan, OwnedPrivatePolicy, OwnedTypedArg, OwnedTypedValue, ProofInput,
 };
 use risc0_zkvm::{default_prover, sha::Digest, ExecutorEnv, InnerReceipt, ProverOpts, Receipt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as Sha2Digest, Sha256};
 
 const CONTRACT: &str = "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ";
@@ -26,6 +30,52 @@ const REQUIRES_APPROVAL_PROOF_ARTIFACT: &str =
     "target/neurochain-zk-stellar-proof-requires-approval.json";
 const BLOCKED_ALLOWLIST_PROOF_ARTIFACT: &str =
     "target/neurochain-zk-stellar-proof-blocked-allowlist.json";
+const CUSTOM_PROOF_ARTIFACT: &str = "target/neurochain-zk-stellar-proof-custom.json";
+const MAX_PRIVATE_INPUT_BYTES: u64 = 2 * 1024 * 1024;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateProofInputDocument {
+    action_plan: ActionPlanDocument,
+    private_policy: PrivatePolicyDocument,
+    audit_nonce_hex: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActionPlanDocument {
+    schema_version: u32,
+    intent_label: String,
+    action_kind: String,
+    contract_id: String,
+    function: String,
+    args: Vec<TypedArgDocument>,
+    intent_confidence_bps: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TypedArgDocument {
+    name: String,
+    #[serde(rename = "type")]
+    value_type: String,
+    value: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivatePolicyDocument {
+    schema_version: u32,
+    policy_version: u32,
+    commitment_salt_hex: String,
+    allowed_contracts: Vec<String>,
+    allowed_contract_functions: Vec<String>,
+    allowed_assets: Vec<String>,
+    allowed_recipients: Vec<String>,
+    max_amount_minor: u64,
+    approval_threshold_minor: u64,
+    min_intent_confidence_bps: u16,
+}
 
 #[derive(Clone, Copy, Debug)]
 enum Scenario {
@@ -35,32 +85,6 @@ enum Scenario {
 }
 
 impl Scenario {
-    fn from_args() -> Result<Self, String> {
-        let mut args = env::args().skip(1);
-        let scenario = match args.next().as_deref() {
-            None | Some("approved") => Self::Approved,
-            Some("requires_approval") => Self::RequiresApproval,
-            Some("blocked_allowlist") => Self::BlockedAllowlist,
-            Some(value) => {
-                return Err(format!(
-                    "unsupported scenario '{value}'; expected approved, requires_approval or blocked_allowlist"
-                ));
-            }
-        };
-        if args.next().is_some() {
-            return Err("expected at most one scenario argument".to_owned());
-        }
-        Ok(scenario)
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Approved => "approved",
-            Self::RequiresApproval => "requires_approval",
-            Self::BlockedAllowlist => "blocked_allowlist",
-        }
-    }
-
     fn artifact_path(self) -> &'static str {
         match self {
             Self::Approved => APPROVED_PROOF_ARTIFACT,
@@ -107,23 +131,98 @@ impl Scenario {
             Self::BlockedAllowlist => ContractNextStep::Blocked,
         }
     }
+}
 
-    fn next_step_name(self) -> &'static str {
-        match self {
-            Self::Approved => "eligible_for_separate_approval_flow",
-            Self::RequiresApproval => "requires_approval",
-            Self::BlockedAllowlist => "blocked",
+#[derive(Debug)]
+enum HostRun {
+    Scenario(Scenario),
+    PrivateInput { input: PathBuf, output: PathBuf },
+    CheckPrivateInput { input: PathBuf },
+}
+
+impl HostRun {
+    fn from_args() -> Result<Self, String> {
+        let args = env::args().skip(1).collect::<Vec<_>>();
+        if args.is_empty() {
+            return Ok(Self::Scenario(Scenario::Approved));
+        }
+        if args[0] == "--check-input" {
+            if args.len() != 2 {
+                return Err("input validation requires --check-input <private.json>".to_owned());
+            }
+            return Ok(Self::CheckPrivateInput {
+                input: PathBuf::from(&args[1]),
+            });
+        }
+        if args[0] != "--input" {
+            if args.len() != 1 {
+                return Err(
+                    "use one scenario, or --input <private.json> [--output <public.json>]"
+                        .to_owned(),
+                );
+            }
+            let scenario = match args[0].as_str() {
+                "approved" => Scenario::Approved,
+                "requires_approval" => Scenario::RequiresApproval,
+                "blocked_allowlist" => Scenario::BlockedAllowlist,
+                value => {
+                    return Err(format!(
+                        "unsupported scenario '{value}'; expected approved, requires_approval, blocked_allowlist, or --input"
+                    ));
+                }
+            };
+            return Ok(Self::Scenario(scenario));
+        }
+        if args.len() != 2 && args.len() != 4 {
+            return Err(
+                "custom proving requires --input <private.json> [--output <public.json>]"
+                    .to_owned(),
+            );
+        }
+        if args.len() == 4 && args[2] != "--output" {
+            return Err("expected --output after the private input path".to_owned());
+        }
+        let input = PathBuf::from(&args[1]);
+        let output = if args.len() == 4 {
+            PathBuf::from(&args[3])
+        } else {
+            PathBuf::from(CUSTOM_PROOF_ARTIFACT)
+        };
+        if paths_resolve_equal(&input, &output)? {
+            return Err(
+                "private input and public proof output must use different files".to_owned(),
+            );
+        }
+        Ok(Self::PrivateInput { input, output })
+    }
+}
+
+fn normalized_absolute_path(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() {
+        return fs::canonicalize(path).map_err(|error| error.to_string());
+    }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
         }
     }
+    Ok(normalized)
+}
 
-    fn exit_code_number(self) -> u8 {
-        match self.expected_exit() {
-            ExitCode::Passed => 0,
-            ExitCode::Allowlist => 3,
-            ExitCode::ContractPolicy => 4,
-            ExitCode::IntentSafety => 5,
-        }
-    }
+fn paths_resolve_equal(left: &Path, right: &Path) -> Result<bool, String> {
+    Ok(normalized_absolute_path(left)? == normalized_absolute_path(right)?)
 }
 
 #[derive(Debug, Serialize)]
@@ -294,11 +393,134 @@ fn proof_input(scenario: Scenario, evaluator_image_id: Digest32) -> ProofInput {
     }
 }
 
+fn decode_digest(value: &str, field: &str) -> Result<Digest32, String> {
+    let bytes = hex::decode(value).map_err(|_| format!("{field} must be lowercase hex"))?;
+    bytes
+        .try_into()
+        .map_err(|_| format!("{field} must contain exactly 32 bytes"))
+}
+
+fn typed_value(document: TypedArgDocument) -> Result<OwnedTypedValue, String> {
+    match document.value_type.as_str() {
+        "address" => Ok(OwnedTypedValue::Address(document.value)),
+        "bytes" => hex::decode(&document.value)
+            .map(OwnedTypedValue::Bytes)
+            .map_err(|_| format!("argument `{}` has invalid bytes hex", document.name)),
+        "symbol" => Ok(OwnedTypedValue::Symbol(document.value)),
+        "u64" => document
+            .value
+            .parse::<u64>()
+            .map(OwnedTypedValue::U64)
+            .map_err(|_| format!("argument `{}` has invalid u64 value", document.name)),
+        value_type => Err(format!(
+            "argument `{}` has unsupported type `{value_type}`",
+            document.name
+        )),
+    }
+}
+
+fn load_private_input(path: &Path, evaluator_image_id: Digest32) -> Result<ProofInput, String> {
+    let metadata =
+        fs::metadata(path).map_err(|error| format!("read private input metadata: {error}"))?;
+    if !metadata.is_file() {
+        return Err("private input must be a regular file".to_owned());
+    }
+    if metadata.len() > MAX_PRIVATE_INPUT_BYTES {
+        return Err(format!(
+            "private input exceeds the {MAX_PRIVATE_INPUT_BYTES} byte limit"
+        ));
+    }
+    let bytes = fs::read(path).map_err(|error| format!("read private input: {error}"))?;
+    let document: PrivateProofInputDocument =
+        serde_json::from_slice(&bytes).map_err(|error| format!("decode private input: {error}"))?;
+    let args = document
+        .action_plan
+        .args
+        .into_iter()
+        .map(|arg| {
+            let name = arg.name.clone();
+            typed_value(arg).map(|value| OwnedTypedArg { name, value })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ProofInput {
+        evaluator_image_id,
+        action_plan: OwnedActionPlan {
+            schema_version: document.action_plan.schema_version,
+            intent_label: document.action_plan.intent_label,
+            action_kind: document.action_plan.action_kind,
+            contract_id: document.action_plan.contract_id,
+            function: document.action_plan.function,
+            args,
+            intent_confidence_bps: document.action_plan.intent_confidence_bps,
+        },
+        private_policy: OwnedPrivatePolicy {
+            schema_version: document.private_policy.schema_version,
+            policy_version: document.private_policy.policy_version,
+            commitment_salt: decode_digest(
+                &document.private_policy.commitment_salt_hex,
+                "private_policy.commitment_salt_hex",
+            )?,
+            allowed_contracts: document.private_policy.allowed_contracts,
+            allowed_contract_functions: document.private_policy.allowed_contract_functions,
+            allowed_assets: document.private_policy.allowed_assets,
+            allowed_recipients: document.private_policy.allowed_recipients,
+            max_amount_minor: document.private_policy.max_amount_minor,
+            approval_threshold_minor: document.private_policy.approval_threshold_minor,
+            min_intent_confidence_bps: document.private_policy.min_intent_confidence_bps,
+        },
+        audit_nonce: decode_digest(&document.audit_nonce_hex, "audit_nonce_hex")?,
+    })
+}
+
+fn decision_name(value: DecisionStatus) -> &'static str {
+    match value {
+        DecisionStatus::Approved => "approved",
+        DecisionStatus::Blocked => "blocked",
+        DecisionStatus::RequiresApproval => "requires_approval",
+    }
+}
+
+fn exit_code_number(value: ExitCode) -> u8 {
+    match value {
+        ExitCode::Passed => 0,
+        ExitCode::Allowlist => 3,
+        ExitCode::ContractPolicy => 4,
+        ExitCode::IntentSafety => 5,
+    }
+}
+
+fn next_step_name(value: VerifiedNextStep) -> &'static str {
+    match value {
+        VerifiedNextStep::EligibleForSeparateApprovalFlow => "eligible_for_separate_approval_flow",
+        VerifiedNextStep::RequiresApproval => "requires_approval",
+        VerifiedNextStep::Blocked => "blocked",
+    }
+}
+
 fn main() {
-    let scenario = Scenario::from_args().unwrap_or_else(|error| panic!("{error}"));
+    let run = HostRun::from_args().unwrap_or_else(|error| panic!("{error}"));
     let method_id = Digest::from(NEUROCHAIN_ZK_RISC0_GUEST_ID);
     let evaluator_image_id = digest_bytes(method_id);
-    let input = proof_input(scenario, evaluator_image_id);
+    if let HostRun::CheckPrivateInput { input } = &run {
+        load_private_input(input, evaluator_image_id).unwrap_or_else(|error| panic!("{error}"));
+        println!("private_input_valid=true");
+        println!("proof_generated=false");
+        return;
+    }
+    let (input, artifact_path, scenario) = match run {
+        HostRun::Scenario(scenario) => (
+            proof_input(scenario, evaluator_image_id),
+            PathBuf::from(scenario.artifact_path()),
+            Some(scenario),
+        ),
+        HostRun::PrivateInput { input, output } => (
+            load_private_input(&input, evaluator_image_id)
+                .unwrap_or_else(|error| panic!("{error}")),
+            output,
+            None,
+        ),
+        HostRun::CheckPrivateInput { .. } => unreachable!("handled before proving"),
+    };
     let env = ExecutorEnv::builder()
         .write(&input)
         .expect("proof input serialization must succeed")
@@ -317,7 +539,7 @@ fn main() {
     let stellar_artifact = StellarProofArtifact::from_receipt(&receipt, evaluator_image_id)
         .expect("Stellar Groth16 proof artifact must encode");
     stellar_artifact
-        .write(Path::new(scenario.artifact_path()))
+        .write(&artifact_path)
         .expect("Stellar proof artifact must be written under target");
 
     let verifier = RealReceiptVerifier {
@@ -334,19 +556,21 @@ fn main() {
         &verifier,
     )
     .expect("host receipt boundary must accept the genuine receipt");
-    assert_eq!(
-        host_verified.journal.decision_status,
-        scenario.expected_decision()
-    );
-    assert_eq!(host_verified.journal.exit_code, scenario.expected_exit());
-    assert_eq!(
-        host_verified.journal.reason_code,
-        scenario.expected_reason()
-    );
-    assert_eq!(
-        host_verified.next_step(),
-        scenario.expected_host_next_step()
-    );
+    if let Some(scenario) = scenario {
+        assert_eq!(
+            host_verified.journal.decision_status,
+            scenario.expected_decision()
+        );
+        assert_eq!(host_verified.journal.exit_code, scenario.expected_exit());
+        assert_eq!(
+            host_verified.journal.reason_code,
+            scenario.expected_reason()
+        );
+        assert_eq!(
+            host_verified.next_step(),
+            scenario.expected_host_next_step()
+        );
+    }
 
     let mut nullifiers = InMemoryNullifiers::default();
     let contract_verified = verify_and_consume(
@@ -359,10 +583,12 @@ fn main() {
         &mut nullifiers,
     )
     .expect("contract boundary must accept the genuine receipt once");
-    assert_eq!(
-        contract_verified.next_step(),
-        scenario.expected_contract_next_step()
-    );
+    if let Some(scenario) = scenario {
+        assert_eq!(
+            contract_verified.next_step(),
+            scenario.expected_contract_next_step()
+        );
+    }
 
     let replay = verify_and_consume(
         evaluator_image_id,
@@ -378,10 +604,16 @@ fn main() {
     assert_eq!(replay.reason_code, ReasonCode::Replay);
 
     println!("receipt_verified=true");
-    println!("decision={}", scenario.name());
-    println!("exit_code={}", scenario.exit_code_number());
-    println!("next_step={}", scenario.next_step_name());
+    println!(
+        "decision={}",
+        decision_name(host_verified.journal.decision_status)
+    );
+    println!(
+        "exit_code={}",
+        exit_code_number(host_verified.journal.exit_code)
+    );
+    println!("next_step={}", next_step_name(host_verified.next_step()));
     println!("replay=blocked_exit_4");
     println!("proof_kind=groth16");
-    println!("stellar_artifact={}", scenario.artifact_path());
+    println!("stellar_artifact={}", artifact_path.display());
 }

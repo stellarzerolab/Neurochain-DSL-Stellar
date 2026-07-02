@@ -48,6 +48,52 @@ fn create_fake_stellar_cli() -> (TempDir, PathBuf) {
     (dir, cli_path)
 }
 
+fn create_fake_zk_stellar_cli() -> (TempDir, PathBuf, PathBuf) {
+    create_fake_zk_stellar_cli_with_action_plan_hash(
+        "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+    )
+}
+
+fn create_fake_zk_stellar_cli_with_action_plan_hash(
+    action_plan_hash: &str,
+) -> (TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir for fake ZK Stellar CLI");
+    let log_path = dir.path().join("stellar-args.log");
+    #[cfg(windows)]
+    let cli_path = dir.path().join("stellar-zk.cmd");
+    #[cfg(not(windows))]
+    let cli_path = dir.path().join("stellar-zk");
+
+    let accepted = format!(
+        r#"{{"action_plan_hash":"{action_plan_hash}","policy_commitment":"f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150","policy_version":7,"decision_status":0,"exit_code":0,"reason_code":0,"requires_approval":false,"audit_nullifier":"94c105f9200bf90245d33940c0fa25c91d4ce952198c9075f4ce9fb6495858aa","next_step":"EligibleForSeparateApprovalFlow"}}"#
+    );
+    #[cfg(windows)]
+    let script = format!(
+        "@echo off\r\necho %*>>\"{}\"\r\necho %* | findstr /C:\" is_consumed \" >nul && (echo true& exit /b 0)\r\necho {}\r\nexit /b 0\r\n",
+        log_path.to_string_lossy(),
+        accepted
+    );
+    #[cfg(not(windows))]
+    let script = format!(
+        "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \" $* \" in\n  *\" is_consumed \"*) echo true ;;\n  *) echo '{}' ;;\nesac\n",
+        log_path.to_string_lossy(),
+        accepted
+    );
+
+    fs::write(&cli_path, script).expect("write fake ZK Stellar CLI");
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&cli_path)
+            .expect("metadata for fake ZK Stellar CLI")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cli_path, perms).expect("chmod fake ZK Stellar CLI");
+    }
+
+    (dir, cli_path, log_path)
+}
+
 fn spawn_friendbot_server() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind friendbot test server");
     let addr = listener
@@ -98,7 +144,7 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("help dsl"))
         .stdout(contains("zk.demo approved"))
         .stdout(contains(
-            "ZK Guardrail commands are proof-only and never grant submit permission.",
+            "ZK Guardrail never grants permission to submit the underlying ActionPlan.",
         ))
         .stdout(contains("Soroban v2 template prompts").not())
         .stdout(contains("claim_rewards").not())
@@ -193,7 +239,7 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.write_stdin(
-        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\ntxrep\n\ntxrep off\n\nx402\n\nx402 off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\ncontract_policy: contracts/demo/policy.json\n\ncontract_policy_dir: contracts\n\nallowlist_enforce\n\ncontract_policy_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\ncontract_policy_enforce off\n\nallowlist_enforce\n\nexit\n\n",
+        "intent_threshold: 0.60\n\nhorizon: https://horizon-testnet.stellar.org\n\nfriendbot: off\n\nstellar_cli: stellar\n\nsimulate_flag: \"--send no\"\n\nzk_contract: CTESTZKGUARDRAIL\n\nzk_instruction_leeway: 123456\n\ntxrep\n\ntxrep off\n\nx402\n\nx402 off\n\nasset_allowlist: XLM\n\nsoroban_allowlist: CTEST:transfer\n\ncontract_policy: contracts/demo/policy.json\n\ncontract_policy_dir: contracts\n\nallowlist_enforce\n\ncontract_policy_enforce\n\ndebug\n\ndebug off\n\nallowlist_enforce off\n\ncontract_policy_enforce off\n\nallowlist_enforce\n\nexit\n\n",
     )
     .assert()
     .success()
@@ -202,6 +248,8 @@ fn stellar_repl_accepts_runtime_setting_commands() {
     .stdout(contains("Friendbot set to: (disabled)"))
     .stdout(contains("Stellar CLI binary set to: stellar"))
     .stdout(contains("Soroban simulate flag set to: --send no"))
+    .stdout(contains("ZK Guardrail contract set to: CTESTZKGUARDRAIL"))
+    .stdout(contains("ZK instruction leeway set to: 123456"))
     .stdout(contains("Txrep preview: enabled"))
     .stdout(contains("Txrep preview: disabled"))
     .stdout(contains("x402 mode: enabled"))
@@ -256,7 +304,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
             "Core setup (value required):",
             "Toggles (on/off):",
             "Prompt/Action commands:",
-            "ZK Guardrail (proof-only):",
+            "ZK Guardrail:",
             "Soroban v2 templates:",
             "Utility commands:",
         ],
@@ -323,6 +371,14 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "inspect local JSON files (local CLI only)",
     );
     let zk_status_row = help_row("zk status", "show last inspected ZK attestation");
+    let zk_stellar_verify_row = help_row(
+        "zk.stellar.verify approved|requires_approval|blocked|last",
+        "verify proof on Soroban without state changes",
+    );
+    let zk_stellar_consume_row = help_row(
+        "zk.stellar.consume approved|requires_approval|blocked|last",
+        "owner-only replay consume; local flow only",
+    );
     let setup_row = help_row("show setup", "print active setup");
     let help_dsl_row = help_row("help dsl", "show normal NeuroChain DSL language help");
     let template_registry_row = help_row(
@@ -366,6 +422,8 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&zk_demo_approval_row));
     assert!(stdout.contains(&zk_demo_blocked_row));
     assert!(stdout.contains(&zk_verify_row));
+    assert!(stdout.contains(&zk_stellar_verify_row));
+    assert!(stdout.contains(&zk_stellar_consume_row));
     assert!(stdout.contains(&zk_status_row));
     assert!(stdout.contains(&intent_row));
     assert!(stdout.contains(&deploy_row));
@@ -385,9 +443,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     let prompt_start = stdout
         .find("Prompt/Action commands:")
         .expect("prompt/action header");
-    let zk_start = stdout
-        .find("ZK Guardrail (proof-only):")
-        .expect("ZK Guardrail header");
+    let zk_start = stdout.find("ZK Guardrail:").expect("ZK Guardrail header");
     let soroban_v2_start = stdout
         .find("Soroban v2 templates:")
         .expect("soroban v2 header");
@@ -417,8 +473,10 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(zk_section.contains("zk.demo requires_approval"));
     assert!(zk_section.contains("zk.demo blocked"));
     assert!(zk_section.contains("zk.verify action_plan=\"...\" proof=\"...\""));
+    assert!(zk_section.contains("zk.stellar.verify approved|requires_approval|blocked|last"));
+    assert!(zk_section.contains("zk.stellar.consume approved|requires_approval|blocked|last"));
     assert!(zk_section.contains("zk status"));
-    assert!(zk_section.contains("never submits or grants transaction permission"));
+    assert!(zk_section.contains("Neither command submits or grants permission"));
 
     assert!(soroban_v2_section.contains("template registry"));
     assert!(soroban_v2_section.contains("hello"));
@@ -473,7 +531,7 @@ fn stellar_repl_zk_verify_reads_local_artifacts_only() {
     ))
     .assert()
     .success()
-    .stdout(contains("ZK Guardrail (proof-only):"))
+    .stdout(contains("ZK Guardrail (local binding):"))
     .stdout(contains("- binding: binding_validated"))
     .stdout(contains("- decision: approved"))
     .stdout(contains("- submit_allowed: false"));
@@ -490,7 +548,103 @@ fn stellar_remote_repl_blocks_zk_verify_file_access() {
         .stderr(contains(
             "zk.verify file access is disabled in remote REPL; use a bundled zk.demo scenario",
         ))
-        .stdout(contains("ZK Guardrail (proof-only):").not());
+        .stdout(contains("ZK Guardrail (local binding):").not());
+}
+
+#[test]
+fn stellar_repl_zk_stellar_verify_is_read_only_and_binding_checked() {
+    let (_tmp_dir, fake_cli, log_path) = create_fake_zk_stellar_cli();
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--no-flow")
+        .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
+        .write_stdin(format!(
+            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.verify approved\n\nexit\n\n",
+            fake_cli.to_string_lossy()
+        ))
+        .assert()
+        .success()
+        .stdout(contains("ZK Guardrail on Stellar:"))
+        .stdout(contains("- mode: read_only_verification"))
+        .stdout(contains(
+            "- cryptographic_verification: verified_on_stellar",
+        ))
+        .stdout(contains("- nullifier_consumed: false"))
+        .stdout(contains("- verification_transaction_submitted: false"))
+        .stdout(contains("- underlying_action_submit_allowed: false"));
+
+    let args = fs::read_to_string(log_path).expect("read fake Stellar CLI args");
+    assert!(args.contains("--send no"));
+    assert!(args.contains("--instruction-leeway 10000000"));
+    assert!(args.contains("-- verify --seal"));
+    assert!(!args.contains("verify_and_consume"));
+}
+
+#[test]
+fn stellar_repl_zk_stellar_verify_rejects_contract_binding_mismatch() {
+    let (_tmp_dir, fake_cli, _log_path) = create_fake_zk_stellar_cli_with_action_plan_hash(
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    );
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--no-flow")
+        .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
+        .write_stdin(format!(
+            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.verify approved\n\nexit\n\n",
+            fake_cli.to_string_lossy()
+        ))
+        .assert()
+        .success()
+        .stderr(contains(
+            "Stellar ZK result does not match the locally bound ActionPlan and journal (exit 4)",
+        ))
+        .stdout(contains("cryptographic_verification: verified_on_stellar").not());
+}
+
+#[test]
+fn stellar_repl_zk_stellar_consume_requires_local_flow() {
+    #[allow(deprecated)]
+    let mut no_flow = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    no_flow
+        .arg("--no-flow")
+        .write_stdin("zk.stellar.consume approved\n\nexit\n\n")
+        .assert()
+        .success()
+        .stderr(contains("zk.stellar.consume requires flow mode"));
+
+    #[allow(deprecated)]
+    let mut remote = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    remote
+        .env("NC_STELLAR_REMOTE_REPL", "1")
+        .write_stdin("zk.stellar.consume approved\n\nexit\n\n")
+        .assert()
+        .success()
+        .stderr(contains("zk.stellar.consume is disabled in remote REPL"));
+}
+
+#[test]
+fn stellar_repl_zk_stellar_consume_persists_only_the_nullifier() {
+    let (_tmp_dir, fake_cli, log_path) = create_fake_zk_stellar_cli();
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--flow")
+        .arg("--yes")
+        .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
+        .write_stdin(format!(
+            "stellar_cli: \"{}\"\n\nwallet: demo-owner\n\nzk.stellar.consume approved\n\nexit\n\n",
+            fake_cli.to_string_lossy()
+        ))
+        .assert()
+        .success()
+        .stdout(contains("- mode: stateful_consume"))
+        .stdout(contains("- nullifier_consumed: true"))
+        .stdout(contains("- verification_transaction_submitted: true"))
+        .stdout(contains("- underlying_action_submit_allowed: false"));
+
+    let args = fs::read_to_string(log_path).expect("read fake Stellar CLI args");
+    assert!(args.contains("--send yes"));
+    assert!(args.contains("-- verify_and_consume --seal"));
+    assert!(args.contains("--send no -- is_consumed --audit_nullifier"));
 }
 
 #[test]

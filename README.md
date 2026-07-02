@@ -17,7 +17,10 @@ RISC Zero and Soroban proof path for private owner policies:
 - the public journal binds the evaluator image ID, ActionPlan hash, policy
   commitment/version, decision, exit/reason, and audit nullifier
 - the Soroban application contract verifies a genuine Groth16 receipt through
-  the pinned verifier router and consumes the nullifier to prevent replay
+  the pinned verifier router and accepts only owner-authorized policy
+  commitment/version pairs
+- repeatable read-only verification is separate from the owner-authenticated
+  nullifier consume that prevents replay
 - genuine proofs cover `approved`, `requires_approval`, and private-policy
   allowlist block with exit `3`
 - a standalone Protocol 26 localnet demonstrates verification, persistent
@@ -27,11 +30,19 @@ A valid proof is not submit permission. `requires_approval` remains a
 no-submit state, and the read-only API view always reports
 `submit_allowed=false`.
 
-The Stellar REPL also exposes the same read-only boundary through
+The Stellar REPL exposes the local binding boundary through
 `zk.demo approved`, `zk.demo requires_approval`, `zk.demo blocked`, and
 `zk status`. Local command-line sessions can inspect caller-selected JSON with
 `zk.verify`; the public WebSocket REPL disables arbitrary file access and keeps
-only the bundled demo scenarios available.
+only the bundled demo scenarios available. Once a deployed contract ID is
+configured, `zk.stellar.verify <scenario>` performs repeatable cryptographic
+Soroban verification with no state change. The separate local-only
+`zk.stellar.consume <scenario>` requires flow, confirmation and owner auth,
+stores the replay nullifier, and still never submits the underlying ActionPlan.
+
+The repository includes a testnet-only deployment script, but does not claim a
+testnet deployment until a successful authorized run creates
+`hackathons/stellar-real-world-zk/deployments/testnet.json`.
 
 Start with the public package:
 
@@ -206,6 +217,19 @@ What this proves:
 - `setup testnet` applies the testnet Horizon/Friendbot baseline.
 - `wallet_bootstrap` creates a wallet alias and funds it on testnet.
 - `show setup` confirms the active network, wallet/source, flow mode, allowlist, policy mode, and x402 mode.
+
+ZK demo commands, after the hosted service has configured a deployed
+`NC_ZK_GUARDRAIL_CONTRACT` and simulation source:
+
+```text
+zk.demo approved
+zk.stellar.verify approved
+zk.stellar.verify requires_approval
+zk.stellar.verify blocked
+```
+
+`zk.stellar.verify` invokes Soroban with `--send no`. The hosted REPL disables
+`zk.stellar.consume`, so public users cannot change replay state.
 
 Demo operating model:
 

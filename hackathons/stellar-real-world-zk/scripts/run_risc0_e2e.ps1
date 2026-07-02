@@ -1,7 +1,10 @@
 param(
     [string]$WslDistribution = "Ubuntu",
     [ValidateSet("approved", "requires_approval", "blocked_allowlist")]
-    [string]$Scenario = "approved"
+    [string]$Scenario = "approved",
+    [string]$InputPath,
+    [string]$OutputPath,
+    [switch]$CheckInput
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,18 +22,58 @@ $drive = $Matches[1].ToLowerInvariant()
 $relativePath = $Matches[2].Replace('\', '/')
 $risc0WslPath = "/mnt/$drive/$relativePath"
 
-$toolPath = "$wslHome/.risc0/bin:$wslHome/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-& wsl.exe -d $WslDistribution --cd $risc0WslPath -- env -u RISC0_DEV_MODE "PATH=$toolPath" cargo run --release -p neurochain-zk-risc0-host -- $Scenario
-if ($LASTEXITCODE -ne 0) {
-    throw "RISC Zero end-to-end run failed with exit code $LASTEXITCODE."
+function Convert-WindowsPathToWsl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    if ($fullPath -notmatch '^([A-Za-z]):\(.*)$') {
+        throw "Path is not on a Windows drive: $fullPath"
+    }
+    $pathDrive = $Matches[1].ToLowerInvariant()
+    $pathRelative = $Matches[2].Replace('\', '/')
+    return "/mnt/$pathDrive/$pathRelative"
 }
 
+$toolPath = "$wslHome/.risc0/bin:$wslHome/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+$hostArguments = @($Scenario)
 $artifactName = switch ($Scenario) {
     "approved" { "neurochain-zk-stellar-proof.json" }
     "requires_approval" { "neurochain-zk-stellar-proof-requires-approval.json" }
     "blocked_allowlist" { "neurochain-zk-stellar-proof-blocked-allowlist.json" }
 }
 $artifactPath = Join-Path $risc0WindowsPath "target\$artifactName"
+if (-not [string]::IsNullOrWhiteSpace($InputPath)) {
+    $resolvedInput = (Resolve-Path -LiteralPath $InputPath).Path
+    if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+        $artifactPath = Join-Path $risc0WindowsPath "target\neurochain-zk-stellar-proof-custom.json"
+    }
+    else {
+        $artifactPath = [IO.Path]::GetFullPath($OutputPath)
+    }
+    $hostArguments = @(
+        "--input", (Convert-WindowsPathToWsl -Path $resolvedInput),
+        "--output", (Convert-WindowsPathToWsl -Path $artifactPath)
+    )
+    if ($CheckInput) {
+        $hostArguments = @("--check-input", (Convert-WindowsPathToWsl -Path $resolvedInput))
+    }
+}
+elseif (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+    throw "-OutputPath requires -InputPath."
+}
+elseif ($CheckInput) {
+    throw "-CheckInput requires -InputPath."
+}
+
+& wsl.exe -d $WslDistribution --cd $risc0WslPath -- env -u RISC0_DEV_MODE "PATH=$toolPath" cargo run --release -p neurochain-zk-risc0-host -- @hostArguments
+if ($LASTEXITCODE -ne 0) {
+    throw "RISC Zero end-to-end run failed with exit code $LASTEXITCODE."
+}
+if ($CheckInput) {
+    Write-Output "input_mode=private_file_check"
+    return
+}
+
 $artifact = Get-Content -Raw -LiteralPath $artifactPath | ConvertFrom-Json
 $expectedFields = @(
     "schema_version",
@@ -74,4 +117,5 @@ if ($computedDigest -ne $artifact.journal_digest_hex) {
 }
 
 Write-Output "stellar_artifact_valid=true"
-Write-Output "scenario=$Scenario"
+Write-Output "input_mode=$(if ([string]::IsNullOrWhiteSpace($InputPath)) { 'scenario' } else { 'private_file' })"
+Write-Output "scenario=$(if ([string]::IsNullOrWhiteSpace($InputPath)) { $Scenario } else { 'custom' })"

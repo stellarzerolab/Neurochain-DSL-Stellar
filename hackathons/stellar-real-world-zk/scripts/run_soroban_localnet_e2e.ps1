@@ -17,7 +17,7 @@ $IdentityName = "nc-zk-localnet-$RunId"
 $Selector = "73c457ba"
 $VerifierWasmSha256 = "f6a1f928de93db9b1e4176ef247d4a8c5d45a07a16cafd0bce9e641d7eaa03d8"
 $RouterWasmSha256 = "03f6e4c26ac5d662b60b6230a1a498b8d69d726b4291d17f56812ecb81797659"
-$ApplicationWasmSha256 = "724747b2fb051f48f720b1270f491c23dad6ebb651f75ac54381da2edc4a1640"
+$ApplicationWasmSha256 = "dbe89ddc76717b50b66934af39cfaf3153e3cef218267c0a01ab3d4bc0a1a70f"
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
@@ -78,6 +78,22 @@ function Last-OutputLine {
     param([Parameter(Mandatory = $true)]$Output)
 
     return [string](@($Output)[-1]).Trim()
+}
+
+function Read-JournalFields {
+    param([Parameter(Mandatory = $true)][string]$JournalHex)
+
+    $journalLengthBytes = 164
+    if ($JournalHex.Length -ne ($journalLengthBytes * 2)) {
+        throw "Unexpected public journal length: $($JournalHex.Length / 2) bytes"
+    }
+
+    return [PSCustomObject]@{
+        ActionPlanHash = $JournalHex.Substring(60 * 2, 64)
+        PolicyCommitment = $JournalHex.Substring(92 * 2, 64)
+        PolicyVersion = [Convert]::ToUInt32($JournalHex.Substring(124 * 2, 8), 16)
+        AuditNullifier = $JournalHex.Substring(132 * 2, 64)
+    }
 }
 
 function Assert-Sha256 {
@@ -253,6 +269,7 @@ try {
     ) | Out-Null
 
     $fixture = Get-Content -Raw $FixturePath | ConvertFrom-Json
+    $journal = Read-JournalFields -JournalHex $fixture.journal_hex
     if ($fixture.seal_hex.Substring(0, 8) -ne $Selector) {
         throw "Proof fixture selector does not match the pinned verifier selector"
     }
@@ -260,8 +277,39 @@ try {
     $appId = Last-OutputLine (Invoke-Stellar -Arguments @(
         "contract", "deploy", "--wasm", (Join-Path $OutDir "neurochain_zk_guardrail_soroban.wasm"),
         "--source", $IdentityName, "--network", "local", "--",
-        "--verifier_router", $routerId, "--evaluator_image_id", $fixture.image_id_hex
+        "--owner", $owner, "--verifier_router", $routerId,
+        "--evaluator_image_id", $fixture.image_id_hex,
+        "--initial_policy_commitment", $journal.PolicyCommitment,
+        "--initial_policy_version", "$($journal.PolicyVersion)"
     ))
+
+    $readOnlyVerifyArguments = @(
+        "contract", "invoke", "--id", $appId, "--source", $IdentityName,
+        "--network", "local", "--send", "no", "--instruction-leeway", "10000000",
+        "--", "verify", "--seal", $fixture.seal_hex,
+        "--journal_bytes", $fixture.journal_hex
+    )
+    $readOnlyAccepted = Last-OutputLine (Invoke-Stellar -Arguments $readOnlyVerifyArguments) |
+        ConvertFrom-Json
+    if ($readOnlyAccepted.action_plan_hash -ne $journal.ActionPlanHash -or
+        $readOnlyAccepted.policy_commitment -ne $journal.PolicyCommitment -or
+        $readOnlyAccepted.policy_version -ne $journal.PolicyVersion -or
+        $readOnlyAccepted.audit_nullifier -ne $journal.AuditNullifier -or
+        $readOnlyAccepted.decision_status -ne $ExpectedDecisionStatus -or
+        $readOnlyAccepted.exit_code -ne $ExpectedExitCode -or
+        $readOnlyAccepted.requires_approval -ne $ExpectedRequiresApproval -or
+        $readOnlyAccepted.next_step -ne $ExpectedNextStep) {
+        throw "Localnet read-only verification returned an unexpected attestation result"
+    }
+
+    $consumedBefore = Last-OutputLine (Invoke-Stellar -Arguments @(
+        "contract", "invoke", "--id", $appId, "--source", $IdentityName,
+        "--network", "local", "--send", "no", "--", "is_consumed",
+        "--audit_nullifier", $journal.AuditNullifier
+    ))
+    if ($consumedBefore -ne "false") {
+        throw "Read-only verification consumed the audit nullifier"
+    }
 
     $verifyArguments = @(
         "contract", "invoke", "--id", $appId, "--source", $IdentityName,
@@ -270,7 +318,11 @@ try {
         "--journal_bytes", $fixture.journal_hex
     )
     $accepted = Last-OutputLine (Invoke-Stellar -Arguments $verifyArguments) | ConvertFrom-Json
-    if ($accepted.decision_status -ne $ExpectedDecisionStatus -or
+    if ($accepted.action_plan_hash -ne $journal.ActionPlanHash -or
+        $accepted.policy_commitment -ne $journal.PolicyCommitment -or
+        $accepted.policy_version -ne $journal.PolicyVersion -or
+        $accepted.audit_nullifier -ne $journal.AuditNullifier -or
+        $accepted.decision_status -ne $ExpectedDecisionStatus -or
         $accepted.exit_code -ne $ExpectedExitCode -or
         $accepted.requires_approval -ne $ExpectedRequiresApproval -or
         $accepted.next_step -ne $ExpectedNextStep) {
@@ -309,6 +361,8 @@ try {
     Write-Output "router_contract=$routerId"
     Write-Output "application_contract=$appId"
     Write-Output "decision=$Scenario"
+    Write-Output "read_only_verified=true"
+    Write-Output "authorized_policy_version=$($journal.PolicyVersion)"
     Write-Output "exit_code=$ExpectedExitCode"
     Write-Output "next_step=$ExpectedNextStepOutput"
     Write-Output "nullifier_consumed=true"

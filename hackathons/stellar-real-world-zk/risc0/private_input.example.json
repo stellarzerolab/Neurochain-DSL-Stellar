@@ -1,0 +1,48 @@
+{
+  "action_plan": {
+    "schema_version": 1,
+    "intent_label": "ContractInvoke",
+    "action_kind": "soroban_contract_invoke",
+    "contract_id": "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+    "function": "purchase_credits",
+    "args": [
+      {
+        "name": "amount",
+        "type": "u64",
+        "value": "500000000"
+      },
+      {
+        "name": "asset",
+        "type": "symbol",
+        "value": "USDC"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "value": "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX"
+      }
+    ],
+    "intent_confidence_bps": 9800
+  },
+  "private_policy": {
+    "schema_version": 1,
+    "policy_version": 10,
+    "commitment_salt_hex": "5858585858585858585858585858585858585858585858585858585858585858",
+    "allowed_contracts": [
+      "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ"
+    ],
+    "allowed_contract_functions": [
+      "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ:purchase_credits"
+    ],
+    "allowed_assets": [
+      "USDC"
+    ],
+    "allowed_recipients": [
+      "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX"
+    ],
+    "max_amount_minor": 1000000000,
+    "approval_threshold_minor": 600000000,
+    "min_intent_confidence_bps": 9000
+  },
+  "audit_nonce_hex": "2525252525252525252525252525252525252525252525252525252525252525"
+}

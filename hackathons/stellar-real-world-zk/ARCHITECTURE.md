@@ -14,8 +14,11 @@ flowchart LR
     R --> V["Verifier router"]
     V --> G["Groth16 verifier"]
     G --> S
+    O["Owner-authorized policy commitments"] --> S
     S --> D["approved | requires_approval | blocked"]
-    S --> Q["Persistent consumed nullifier"]
+    S --> E["Read-only verify: no state change"]
+    S --> Q["Owner-only consume: persistent nullifier"]
+    E --> L["CLI / hosted REPL result"]
 ```
 
 ## Trust boundaries
@@ -40,8 +43,26 @@ strict shared decoder prevent JSON formatting, key-order or parser ambiguity.
 ### Soroban verification
 
 The application hashes the received journal, verifies the Groth16 seal through
-the pinned router, checks the image binding, decodes the decision and consumes
-the nullifier. Proof failure occurs before replay state is read or written.
+the pinned router, checks the image binding, and requires the journal's policy
+commitment/version to be in the owner-authorized registry. The permissionless
+`verify` method then returns the typed result without changing state. The
+owner-authenticated `verify_and_consume` method additionally consumes the
+nullifier. Proof or policy failure occurs before replay state is written.
+
+Owner authentication on consume prevents a third party from using a public
+proof to burn its nullifier. Authorization does not reveal the private policy;
+it records only its commitment and version.
+
+### CLI and hosted REPL bridge
+
+The REPL first validates the ActionPlan/journal binding locally. The
+`zk.stellar.verify` command forwards the public seal and journal to Soroban with
+`--send no`, then compares every returned binding and decision field before it
+shows success. The command is repeatable and suitable for the hosted demo.
+
+`zk.stellar.consume` is a separate local-only operation. It requires flow,
+confirmation and the owner's Stellar source alias. It submits only the
+verification/nullifier transaction, never the underlying ActionPlan.
 
 ## Decision boundary
 

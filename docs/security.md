@@ -1,11 +1,11 @@
-# 🛡️ NeuroChain Rust Security & Tooling Stack
+# NeuroChain Rust Security & Tooling Stack
 
 Goal: keep the toolchain lean (native-first) while keeping the process strict. Less plugin sprawl, more repeatable commands and CI gates.
 
 ## 1. Development Environment (VS Code)
-- Required: `rust-analyzer` (set “Check On Save” = `clippy` if possible).
+- Required: `rust-analyzer` (set "Check On Save" = `clippy` if possible).
 - Recommended: `Even Better TOML` (for `Cargo.toml` editing).
-- Optional: Snyk or another polyglot scanner if your organization already uses it – it does not replace CI-level checks.
+- Optional: Snyk or another polyglot scanner if your organization already uses it; it does not replace CI-level checks.
 
 ## 2. Local Workflow (The Local Loop)
 Install audit once:
@@ -29,31 +29,39 @@ Runtime safety note (Stellar path): in addition to toolchain checks, `neurochain
 x402 audit/store/facilitator-boundary safety note (Stellar server path): `/api/x402/stellar/intent-plan` is an access/payment gate in front of the same guardrail pipeline, not a submit path. Payment verification sits behind `src/x402_facilitator.rs`; `NC_X402_STELLAR_VERIFIER=mock` selects the local development verifier (`PAYMENT-SIGNATURE: paid:<challenge_id>`), while `NC_X402_STELLAR_VERIFIER=facilitator` selects an explicit `facilitator_verify_settle` fail-closed stub. The facilitator stub returns `state_unavailable` until real verify/settle transport is implemented; it must never accept mock proof as real payment. Production runtime envs (`NC_ENV`, `APP_ENV`, or `RUST_ENV` set to `production`) disable the mock verifier. Real facilitator logic must be added behind the same boundary without changing the agent/frontend response envelope. `requires_approval` is an explicit no-submit approval boundary: payment can be finalized and guardrails can pass, but the response still must not sign, submit, or broadcast. If `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit rows for payment-required, approved, `requires_approval`, blocked, replay, expired, and invalid payment states. If `NC_X402_STELLAR_STORE_PATH` is set, the server persists local challenge/replay state across restarts; if the configured store cannot be loaded, x402 requests fail closed with `state_unavailable` instead of falling back to memory. Audit rows and the store must not persist the raw `PAYMENT-SIGNATURE` header, invalid payment proofs, or the mock `paid:<challenge_id>` signature material. `/api/stellar/intent-plan` accepts server-side model ids, not arbitrary client-provided `model_path` values.
 
 ZK guardrail attestation safety note: the hackathon Soroban contract under
-`hackathons/stellar-real-world-zk/soroban/` has an immutable verifier address
-and evaluator image ID set by its constructor. It hashes the exact canonical
-public journal inside Soroban, calls the verifier before reading or writing
-replay state, strictly decodes the journal, checks the configured image ID and
-only then consumes the audit nullifier in persistent storage. A valid proof is
-not submit permission: `approved` is only eligible for a separate approval
-flow, while `requires_approval` and blocked exit `3` / `4` / `5` remain
-non-submit outcomes. Nullifier and instance TTLs are extended to the network
-maximum when accessed; deployments intended to outlive that horizon still
-need an explicit state-maintenance/restore policy. The decision/replay matrix
-uses the upstream testing-only mock verifier. A separate Soroban SDK
-integration test verifies the genuine RISC Zero Groth16 artifact through the
-pinned real Groth16 verifier contract and then consumes the attested
-nullifier. A second integration test routes the same proof by its four-byte
-seal selector through the pinned real verifier router before the verifier call.
-The localnet E2E runner also deploys the application, router and Groth16
-verifier into a standalone Protocol 26 network. It verifies genuine `approved`,
-`requires_approval` and private-policy allowlist block proofs, persists each
-nullifier, rejects replay and rejects a mutated proof. The `requires_approval`
-proof returns exit `0` but its contract next step remains `RequiresApproval`.
-The allowlist proof returns `blocked`, exit `3` and reason `allowlist`. No proof
-result directly grants submit permission. This is a local development network
-only, not testnet, mainnet or submit permission. The
-pinned Nethermind verifier repository is not audited, so an independent
-security review remains required before production use.
+`hackathons/stellar-real-world-zk/soroban/` stores an owner, verifier-router
+address and evaluator image ID in its constructor. A policy commitment and
+version are accepted only after the owner has authorized that exact pair.
+This prevents a prover from choosing an arbitrary permissive private policy
+and presenting it as owner policy. Policy authorization and revocation require
+owner authentication.
+
+The permissionless `verify` method hashes the canonical public journal inside
+Soroban, calls the verifier, checks the image and authorized policy binding,
+strictly decodes the journal, and returns the typed result without writing
+state. The owner-authenticated `verify_and_consume` method performs the same
+checks and then atomically consumes the audit nullifier. Requiring owner auth
+on consume prevents a public proof from being front-run merely to burn its
+nullifier. The public REPL exposes only read-only verification; its stateful
+consume command is disabled in remote mode and requires local flow plus an
+explicit confirmation.
+
+A valid proof is not submit permission: `approved` is only eligible for a
+separate approval flow, while `requires_approval` and blocked exit `3` / `4` /
+`5` remain non-submit outcomes. Invalid proof, unauthorized policy and replay
+map to the existing exit `4` client boundary. Nullifier and instance TTLs are
+extended to the network maximum when accessed; deployments intended to outlive
+that horizon still need an explicit state-maintenance/restore policy.
+
+Soroban SDK tests route genuine `approved`, `requires_approval` and
+private-policy allowlist-block Groth16 artifacts through the pinned real router
+and verifier. The Protocol 26 localnet runner additionally proves that
+read-only verification does not consume the nullifier, owner consume persists
+it, replay fails and a mutated proof fails. It is a local development network,
+not a testnet or mainnet claim. The optional testnet deployment script refuses
+to run without an explicit `-Execute` switch and writes only secret-free
+deployment metadata. The pinned Nethermind verifier repository is not audited,
+so an independent security review remains required before production use.
 
 The read-only `/api/stellar/zk-attestation/view` endpoint validates only the
 public artifact bindings: canonical ActionPlan hash, journal digest, evaluator

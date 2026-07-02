@@ -26,6 +26,25 @@ fn decode_digest(value: &str) -> [u8; 32] {
         .expect("fixture digest fields must contain 32 bytes")
 }
 
+fn register_guardrail(
+    env: &Env,
+    verifier_router: Address,
+    image_id: BytesN<32>,
+    journal: &PublicJournal,
+) -> Address {
+    let owner = Address::generate(env);
+    env.register(
+        NeuroChainZkGuardrail,
+        (
+            owner,
+            verifier_router,
+            image_id,
+            BytesN::from_array(env, &journal.policy_commitment),
+            journal.policy_version,
+        ),
+    )
+}
+
 #[test]
 fn genuine_groth16_proof_verifies_and_consumes_nullifier() {
     let fixture: Groth16Fixture =
@@ -34,6 +53,7 @@ fn genuine_groth16_proof_verifies_and_consumes_nullifier() {
     assert_eq!(fixture.schema_version, 1);
 
     let env = Env::default();
+    env.mock_all_auths();
     let seal = Bytes::from_slice(&env, &decode_hex(&fixture.seal_hex));
     let journal_bytes = Bytes::from_slice(&env, &decode_hex(&fixture.journal_hex));
     let image_id = BytesN::from_array(&env, &decode_digest(&fixture.image_id_hex));
@@ -41,8 +61,10 @@ fn genuine_groth16_proof_verifies_and_consumes_nullifier() {
     let actual_journal_digest: BytesN<32> = env.crypto().sha256(&journal_bytes).into();
     assert_eq!(actual_journal_digest.to_array(), expected_journal_digest);
 
+    let journal = PublicJournal::decode(&decode_hex(&fixture.journal_hex))
+        .expect("fixture must contain a canonical NeuroChain journal");
     let verifier_id = env.register(RiscZeroGroth16Verifier, ());
-    let contract_id = env.register(NeuroChainZkGuardrail, (verifier_id, image_id.clone()));
+    let contract_id = register_guardrail(&env, verifier_id, image_id.clone(), &journal);
     let client = NeuroChainZkGuardrailClient::new(&env, &contract_id);
 
     let accepted = client.verify_and_consume(&seal, &journal_bytes);
@@ -55,8 +77,6 @@ fn genuine_groth16_proof_verifies_and_consumes_nullifier() {
     );
     assert!(client.is_consumed(&accepted.audit_nullifier));
 
-    let journal = PublicJournal::decode(&decode_hex(&fixture.journal_hex))
-        .expect("fixture must contain a canonical NeuroChain journal");
     assert_eq!(journal.evaluator_image_id, image_id.to_array());
     assert_eq!(journal.audit_nullifier, accepted.audit_nullifier.to_array());
 }
@@ -73,6 +93,8 @@ fn genuine_groth16_proof_routes_by_selector_and_consumes_nullifier() {
     let seal = Bytes::from_slice(&env, &seal_raw);
     let journal_bytes = Bytes::from_slice(&env, &decode_hex(&fixture.journal_hex));
     let image_id = BytesN::from_array(&env, &decode_digest(&fixture.image_id_hex));
+    let journal = PublicJournal::decode(&decode_hex(&fixture.journal_hex))
+        .expect("fixture must contain a canonical NeuroChain journal");
     let selector = BytesN::from_array(
         &env,
         &seal_raw[..4]
@@ -87,7 +109,7 @@ fn genuine_groth16_proof_routes_by_selector_and_consumes_nullifier() {
     router.add_verifier(&selector, &verifier_id);
     assert_eq!(router.get_verifier_by_selector(&selector), verifier_id);
 
-    let contract_id = env.register(NeuroChainZkGuardrail, (router_id, image_id.clone()));
+    let contract_id = register_guardrail(&env, router_id, image_id.clone(), &journal);
     let client = NeuroChainZkGuardrailClient::new(&env, &contract_id);
     let accepted = client.verify_and_consume(&seal, &journal_bytes);
 
@@ -113,6 +135,8 @@ fn genuine_requires_approval_proof_routes_without_granting_execution() {
     let seal = Bytes::from_slice(&env, &seal_raw);
     let journal_bytes = Bytes::from_slice(&env, &decode_hex(&fixture.journal_hex));
     let image_id = BytesN::from_array(&env, &decode_digest(&fixture.image_id_hex));
+    let journal = PublicJournal::decode(&decode_hex(&fixture.journal_hex))
+        .expect("fixture must contain a canonical NeuroChain journal");
     let expected_journal_digest = decode_digest(&fixture.journal_digest_hex);
     let actual_journal_digest: BytesN<32> = env.crypto().sha256(&journal_bytes).into();
     assert_eq!(actual_journal_digest.to_array(), expected_journal_digest);
@@ -129,7 +153,7 @@ fn genuine_requires_approval_proof_routes_without_granting_execution() {
     let router = RiscZeroVerifierRouterClient::new(&env, &router_id);
     router.add_verifier(&selector, &verifier_id);
 
-    let contract_id = env.register(NeuroChainZkGuardrail, (router_id, image_id));
+    let contract_id = register_guardrail(&env, router_id, image_id, &journal);
     let client = NeuroChainZkGuardrailClient::new(&env, &contract_id);
     let accepted = client.verify_and_consume(&seal, &journal_bytes);
 
@@ -155,6 +179,8 @@ fn genuine_allowlist_block_proof_routes_as_exit_3() {
     let seal = Bytes::from_slice(&env, &seal_raw);
     let journal_bytes = Bytes::from_slice(&env, &decode_hex(&fixture.journal_hex));
     let image_id = BytesN::from_array(&env, &decode_digest(&fixture.image_id_hex));
+    let journal = PublicJournal::decode(&decode_hex(&fixture.journal_hex))
+        .expect("fixture must contain a canonical NeuroChain journal");
     let expected_journal_digest = decode_digest(&fixture.journal_digest_hex);
     let actual_journal_digest: BytesN<32> = env.crypto().sha256(&journal_bytes).into();
     assert_eq!(actual_journal_digest.to_array(), expected_journal_digest);
@@ -171,7 +197,7 @@ fn genuine_allowlist_block_proof_routes_as_exit_3() {
     let router = RiscZeroVerifierRouterClient::new(&env, &router_id);
     router.add_verifier(&selector, &verifier_id);
 
-    let contract_id = env.register(NeuroChainZkGuardrail, (router_id, image_id));
+    let contract_id = register_guardrail(&env, router_id, image_id, &journal);
     let client = NeuroChainZkGuardrailClient::new(&env, &contract_id);
     let accepted = client.verify_and_consume(&seal, &journal_bytes);
 

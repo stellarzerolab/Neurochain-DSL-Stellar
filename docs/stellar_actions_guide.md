@@ -179,6 +179,8 @@ In REPL, the same values can also be set with commands such as `network: ...`, `
 | `NC_SOROBAN_SOURCE` / `NC_STELLAR_SOURCE` | Sets the source wallet alias | CLI + `.nc`; REPL wallet is set explicitly | not set |
 | `NC_STELLAR_CLI` | Sets the `stellar` binary | CLI + REPL + `.nc` | `stellar` |
 | `NC_SOROBAN_SIMULATE_FLAG` | Sets the simulate flag | CLI + REPL + `.nc` | `--send no` |
+| `NC_ZK_GUARDRAIL_CONTRACT` | Sets the deployed NeuroChain ZK Guardrail contract ID | REPL ZK bridge | not set |
+| `NC_ZK_INSTRUCTION_LEEWAY` | Sets the ZK verifier instruction leeway | REPL ZK bridge | `10000000` |
 | `NC_STELLAR_SCRIPT_UNSAFE_EXEC` | Allows trusted `.nc` scripts to run local setup side effects during script build | `.nc` only | off |
 | `NC_TXREP_PREVIEW` | Enables txrep preview | CLI + REPL + `.nc` | off |
 | `NC_X402` | Enables x402-lite commands | CLI + REPL + `.nc` | off |
@@ -219,6 +221,8 @@ Recommended order:
 - `NC_CONTRACT_POLICY` -> `contract_policy: contracts/<id>/policy.json`
 - `NC_CONTRACT_POLICY_DIR` -> `contract_policy_dir: contracts`
 - `NC_CONTRACT_POLICY_ENFORCE` -> `contract_policy_enforce` / `contract_policy_enforce off`
+- `NC_ZK_GUARDRAIL_CONTRACT` -> `zk_contract: C...`
+- `NC_ZK_INSTRUCTION_LEEWAY` -> `zk_instruction_leeway: 10000000`
 
 Safety notes:
 
@@ -387,6 +391,8 @@ Core setup, value required:
 - `friendbot: https://...|off` -> set Friendbot URL or disable it
 - `stellar_cli: <bin>` -> set Stellar CLI binary path/name (REPL; `.nc` requires `NC_STELLAR_SCRIPT_UNSAFE_EXEC=1`)
 - `simulate_flag: "--send no"` -> set Soroban simulate flag; preview still enforces `--send no`
+- `zk_contract: C...` -> set the deployed NeuroChain ZK Guardrail contract
+- `zk_instruction_leeway: 10000000` -> set verifier instruction leeway
 - `asset_allowlist: XLM,USDC:G...` -> set the equivalent of `NC_ASSET_ALLOWLIST`
 - `soroban_allowlist: C1:transfer,C2` -> set the equivalent of `NC_SOROBAN_ALLOWLIST`
 - `contract_policy: <path>` -> set the equivalent of `NC_CONTRACT_POLICY`
@@ -416,6 +422,14 @@ Prompt and action commands:
 - `soroban.contract.deploy alias="..." wasm="..."` -> manual deploy action
 - `x402.request to="G..." amount="1" asset_code="XLM"` -> create an x402-lite payment challenge
 - `x402.finalize challenge_id="last"` -> finalize a challenge into a typed `stellar_payment` action
+
+ZK Guardrail commands:
+
+- `zk.demo approved|requires_approval|blocked` -> validate a bundled public binding locally
+- `zk.verify action_plan="..." proof="..."` -> validate caller-selected public files locally
+- `zk.stellar.verify approved|requires_approval|blocked|last` -> cryptographically verify on Soroban without changing state
+- `zk.stellar.consume approved|requires_approval|blocked|last` -> owner-only nullifier consume in local flow mode
+- `zk status` -> show the last inspected ZK attestation
 
 Soroban v2 templates:
 
@@ -1317,9 +1331,12 @@ Implementation note:
   while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
   finalized `plan` stable for clients
 
-## 13) Read-Only ZK Attestation View
+## 13) ZK Guardrail: Local Binding And Soroban Verification
 
-The Stellar CLI and REPL expose the same proof-only inspection boundary:
+The REPL exposes three deliberately separate boundaries. A valid result at one
+boundary never silently advances to the next one.
+
+### 13.1) Inspect The Public Binding Locally
 
 ```text
 zk.demo approved
@@ -1329,11 +1346,10 @@ zk status
 ```
 
 The bundled scenarios are available in both the local CLI REPL and the public
-WebSocket demo. Run `help` for the shortest path or `help all` for the dedicated
-`ZK Guardrail (proof-only)` command section. Every result states whether the
-public binding was validated, the proven decision and exit code, whether the
-private policy was revealed, and that Stellar cryptographic verification is
-still required. These commands never enter preview, confirmation or submit.
+WebSocket demo. They decode the public journal, recompute the typed ActionPlan
+hash, validate the journal digest and image binding, and display the decision.
+They do not perform the Groth16 pairing check, so the output says
+`cryptographic_verification: required_on_stellar`.
 
 The local CLI REPL can also inspect caller-selected JSON artifacts:
 
@@ -1344,8 +1360,82 @@ zk.verify action_plan="hackathons/stellar-real-world-zk/fixtures/typed_action_pl
 `zk.verify` limits each input to a regular UTF-8 JSON file of at most 2 MiB.
 The public WebSocket REPL sets `NC_STELLAR_REMOTE_REPL=1`, which disables this
 file-reading form before either path is opened. Public users can run only the
-bundled `zk.demo` scenarios. `show setup` and `show config` expose the constant
-`zk_guardrail: proof-only` boundary.
+bundled scenarios.
+
+For a caller-selected ActionPlan and private policy, validate and prove an
+untracked private input with the RISC Zero runner:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1 `
+  -InputPath C:\private\neurochain-zk-input.json `
+  -CheckInput
+
+powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_risc0_e2e.ps1 `
+  -InputPath C:\private\neurochain-zk-input.json `
+  -OutputPath C:\private\neurochain-zk-public-proof.json
+```
+
+The strict schema is documented by the public synthetic
+`risc0/private_input.example.json`. Real policy rules, salts and audit nonces
+must remain outside the repository. The generated proof artifact is public and
+can be loaded with `zk.verify`, followed by `zk.stellar.verify last`.
+
+### 13.2) Verify The Proof On Soroban Without Changing State
+
+Configure the deployed application contract and a Stellar CLI source alias:
+
+```text
+network: testnet
+wallet: nc-zk-demo
+zk_contract: C...
+zk.stellar.verify approved
+zk.stellar.verify requires_approval
+zk.stellar.verify blocked
+```
+
+The contract ID can instead come from `NC_ZK_GUARDRAIL_CONTRACT`. The REPL
+invokes the contract's `verify` method with `--send no` and the configured
+instruction leeway. Soroban then:
+
+1. routes the genuine RISC Zero seal to the pinned Groth16 verifier
+2. checks the evaluator image ID
+3. checks that the owner authorized the journal's policy commitment/version
+4. returns the typed decision without consuming the audit nullifier.
+
+The REPL compares every returned binding and decision field with its local
+ActionPlan/journal view before displaying `verified_on_stellar`. A mismatch
+fails closed as exit `4`. Successful output always includes:
+
+```text
+mode: read_only_verification
+cryptographic_verification: verified_on_stellar
+authorized_private_policy: verified_on_stellar
+nullifier_consumed: false
+verification_transaction_submitted: false
+underlying_action_submit_allowed: false
+```
+
+This is the command intended for the hosted live demo. It is repeatable because
+it does not write contract state. The hosted process still needs a deployed
+contract ID and a read-only simulation source alias before the command is
+advertised as live.
+
+### 13.3) Consume The Nullifier In A Separate Owner Transaction
+
+The local operator can demonstrate persistent replay protection separately:
+
+```text
+zk.stellar.consume approved
+```
+
+This command is disabled in remote REPL mode. Locally it requires `--flow`, an
+explicit confirmation unless `--yes` was intentionally supplied, and the
+contract owner's source alias. It calls `verify_and_consume`, then reads
+`is_consumed` back from Soroban. It stores only the audit nullifier; it does not
+sign, submit, or broadcast the ActionPlan represented by the proof. A repeated
+consume is contract error `3`, mapped to the existing exit `4` boundary.
+
+### 13.4) Server Inspection Endpoint
 
 The server exposes a separate inspection endpoint for the hackathon public
 proof artifact:
@@ -1380,12 +1470,21 @@ still has:
 - `execution.submit_allowed = false`
 - `execution.next_step = "verify_on_stellar_then_separate_approval"`
 
-The genuine cryptographic proof path is the Soroban verifier demonstrated by
-`run_soroban_localnet_e2e.ps1`. Pass `-Scenario requires_approval` to prove and
-verify the approval-threshold scenario in the standalone Protocol 26 localnet.
-It returns exit `0` with `NextStep::RequiresApproval`, not execution permission.
-Pass `-Scenario blocked_allowlist` to prove the private-policy allowlist block;
-it returns `blocked`, exit `3` and `NextStep::Blocked`.
+The genuine cryptographic proof path is also exercised by
+`run_soroban_localnet_e2e.ps1`. It deploys the verifier, router and application,
+first proves that read-only `verify` leaves the nullifier unused, then performs
+the owner-authenticated consume and tests replay plus invalid-proof rejection.
+Pass `-Scenario requires_approval` to verify the approval-threshold scenario;
+it returns exit `0` with `NextStep::RequiresApproval`, not execution permission.
+Pass `-Scenario blocked_allowlist` for decision `blocked`, exit `3` and
+`NextStep::Blocked`.
+
+An optional testnet deployment script is available at
+`hackathons/stellar-real-world-zk/scripts/deploy_testnet.ps1`. It is restricted
+to testnet and refuses to run without `-Execute`. A successful authorized run
+writes the secret-free `deployments/testnet.json` manifest. The repository does
+not claim a testnet deployment until that manifest exists.
+
 Changing the ActionPlan, journal digest or journal bytes makes the API view fail
 closed. `NC_API_KEY` protects this route when configured. The route never signs,
 submits or broadcasts.

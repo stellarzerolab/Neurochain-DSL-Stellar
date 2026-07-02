@@ -9,6 +9,12 @@
 - [x] Public proof fixtures cover approved, requires approval and exit `3`.
 - [x] Replay and invalid-proof rejection are demonstrated in Protocol 26
   localnet.
+- [x] Soroban accepts only owner-authorized policy commitment/version pairs.
+- [x] Read-only verification is repeatable and does not consume the nullifier.
+- [x] Stateful consume requires owner authentication and is disabled in the
+  hosted REPL.
+- [x] CLI/REPL compares the Soroban return with the locally bound ActionPlan and
+  journal before reporting success.
 - [x] Security limitations and unaudited verifier status are disclosed.
 - [x] No private policy values, wallet secrets or local-only files are included.
 - [x] One-command proof-only video rehearsal is available without Stellar
@@ -43,6 +49,10 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
 - [ ] Obtain explicit approval before any testnet deploy or submit.
 - [ ] If approved, use a dedicated test identity and record contract IDs and
   transaction links without storing secret material.
+- [ ] Run `scripts/deploy_testnet.ps1` only with explicit `-Execute` approval
+  and confirm that `deployments/testnet.json` was created.
+- [ ] Configure the hosted demo with `NC_ZK_GUARDRAIL_CONTRACT` and a read-only
+  simulation source, then verify all three `zk.stellar.verify` scenarios.
 
 The package gate validates repository evidence only. It does not claim that
 the video, DoraHacks form or optional testnet step has been completed.
