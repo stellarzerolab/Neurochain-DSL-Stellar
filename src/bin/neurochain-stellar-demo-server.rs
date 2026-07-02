@@ -235,6 +235,7 @@ async fn handle_stellar_repl_socket(mut socket: WebSocket, state: Arc<AppState>,
     }
     cmd.env_remove("NO_COLOR");
     cmd.env("CLICOLOR_FORCE", "1");
+    cmd.env("NC_STELLAR_REMOTE_REPL", "1");
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

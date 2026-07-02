@@ -27,6 +27,12 @@ A valid proof is not submit permission. `requires_approval` remains a
 no-submit state, and the read-only API view always reports
 `submit_allowed=false`.
 
+The Stellar REPL also exposes the same read-only boundary through
+`zk.demo approved`, `zk.demo requires_approval`, `zk.demo blocked`, and
+`zk status`. Local command-line sessions can inspect caller-selected JSON with
+`zk.verify`; the public WebSocket REPL disables arbitrary file access and keeps
+only the bundled demo scenarios available.
+
 Start with the public package:
 
 - [`hackathons/stellar-real-world-zk/README.md`](hackathons/stellar-real-world-zk/README.md)

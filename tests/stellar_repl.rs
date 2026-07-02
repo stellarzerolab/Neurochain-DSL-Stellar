@@ -96,6 +96,10 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("NeuroChain Stellar REPL"))
         .stdout(contains("Stellar REPL quick start"))
         .stdout(contains("help dsl"))
+        .stdout(contains("zk.demo approved"))
+        .stdout(contains(
+            "ZK Guardrail commands are proof-only and never grant submit permission.",
+        ))
         .stdout(contains("Soroban v2 template prompts").not())
         .stdout(contains("claim_rewards").not())
         .stdout(contains("deposit").not())
@@ -252,6 +256,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
             "Core setup (value required):",
             "Toggles (on/off):",
             "Prompt/Action commands:",
+            "ZK Guardrail (proof-only):",
             "Soroban v2 templates:",
             "Utility commands:",
         ],
@@ -304,6 +309,20 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "x402.finalize challenge_id=\"last\"",
         "finalize challenge -> execute typed stellar_payment",
     );
+    let zk_demo_approved_row = help_row(
+        "zk.demo approved",
+        "inspect bundled approved proof (no submit)",
+    );
+    let zk_demo_approval_row = help_row(
+        "zk.demo requires_approval",
+        "inspect bundled approval-required proof",
+    );
+    let zk_demo_blocked_row = help_row("zk.demo blocked", "inspect bundled allowlist-block proof");
+    let zk_verify_row = help_row(
+        "zk.verify action_plan=\"...\" proof=\"...\"",
+        "inspect local JSON files (local CLI only)",
+    );
+    let zk_status_row = help_row("zk status", "show last inspected ZK attestation");
     let setup_row = help_row("show setup", "print active setup");
     let help_dsl_row = help_row("help dsl", "show normal NeuroChain DSL language help");
     let template_registry_row = help_row(
@@ -343,6 +362,11 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&set_var_row));
     assert!(stdout.contains(&x402_request_row));
     assert!(stdout.contains(&x402_finalize_row));
+    assert!(stdout.contains(&zk_demo_approved_row));
+    assert!(stdout.contains(&zk_demo_approval_row));
+    assert!(stdout.contains(&zk_demo_blocked_row));
+    assert!(stdout.contains(&zk_verify_row));
+    assert!(stdout.contains(&zk_status_row));
     assert!(stdout.contains(&intent_row));
     assert!(stdout.contains(&deploy_row));
     assert!(stdout.contains(&help_dsl_row));
@@ -361,6 +385,9 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     let prompt_start = stdout
         .find("Prompt/Action commands:")
         .expect("prompt/action header");
+    let zk_start = stdout
+        .find("ZK Guardrail (proof-only):")
+        .expect("ZK Guardrail header");
     let soroban_v2_start = stdout
         .find("Soroban v2 templates:")
         .expect("soroban v2 header");
@@ -368,7 +395,8 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
 
     let core_section = &stdout[core_start..toggle_start];
     let toggle_section = &stdout[toggle_start..prompt_start];
-    let prompt_section = &stdout[prompt_start..soroban_v2_start];
+    let prompt_section = &stdout[prompt_start..zk_start];
+    let zk_section = &stdout[zk_start..soroban_v2_start];
     let soroban_v2_section = &stdout[soroban_v2_start..utility_start];
 
     assert!(core_section.contains("intent_threshold: <f32>"));
@@ -383,6 +411,14 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
 
     assert!(prompt_section.contains("set stellar intent from AI: \"...\""));
     assert!(prompt_section.contains("x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\""));
+    assert!(!prompt_section.contains("zk.demo approved"));
+
+    assert!(zk_section.contains("zk.demo approved"));
+    assert!(zk_section.contains("zk.demo requires_approval"));
+    assert!(zk_section.contains("zk.demo blocked"));
+    assert!(zk_section.contains("zk.verify action_plan=\"...\" proof=\"...\""));
+    assert!(zk_section.contains("zk status"));
+    assert!(zk_section.contains("never submits or grants transaction permission"));
 
     assert!(soroban_v2_section.contains("template registry"));
     assert!(soroban_v2_section.contains("hello"));
@@ -390,6 +426,71 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(soroban_v2_section.contains("deposit"));
     assert!(soroban_v2_section.contains("swap"));
     assert!(soroban_v2_section.contains("REPL, .nc, and /api/stellar/intent-plan"));
+}
+
+#[test]
+fn stellar_repl_zk_demo_scenarios_are_proof_only() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(
+            "zk.demo approved\n\nzk.demo requires_approval\n\nzk.demo blocked\n\nzk status\n\nexit\n\n",
+        )
+        .output()
+        .expect("run bundled ZK demos");
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("- source: bundled demo: approved"));
+    assert!(stdout.contains("- source: bundled demo: requires_approval"));
+    assert!(stdout.contains("- source: bundled demo: blocked"));
+    assert!(stdout.contains("- decision: approved"));
+    assert!(stdout.contains("- decision: requires_approval"));
+    assert!(stdout.contains("- decision: blocked"));
+    assert!(stdout.contains("- exit_code: 3"));
+    assert!(stdout.contains("- reason: allowlist"));
+    assert!(stdout.contains("- cryptographic_verification: required_on_stellar"));
+    assert!(stdout.contains("- private_policy_revealed: false"));
+    assert!(stdout.contains("- submit_allowed: false"));
+    assert!(stdout.contains("- execution_state: blocked"));
+}
+
+#[test]
+fn stellar_repl_zk_verify_reads_local_artifacts_only() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("hackathons")
+        .join("stellar-real-world-zk")
+        .join("fixtures");
+    let action_plan = fixtures.join("typed_action_plan.json");
+    let proof = fixtures.join("groth16_approved.json");
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.write_stdin(format!(
+        "zk.verify action_plan=\"{}\" proof=\"{}\"\n\nexit\n\n",
+        action_plan.to_string_lossy(),
+        proof.to_string_lossy()
+    ))
+    .assert()
+    .success()
+    .stdout(contains("ZK Guardrail (proof-only):"))
+    .stdout(contains("- binding: binding_validated"))
+    .stdout(contains("- decision: approved"))
+    .stdout(contains("- submit_allowed: false"));
+}
+
+#[test]
+fn stellar_remote_repl_blocks_zk_verify_file_access() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.env("NC_STELLAR_REMOTE_REPL", "1")
+        .write_stdin("zk.verify action_plan=\"private.json\" proof=\"proof.json\"\n\nexit\n\n")
+        .assert()
+        .success()
+        .stderr(contains(
+            "zk.verify file access is disabled in remote REPL; use a bundled zk.demo scenario",
+        ))
+        .stdout(contains("ZK Guardrail (proof-only):").not());
 }
 
 #[test]

@@ -1319,6 +1319,34 @@ Implementation note:
 
 ## 13) Read-Only ZK Attestation View
 
+The Stellar CLI and REPL expose the same proof-only inspection boundary:
+
+```text
+zk.demo approved
+zk.demo requires_approval
+zk.demo blocked
+zk status
+```
+
+The bundled scenarios are available in both the local CLI REPL and the public
+WebSocket demo. Run `help` for the shortest path or `help all` for the dedicated
+`ZK Guardrail (proof-only)` command section. Every result states whether the
+public binding was validated, the proven decision and exit code, whether the
+private policy was revealed, and that Stellar cryptographic verification is
+still required. These commands never enter preview, confirmation or submit.
+
+The local CLI REPL can also inspect caller-selected JSON artifacts:
+
+```text
+zk.verify action_plan="hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json" proof="hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+```
+
+`zk.verify` limits each input to a regular UTF-8 JSON file of at most 2 MiB.
+The public WebSocket REPL sets `NC_STELLAR_REMOTE_REPL=1`, which disables this
+file-reading form before either path is opened. Public users can run only the
+bundled `zk.demo` scenarios. `show setup` and `show config` expose the constant
+`zk_guardrail: proof-only` boundary.
+
 The server exposes a separate inspection endpoint for the hackathon public
 proof artifact:
 

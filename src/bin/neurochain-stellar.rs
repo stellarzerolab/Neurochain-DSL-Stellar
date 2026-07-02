@@ -17,6 +17,9 @@ use neurochain::intent_stellar::{
     threshold_from_env as intent_threshold_from_env, DEFAULT_INTENT_STELLAR_THRESHOLD,
 };
 use neurochain::soroban_deep::{self, ContractPolicy};
+use neurochain::zk_attestation::{
+    inspect_zk_attestation, ZkAttestationViewRequest, ZkAttestationViewResponse,
+};
 use reqwest::blocking::Client;
 use serde_json::Value;
 
@@ -43,6 +46,7 @@ fn print_usage() {
     eprintln!(
         "--debug enables intent pipeline trace (classify -> slot-parse -> guardrails -> flow)."
     );
+    eprintln!("REPL ZK Guardrail commands are proof-only; run `help all` for examples.");
     eprintln!("Flow in intent mode is blocked when plan has Unknown/intent_error (exit code 5).");
     eprintln!("Env: NC_STELLAR_NETWORK / NC_SOROBAN_NETWORK (default: testnet)");
     eprintln!("Env: NC_STELLAR_HORIZON_URL (default: testnet Horizon)");
@@ -210,6 +214,10 @@ fn x402_enabled(override_value: Option<bool>) -> bool {
 fn script_unsafe_exec_enabled() -> bool {
     parse_bool_value(&env::var("NC_STELLAR_SCRIPT_UNSAFE_EXEC").unwrap_or_default())
         .unwrap_or(false)
+}
+
+fn remote_repl_mode() -> bool {
+    parse_bool_value(&env::var("NC_STELLAR_REMOTE_REPL").unwrap_or_default()).unwrap_or(false)
 }
 
 #[derive(Debug)]
@@ -1792,7 +1800,7 @@ fn parse_x402_line(line: &str) -> Result<Option<bool>> {
         .ok_or_else(|| anyhow!("invalid x402 value `{value}` (use x402, x402 on, x402 off)"))
 }
 
-fn parse_key_value_tokens(raw: &str) -> Result<HashMap<String, String>> {
+fn parse_key_value_tokens(raw: &str, command: &str) -> Result<HashMap<String, String>> {
     let mut tokens: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
@@ -1820,7 +1828,7 @@ fn parse_key_value_tokens(raw: &str) -> Result<HashMap<String, String>> {
         current.push(ch);
     }
     if quote.is_some() {
-        return Err(anyhow!("unterminated quoted value in x402 command"));
+        return Err(anyhow!("unterminated quoted value in {command} command"));
     }
     if !current.is_empty() {
         tokens.push(current);
@@ -1830,16 +1838,16 @@ fn parse_key_value_tokens(raw: &str) -> Result<HashMap<String, String>> {
     for token in tokens {
         let Some((name, value_raw)) = token.split_once('=') else {
             return Err(anyhow!(
-                "invalid x402 argument `{token}` (use key=\"value\")"
+                "invalid {command} argument `{token}` (use key=\"value\")"
             ));
         };
         let name = name.trim().to_ascii_lowercase();
         if name.is_empty() {
-            return Err(anyhow!("invalid x402 argument key in `{token}`"));
+            return Err(anyhow!("invalid {command} argument key in `{token}`"));
         }
         let value = strip_wrapping_quotes(value_raw);
         if value.is_empty() {
-            return Err(anyhow!("invalid x402 argument `{name}`: empty value"));
+            return Err(anyhow!("invalid {command} argument `{name}`: empty value"));
         }
         out.insert(name, value);
     }
@@ -1864,7 +1872,7 @@ fn parse_x402_request_line(line: &str) -> Result<Option<Action>> {
             "x402.request requires payment fields (example: x402.request to=\"G...\" amount=\"1\" asset_code=\"XLM\")"
         ));
     }
-    let args = parse_key_value_tokens(rest)?;
+    let args = parse_key_value_tokens(rest, "x402")?;
     let to = args
         .get("to")
         .cloned()
@@ -1924,7 +1932,7 @@ fn parse_x402_finalize_line(line: &str) -> Result<Option<String>> {
     if rest.eq_ignore_ascii_case("last") {
         return Ok(Some("last".to_string()));
     }
-    let args = parse_key_value_tokens(rest)?;
+    let args = parse_key_value_tokens(rest, "x402")?;
     if let Some(challenge_id) = args
         .get("challenge_id")
         .cloned()
@@ -1935,6 +1943,219 @@ fn parse_x402_finalize_line(line: &str) -> Result<Option<String>> {
     Err(anyhow!(
         "invalid x402.finalize syntax (use x402.finalize challenge_id=\"last\" or challenge_id=\"x402c0001\")"
     ))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ZkDemoScenario {
+    Approved,
+    RequiresApproval,
+    Blocked,
+}
+
+impl ZkDemoScenario {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::RequiresApproval => "requires_approval",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ZkReplCommand {
+    Demo(ZkDemoScenario),
+    Verify {
+        action_plan_path: String,
+        proof_path: String,
+    },
+    Status,
+}
+
+#[derive(Debug, Clone)]
+struct ZkReplInspection {
+    source: String,
+    response: ZkAttestationViewResponse,
+}
+
+fn parse_zk_repl_command(line: &str) -> Result<Option<ZkReplCommand>> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+
+    if lower == "zk status" || lower == "zk.status" {
+        return Ok(Some(ZkReplCommand::Status));
+    }
+
+    for prefix in ["zk demo", "zk.demo"] {
+        if lower == prefix {
+            return Err(anyhow!(
+                "{prefix} requires a scenario: approved, requires_approval, or blocked"
+            ));
+        }
+        let Some(rest) = lower.strip_prefix(prefix) else {
+            continue;
+        };
+        if !rest.chars().next().is_some_and(char::is_whitespace) {
+            continue;
+        }
+        let scenario = match rest.trim() {
+            "approved" => ZkDemoScenario::Approved,
+            "requires_approval" | "requires-approval" => ZkDemoScenario::RequiresApproval,
+            "blocked" | "blocked_allowlist" | "blocked-allowlist" => ZkDemoScenario::Blocked,
+            value => {
+                return Err(anyhow!(
+                    "unknown ZK demo scenario `{value}` (use approved, requires_approval, or blocked)"
+                ));
+            }
+        };
+        return Ok(Some(ZkReplCommand::Demo(scenario)));
+    }
+
+    for prefix in ["zk verify", "zk.verify"] {
+        if lower == prefix {
+            return Err(anyhow!(
+                "{prefix} requires action_plan=\"...\" and proof=\"...\""
+            ));
+        }
+        let Some(rest_lower) = lower.strip_prefix(prefix) else {
+            continue;
+        };
+        if !rest_lower.chars().next().is_some_and(char::is_whitespace) {
+            continue;
+        }
+        let rest = &trimmed[prefix.len()..];
+        let args = parse_key_value_tokens(rest.trim(), "zk.verify")?;
+        if let Some(name) = args
+            .keys()
+            .find(|name| name.as_str() != "action_plan" && name.as_str() != "proof")
+        {
+            return Err(anyhow!("unknown zk.verify argument `{name}`"));
+        }
+        let action_plan_path = args
+            .get("action_plan")
+            .cloned()
+            .ok_or_else(|| anyhow!("zk.verify missing required field: action_plan"))?;
+        let proof_path = args
+            .get("proof")
+            .cloned()
+            .ok_or_else(|| anyhow!("zk.verify missing required field: proof"))?;
+        return Ok(Some(ZkReplCommand::Verify {
+            action_plan_path,
+            proof_path,
+        }));
+    }
+
+    if lower == "zk" || lower.starts_with("zk ") || lower.starts_with("zk.") {
+        return Err(anyhow!(
+            "unknown ZK command (use zk.demo <scenario>, zk.verify ..., or zk status)"
+        ));
+    }
+
+    Ok(None)
+}
+
+const MAX_ZK_ARTIFACT_BYTES: u64 = 2 * 1024 * 1024;
+
+fn read_zk_json_file(path: &str, label: &str) -> Result<String> {
+    let metadata = fs::metadata(path).with_context(|| format!("read {label} metadata: {path}"))?;
+    if !metadata.is_file() {
+        return Err(anyhow!("{label} is not a regular file: {path}"));
+    }
+    if metadata.len() > MAX_ZK_ARTIFACT_BYTES {
+        return Err(anyhow!(
+            "{label} exceeds the {} byte limit: {path}",
+            MAX_ZK_ARTIFACT_BYTES
+        ));
+    }
+    fs::read_to_string(path).with_context(|| format!("read {label}: {path}"))
+}
+
+fn inspect_zk_request(
+    source: String,
+    request: ZkAttestationViewRequest,
+) -> Result<ZkReplInspection> {
+    let response = inspect_zk_attestation(request)
+        .map_err(|err| anyhow!("ZK attestation rejected: {}", err.code()))?;
+    Ok(ZkReplInspection { source, response })
+}
+
+fn inspect_zk_demo(scenario: ZkDemoScenario) -> Result<ZkReplInspection> {
+    let action_plan = serde_json::from_str(include_str!(
+        "../../hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json"
+    ))
+    .context("decode bundled ZK ActionPlan")?;
+    let proof_json = match scenario {
+        ZkDemoScenario::Approved => {
+            include_str!("../../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json")
+        }
+        ZkDemoScenario::RequiresApproval => include_str!(
+            "../../hackathons/stellar-real-world-zk/fixtures/groth16_requires_approval.json"
+        ),
+        ZkDemoScenario::Blocked => include_str!(
+            "../../hackathons/stellar-real-world-zk/fixtures/groth16_blocked_exit_3.json"
+        ),
+    };
+    let proof = serde_json::from_str(proof_json).context("decode bundled ZK proof")?;
+    inspect_zk_request(
+        format!("bundled demo: {}", scenario.name()),
+        ZkAttestationViewRequest { action_plan, proof },
+    )
+}
+
+fn inspect_zk_files(action_plan_path: &str, proof_path: &str) -> Result<ZkReplInspection> {
+    if remote_repl_mode() {
+        return Err(anyhow!(
+            "zk.verify file access is disabled in remote REPL; use a bundled zk.demo scenario"
+        ));
+    }
+    let action_plan_json = read_zk_json_file(action_plan_path, "ZK ActionPlan")?;
+    let proof_json = read_zk_json_file(proof_path, "ZK proof")?;
+    let action_plan = serde_json::from_str(&action_plan_json)
+        .with_context(|| format!("decode ZK ActionPlan: {action_plan_path}"))?;
+    let proof = serde_json::from_str(&proof_json)
+        .with_context(|| format!("decode ZK proof: {proof_path}"))?;
+    inspect_zk_request(
+        format!("local files: {action_plan_path} + {proof_path}"),
+        ZkAttestationViewRequest { action_plan, proof },
+    )
+}
+
+fn print_zk_inspection(inspection: &ZkReplInspection) {
+    let response = &inspection.response;
+    let Some(attestation) = response.zk_attestation.as_ref() else {
+        println!("ZK Guardrail: no attestation view available");
+        return;
+    };
+    println!("ZK Guardrail (proof-only):");
+    println!("- source: {}", inspection.source);
+    println!("- binding: {}", attestation.verification_state);
+    println!("- proof_kind: {}", attestation.proof_kind);
+    println!(
+        "- cryptographic_verification: {}",
+        if attestation.cryptographically_verified {
+            "verified"
+        } else {
+            "required_on_stellar"
+        }
+    );
+    println!(
+        "- private_policy_revealed: {}",
+        attestation.private_policy_revealed
+    );
+    println!("- policy_commitment: {}", attestation.policy_commitment);
+    println!("- decision: {}", attestation.attested_decision.status);
+    println!("- exit_code: {}", attestation.attested_decision.exit_code);
+    println!("- reason: {}", attestation.attested_decision.reason);
+    println!(
+        "- requires_approval: {}",
+        attestation.attested_decision.requires_approval
+    );
+    println!("- audit_nullifier: {}", attestation.audit_nullifier);
+    println!("- submit_allowed: {}", response.execution.submit_allowed);
+    println!("- execution_state: {}", response.execution.state);
+    if let Some(next_step) = response.execution.next_step.as_deref() {
+        println!("- next_step: {next_step}");
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3055,6 +3276,7 @@ fn print_repl_config(
             "off"
         }
     );
+    println!("- zk_guardrail: proof-only");
     println!(
         "- asset_allowlist: {}",
         runtime
@@ -3147,6 +3369,7 @@ fn print_repl_setup(
         cfg.soroban_source.as_deref().unwrap_or("(not set)")
     );
     println!("- flow_mode: {}", if flow { "on" } else { "off" });
+    println!("- zk_guardrail: proof-only");
     println!(
         "- asset_allowlist: {}",
         runtime
@@ -3269,6 +3492,8 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
             "x402.finalize challenge_id=\"last\"",
             "(finalize latest challenge -> typed payment plan)",
         ),
+        ("zk.demo approved", "(inspect bundled proof; never submits)"),
+        ("zk status", "(show last ZK inspection)"),
         ("debug", "(optional intent trace on)"),
         (
             "set <var> from AI: \"...\"",
@@ -3301,6 +3526,7 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
         "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
     );
     println!("- restart with --no-flow if you want plan-only REPL");
+    println!("- ZK Guardrail commands are proof-only and never grant submit permission.");
 }
 
 fn print_repl_help_section(title: &str, rows: &[(&str, &str)]) {
@@ -3545,6 +3771,26 @@ fn print_repl_help_all() {
     ];
     print_repl_help_section("Prompt/Action commands", &prompt_actions);
 
+    let zk_guardrail = [
+        (
+            "zk.demo approved",
+            "inspect bundled approved proof (no submit)",
+        ),
+        (
+            "zk.demo requires_approval",
+            "inspect bundled approval-required proof",
+        ),
+        ("zk.demo blocked", "inspect bundled allowlist-block proof"),
+        (
+            "zk.verify action_plan=\"...\" proof=\"...\"",
+            "inspect local JSON files (local CLI only)",
+        ),
+        ("zk status", "show last inspected ZK attestation"),
+    ];
+    print_repl_help_section("ZK Guardrail (proof-only)", &zk_guardrail);
+    println!("ZK proof inspection never submits or grants transaction permission.");
+    println!();
+
     let soroban_templates = [
         (
             "template registry",
@@ -3616,6 +3862,7 @@ fn run_repl(
         runtime_settings.allowlist_assets = Some("XLM".to_string());
     }
     let mut x402_state = X402State::default();
+    let mut zk_last_inspection: Option<ZkReplInspection> = None;
 
     println!("NeuroChain Stellar REPL (intent -> action).");
     print_repl_divider();
@@ -4030,6 +4277,45 @@ fn run_repl(
                     } else if let Some(challenge_mut) = x402_state.challenges.get_mut(&challenge_id)
                     {
                         challenge_mut.finalized = true;
+                    }
+                    continue;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    eprintln!("{err}");
+                    continue;
+                }
+            }
+
+            match parse_zk_repl_command(&line) {
+                Ok(Some(ZkReplCommand::Demo(scenario))) => {
+                    match inspect_zk_demo(scenario) {
+                        Ok(inspection) => {
+                            print_zk_inspection(&inspection);
+                            zk_last_inspection = Some(inspection);
+                        }
+                        Err(err) => eprintln!("zk.demo failed: {err}"),
+                    }
+                    continue;
+                }
+                Ok(Some(ZkReplCommand::Verify {
+                    action_plan_path,
+                    proof_path,
+                })) => {
+                    match inspect_zk_files(&action_plan_path, &proof_path) {
+                        Ok(inspection) => {
+                            print_zk_inspection(&inspection);
+                            zk_last_inspection = Some(inspection);
+                        }
+                        Err(err) => eprintln!("zk.verify failed: {err}"),
+                    }
+                    continue;
+                }
+                Ok(Some(ZkReplCommand::Status)) => {
+                    if let Some(inspection) = zk_last_inspection.as_ref() {
+                        print_zk_inspection(inspection);
+                    } else {
+                        println!("ZK Guardrail: no attestation inspected in this session");
                     }
                     continue;
                 }
