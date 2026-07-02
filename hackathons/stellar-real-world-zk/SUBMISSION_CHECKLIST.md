@@ -51,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
   transaction links without storing secret material.
 - [x] Run `scripts/deploy_testnet.ps1` only with explicit `-Execute` approval
   and confirm that `deployments/testnet.json` was created.
-- [ ] Configure the hosted demo with `NC_ZK_GUARDRAIL_CONTRACT` and a read-only
+- [x] Configure the hosted demo with `NC_ZK_GUARDRAIL_CONTRACT` and a read-only
   simulation source, then verify all three `zk.stellar.verify` scenarios.
 
 The package gate validates repository evidence only. It does not claim that

@@ -42,6 +42,12 @@ confirmation and the contract owner's source alias. It submits only the
 verification/nullifier transaction, not the ActionPlan represented by the
 proof.
 
+The ZK-enabled ARM64 build is deployed at
+[`https://stellarzerolab.com/stellar-cli`](https://stellarzerolab.com/stellar-cli)
+with the testnet application contract configured. The hosted REPL has verified
+the `approved`, `requires_approval`, and `blocked` scenarios through read-only
+Soroban calls. Remote nullifier consumption remains disabled.
+
 ## Submission materials
 
 - [SUBMISSION.md](SUBMISSION.md) - judge-facing problem, ZK value, Stellar
