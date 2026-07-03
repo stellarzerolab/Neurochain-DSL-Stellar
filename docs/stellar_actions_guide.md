@@ -430,7 +430,7 @@ ZK Guardrail commands:
 - `zk.stellar.verify approved|requires_approval|blocked|last` -> cryptographically verify on Soroban without changing state
 - `zk.stellar.attest approved|requires_approval|blocked|last` -> submit a real testnet proof-verification transaction and print its explorer link
 - `zk.stellar.consume approved|requires_approval|blocked|last` -> owner-only nullifier consume in local flow mode
-- `zk status` -> show the last inspected ZK attestation
+- `zk status` -> show the local binding together with the last Stellar result and transaction hash
 
 Soroban v2 templates:
 
@@ -1451,6 +1451,14 @@ underlying_action_submit_allowed: false
 
 The command name is the explicit transaction action. `--no-flow` blocks it,
 and selecting `public` or `mainnet` fails before Stellar CLI is invoked.
+
+`zk status` preserves the latest successful Stellar result for the current
+REPL session. After attestation it reports the validated local binding,
+`stellar_verification: verified_on_stellar`, the verification mode, whether an
+attestation transaction was submitted, its transaction hash, nullifier state,
+and `underlying_action_submit_allowed: false`. Running a new local `zk.demo` or
+`zk.verify` inspection clears the older Stellar result instead of presenting it
+for a different proof.
 
 ### 13.4) Consume The Nullifier In A Separate Owner Transaction
 

@@ -2568,6 +2568,39 @@ impl ZkStellarResultMode {
     fn nullifier_consumed(self) -> bool {
         matches!(self, Self::StatefulConsume)
     }
+
+    fn attestation_submitted(self) -> bool {
+        matches!(self, Self::SubmittedTestnetAttestation)
+    }
+}
+
+#[derive(Debug)]
+struct ZkStellarSessionResult {
+    contract: String,
+    network: String,
+    mode: ZkStellarResultMode,
+    accepted: ZkStellarAccepted,
+    transaction_hash: Option<String>,
+}
+
+impl ZkStellarSessionResult {
+    fn capture(
+        cfg: &NetworkConfig,
+        mode: ZkStellarResultMode,
+        accepted: ZkStellarAccepted,
+        transaction_hash: Option<String>,
+    ) -> Self {
+        Self {
+            contract: cfg
+                .zk_guardrail_contract
+                .clone()
+                .unwrap_or_else(|| "(not set)".to_string()),
+            network: cfg.soroban_network.clone(),
+            mode,
+            accepted,
+            transaction_hash,
+        }
+    }
 }
 
 fn print_zk_stellar_result(
@@ -2618,6 +2651,50 @@ fn print_zk_stellar_result(
     }
     println!("- underlying_action_submit_allowed: false");
     println!("- next_step: {}", accepted.next_step);
+}
+
+fn print_zk_status(inspection: &ZkReplInspection, stellar_result: Option<&ZkStellarSessionResult>) {
+    let Some(attestation) = inspection.response.zk_attestation.as_ref() else {
+        println!("ZK Guardrail: no attestation view available");
+        return;
+    };
+
+    println!("ZK Guardrail status:");
+    println!("- source: {}", inspection.source);
+    println!("- local_binding: {}", attestation.verification_state);
+    println!("- decision: {}", attestation.attested_decision.status);
+    println!("- exit_code: {}", attestation.attested_decision.exit_code);
+    println!("- reason: {}", attestation.attested_decision.reason);
+
+    if let Some(result) = stellar_result {
+        println!("- contract: {}", result.contract);
+        println!("- network: {}", result.network);
+        println!("- verification_mode: {}", result.mode.label());
+        println!("- stellar_verification: verified_on_stellar");
+        println!(
+            "- attestation_submitted: {}",
+            result.mode.attestation_submitted()
+        );
+        println!(
+            "- verification_transaction_submitted: {}",
+            result.mode.transaction_submitted()
+        );
+        println!(
+            "- transaction_hash: {}",
+            result.transaction_hash.as_deref().unwrap_or("unavailable")
+        );
+        println!("- nullifier_consumed: {}", result.mode.nullifier_consumed());
+        println!("- action_plan_hash: {}", result.accepted.action_plan_hash);
+        println!("- policy_commitment: {}", result.accepted.policy_commitment);
+        println!("- policy_version: {}", result.accepted.policy_version);
+    } else {
+        println!("- stellar_verification: not_run");
+        println!("- attestation_submitted: false");
+        println!("- verification_transaction_submitted: false");
+        println!("- transaction_hash: unavailable");
+        println!("- nullifier_consumed: false");
+    }
+    println!("- underlying_action_submit_allowed: false");
 }
 
 fn resolve_zk_inspection(
@@ -4002,7 +4079,7 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
             "zk.stellar.attest approved",
             "(submit testnet verification tx + explorer link)",
         ),
-        ("zk status", "(show last ZK inspection)"),
+        ("zk status", "(show local binding + last Stellar result)"),
         ("debug", "(optional intent trace on)"),
         (
             "set <var> from AI: \"...\"",
@@ -4314,7 +4391,7 @@ fn print_repl_help_all() {
             "zk.stellar.consume approved|requires_approval|blocked|last",
             "owner-only replay consume; local flow only",
         ),
-        ("zk status", "show last inspected ZK attestation"),
+        ("zk status", "show local binding + last Stellar result"),
     ];
     print_repl_help_section("ZK Guardrail", &zk_guardrail);
     println!("Verify is read-only. Attest submits only a testnet proof-verification call.");
@@ -4394,6 +4471,7 @@ fn run_repl(
     }
     let mut x402_state = X402State::default();
     let mut zk_last_inspection: Option<ZkReplInspection> = None;
+    let mut zk_last_stellar_result: Option<ZkStellarSessionResult> = None;
 
     println!("NeuroChain Stellar REPL (intent -> action).");
     print_repl_divider();
@@ -4843,6 +4921,7 @@ fn run_repl(
                         Ok(inspection) => {
                             print_zk_inspection(&inspection);
                             zk_last_inspection = Some(inspection);
+                            zk_last_stellar_result = None;
                         }
                         Err(err) => eprintln!("zk.demo failed: {err}"),
                     }
@@ -4856,6 +4935,7 @@ fn run_repl(
                         Ok(inspection) => {
                             print_zk_inspection(&inspection);
                             zk_last_inspection = Some(inspection);
+                            zk_last_stellar_result = None;
                         }
                         Err(err) => eprintln!("zk.verify failed: {err}"),
                     }
@@ -4878,10 +4958,19 @@ fn run_repl(
                                 ZkStellarResultMode::ReadOnlyVerification,
                                 None,
                             );
-                            Ok(inspection)
+                            let result = ZkStellarSessionResult::capture(
+                                &flow_cfg,
+                                ZkStellarResultMode::ReadOnlyVerification,
+                                accepted,
+                                None,
+                            );
+                            Ok((inspection, result))
                         },
                     ) {
-                        Ok(inspection) => zk_last_inspection = Some(inspection),
+                        Ok((inspection, result)) => {
+                            zk_last_inspection = Some(inspection);
+                            zk_last_stellar_result = Some(result);
+                        }
                         Err(err) => eprintln!("zk.stellar.verify failed: {err}"),
                     }
                     continue;
@@ -4907,10 +4996,19 @@ fn run_repl(
                                 ZkStellarResultMode::SubmittedTestnetAttestation,
                                 transaction_hash.as_deref(),
                             );
-                            Ok(inspection)
+                            let result = ZkStellarSessionResult::capture(
+                                &flow_cfg,
+                                ZkStellarResultMode::SubmittedTestnetAttestation,
+                                accepted,
+                                transaction_hash,
+                            );
+                            Ok((inspection, result))
                         },
                     ) {
-                        Ok(inspection) => zk_last_inspection = Some(inspection),
+                        Ok((inspection, result)) => {
+                            zk_last_inspection = Some(inspection);
+                            zk_last_stellar_result = Some(result);
+                        }
                         Err(err) => eprintln!("zk.stellar.attest failed: {err}"),
                     }
                     continue;
@@ -4956,17 +5054,26 @@ fn run_repl(
                                 ZkStellarResultMode::StatefulConsume,
                                 None,
                             );
-                            Ok(inspection)
+                            let result = ZkStellarSessionResult::capture(
+                                &flow_cfg,
+                                ZkStellarResultMode::StatefulConsume,
+                                accepted,
+                                None,
+                            );
+                            Ok((inspection, result))
                         },
                     ) {
-                        Ok(inspection) => zk_last_inspection = Some(inspection),
+                        Ok((inspection, result)) => {
+                            zk_last_inspection = Some(inspection);
+                            zk_last_stellar_result = Some(result);
+                        }
                         Err(err) => eprintln!("zk.stellar.consume failed: {err}"),
                     }
                     continue;
                 }
                 Ok(Some(ZkReplCommand::Status)) => {
                     if let Some(inspection) = zk_last_inspection.as_ref() {
-                        print_zk_inspection(inspection);
+                        print_zk_status(inspection, zk_last_stellar_result.as_ref());
                     } else {
                         println!("ZK Guardrail: no attestation inspected in this session");
                     }

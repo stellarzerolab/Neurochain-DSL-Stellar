@@ -423,7 +423,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "zk.verify action_plan=\"...\" proof=\"...\"",
         "inspect local JSON files (local CLI only)",
     );
-    let zk_status_row = help_row("zk status", "show last inspected ZK attestation");
+    let zk_status_row = help_row("zk status", "show local binding + last Stellar result");
     let zk_stellar_verify_row = help_row(
         "zk.stellar.verify approved|requires_approval|blocked|last",
         "verify proof on Soroban without state changes",
@@ -571,6 +571,10 @@ fn stellar_repl_zk_demo_scenarios_are_proof_only() {
     assert!(stdout.contains("- private_policy_revealed: false"));
     assert!(stdout.contains("- submit_allowed: false"));
     assert!(stdout.contains("- execution_state: blocked"));
+    assert!(stdout.contains("ZK Guardrail status:"));
+    assert!(stdout.contains("- stellar_verification: not_run"));
+    assert!(stdout.contains("- attestation_submitted: false"));
+    assert!(stdout.contains("- underlying_action_submit_allowed: false"));
 }
 
 #[test]
@@ -619,7 +623,7 @@ fn stellar_repl_zk_stellar_verify_is_read_only_and_binding_checked() {
     cmd.arg("--no-flow")
         .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
         .write_stdin(format!(
-            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.verify approved\n\nexit\n\n",
+            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.verify approved\n\nzk status\n\nexit\n\n",
             fake_cli.to_string_lossy()
         ))
         .assert()
@@ -631,6 +635,10 @@ fn stellar_repl_zk_stellar_verify_is_read_only_and_binding_checked() {
         ))
         .stdout(contains("- nullifier_consumed: false"))
         .stdout(contains("- verification_transaction_submitted: false"))
+        .stdout(contains("ZK Guardrail status:"))
+        .stdout(contains("- stellar_verification: verified_on_stellar"))
+        .stdout(contains("- attestation_submitted: false"))
+        .stdout(contains("- transaction_hash: unavailable"))
         .stdout(contains("- underlying_action_submit_allowed: false"));
 
     let args = fs::read_to_string(log_path).expect("read fake Stellar CLI args");
@@ -651,7 +659,7 @@ fn stellar_repl_zk_stellar_attest_submits_testnet_verification_with_explorer_lin
         .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
         .env("NC_STELLAR_HORIZON_URL", horizon_url)
         .write_stdin(format!(
-            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.attest approved\n\nexit\n\n",
+            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.attest approved\n\nzk status\n\nexit\n\n",
             fake_cli.to_string_lossy()
         ))
         .assert()
@@ -664,6 +672,10 @@ fn stellar_repl_zk_stellar_attest_submits_testnet_verification_with_explorer_lin
         .stdout(contains("- verification_transaction_submitted: true"))
         .stdout(contains(format!("- transaction_hash: {submitted_hash}")))
         .stdout(contains(format!("- stellar_expert_url: {explorer_url}")))
+        .stdout(contains("ZK Guardrail status:"))
+        .stdout(contains("- stellar_verification: verified_on_stellar"))
+        .stdout(contains("- attestation_submitted: true"))
+        .stdout(contains(format!("- transaction_hash: {submitted_hash}")))
         .stdout(contains("- underlying_action_submit_allowed: false"));
 
     let args = fs::read_to_string(log_path).expect("read fake Stellar CLI args");
