@@ -146,7 +146,6 @@ localnet runner removes its temporary identity and container after the run.
 - [`soroban/`](soroban/) - Soroban application and verifier boundary
 - [`fixtures/`](fixtures/) - public ActionPlan, journal and proof artifacts
 - [`scripts/`](scripts/) - reproducible proof and Protocol 26 localnet runners
-- [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) - concise video recording runbook
 
 ## Security boundaries and limitations
 

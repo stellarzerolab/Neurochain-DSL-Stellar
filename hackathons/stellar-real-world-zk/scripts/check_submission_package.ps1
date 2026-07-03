@@ -118,7 +118,6 @@ foreach ($document in @(
         "README.md",
         "SUBMISSION.md",
         "ARCHITECTURE.md",
-        "DEMO_SCRIPT.md",
         "SUBMISSION_CHECKLIST.md"
     )) {
     Test-SubmissionDocument $document

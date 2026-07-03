@@ -49,7 +49,6 @@ Start with the public package:
 - [`hackathons/stellar-real-world-zk/README.md`](hackathons/stellar-real-world-zk/README.md)
 - [`hackathons/stellar-real-world-zk/SUBMISSION.md`](hackathons/stellar-real-world-zk/SUBMISSION.md)
 - [`hackathons/stellar-real-world-zk/ARCHITECTURE.md`](hackathons/stellar-real-world-zk/ARCHITECTURE.md)
-- [`hackathons/stellar-real-world-zk/DEMO_SCRIPT.md`](hackathons/stellar-real-world-zk/DEMO_SCRIPT.md)
 
 Run the repository evidence gate:
 

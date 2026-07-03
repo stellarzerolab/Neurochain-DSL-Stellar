@@ -36,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
 
 ## Manual submission items
 
-- [ ] Record the 2-3 minute demo using `DEMO_SCRIPT.md`.
+- [x] Capture the 2-3 minute hosted demo footage.
 - [ ] Upload the video and add its final public URL to the DoraHacks entry.
 - [ ] Confirm the repository URL and submission description in DoraHacks.
 - [ ] Confirm the final deadline shown by the DoraHacks submission UI.
