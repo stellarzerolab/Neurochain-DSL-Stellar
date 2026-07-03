@@ -59,10 +59,11 @@ that contract, use the public CLI page and run:
 
 ```text
 show setup
-zk.demo blocked
-zk.stellar.verify blocked
+wallet_bootstrap: zk-video
+zk.demo approved
 zk.stellar.verify approved
-zk.stellar.verify requires_approval
+zk.stellar.attest approved
+zk.demo blocked
 ```
 
 Point out the transition from `required_on_stellar` in the local view to
@@ -78,9 +79,22 @@ verification_transaction_submitted: false
 underlying_action_submit_allowed: false
 ```
 
-Explain that the command is safe to repeat because it uses Soroban simulation
-with `--send no`. Do not demonstrate `zk.stellar.consume` in the hosted REPL;
-that command is intentionally disabled there.
+Then highlight the attestation transaction:
+
+```text
+mode: submitted_testnet_attestation
+verification_transaction_submitted: true
+transaction_hash: <hash>
+stellar_expert_url: https://stellar.expert/explorer/testnet/tx/<hash>
+nullifier_consumed: false
+underlying_action_submit_allowed: false
+```
+
+Open the printed StellarExpert URL to show the real testnet contract invocation.
+Explain that `zk.stellar.verify` remains repeatable simulation, while the
+explicit `zk.stellar.attest` command submits only the proof-verification call.
+Do not demonstrate `zk.stellar.consume` in the hosted REPL; that command is
+intentionally disabled there.
 
 If testnet evidence has not been explicitly deployed, use the complete localnet
 path instead and say that it is Protocol 26 localnet evidence, not testnet.

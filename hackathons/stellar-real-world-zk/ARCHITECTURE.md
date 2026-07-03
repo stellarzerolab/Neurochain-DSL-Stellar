@@ -60,6 +60,11 @@ The REPL first validates the ActionPlan/journal binding locally. The
 `--send no`, then compares every returned binding and decision field before it
 shows success. The command is repeatable and suitable for the hosted demo.
 
+`zk.stellar.attest` calls the same permissionless `verify` method with
+`--send yes`, but only when the active network is exactly `testnet` and flow is
+enabled. It creates public transaction evidence without consuming the
+nullifier or submitting the underlying ActionPlan.
+
 `zk.stellar.consume` is a separate local-only operation. It requires flow,
 confirmation and the owner's Stellar source alias. It submits only the
 verification/nullifier transaction, never the underlying ActionPlan.

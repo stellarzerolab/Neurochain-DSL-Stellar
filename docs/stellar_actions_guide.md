@@ -428,6 +428,7 @@ ZK Guardrail commands:
 - `zk.demo approved|requires_approval|blocked` -> validate a bundled public binding locally
 - `zk.verify action_plan="..." proof="..."` -> validate caller-selected public files locally
 - `zk.stellar.verify approved|requires_approval|blocked|last` -> cryptographically verify on Soroban without changing state
+- `zk.stellar.attest approved|requires_approval|blocked|last` -> submit a real testnet proof-verification transaction and print its explorer link
 - `zk.stellar.consume approved|requires_approval|blocked|last` -> owner-only nullifier consume in local flow mode
 - `zk status` -> show the last inspected ZK attestation
 
@@ -1415,12 +1416,43 @@ verification_transaction_submitted: false
 underlying_action_submit_allowed: false
 ```
 
-This is the command intended for the hosted live demo. It is repeatable because
-it does not write contract state. The hosted process still needs a deployed
-contract ID and a read-only simulation source alias before the command is
-advertised as live.
+This command is repeatable because it does not write contract state. It is the
+safe inspection step before an optional testnet transaction.
 
-### 13.3) Consume The Nullifier In A Separate Owner Transaction
+### 13.3) Submit A Real Testnet Proof-Verification Transaction
+
+To produce public ledger evidence for a demo, use the explicit attest command
+after configuring a funded testnet source:
+
+```text
+setup testnet
+wallet_bootstrap: zk-video
+zk.stellar.attest approved
+```
+
+`zk.stellar.attest` is hard-limited to the `testnet` network and requires flow
+mode. It invokes the same permissionless `verify` contract method with
+`--send yes`, waits for a new source-account transaction in Horizon, and prints
+the transaction hash and a StellarExpert testnet link. The call does not use
+`verify_and_consume`, does not consume the audit nullifier, and never submits
+the ActionPlan represented by the proof.
+
+Successful output includes:
+
+```text
+mode: submitted_testnet_attestation
+cryptographic_verification: verified_on_stellar
+nullifier_consumed: false
+verification_transaction_submitted: true
+transaction_hash: <64-character transaction hash>
+stellar_expert_url: https://stellar.expert/explorer/testnet/tx/<hash>
+underlying_action_submit_allowed: false
+```
+
+The command name is the explicit transaction action. `--no-flow` blocks it,
+and selecting `public` or `mainnet` fails before Stellar CLI is invoked.
+
+### 13.4) Consume The Nullifier In A Separate Owner Transaction
 
 The local operator can demonstrate persistent replay protection separately:
 
@@ -1435,7 +1467,7 @@ contract owner's source alias. It calls `verify_and_consume`, then reads
 sign, submit, or broadcast the ActionPlan represented by the proof. A repeated
 consume is contract error `3`, mapped to the existing exit `4` boundary.
 
-### 13.4) Server Inspection Endpoint
+### 13.5) Server Inspection Endpoint
 
 The server exposes a separate inspection endpoint for the hackathon public
 proof artifact:

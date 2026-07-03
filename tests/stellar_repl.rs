@@ -69,13 +69,13 @@ fn create_fake_zk_stellar_cli_with_action_plan_hash(
     );
     #[cfg(windows)]
     let script = format!(
-        "@echo off\r\necho %*>>\"{}\"\r\necho %* | findstr /C:\" is_consumed \" >nul && (echo true& exit /b 0)\r\necho {}\r\nexit /b 0\r\n",
+        "@echo off\r\necho %*>>\"{}\"\r\nif \"%1\"==\"keys\" if \"%2\"==\"address\" (echo GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX& exit /b 0)\r\necho %* | findstr /C:\" is_consumed \" >nul && (echo true& exit /b 0)\r\necho {}\r\nexit /b 0\r\n",
         log_path.to_string_lossy(),
         accepted
     );
     #[cfg(not(windows))]
     let script = format!(
-        "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \" $* \" in\n  *\" is_consumed \"*) echo true ;;\n  *) echo '{}' ;;\nesac\n",
+        "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> '{}'\nif [ \"$1\" = \"keys\" ] && [ \"$2\" = \"address\" ]; then\n  echo GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX\n  exit 0\nfi\ncase \" $* \" in\n  *\" is_consumed \"*) echo true ;;\n  *) echo '{}' ;;\nesac\n",
         log_path.to_string_lossy(),
         accepted
     );
@@ -92,6 +92,58 @@ fn create_fake_zk_stellar_cli_with_action_plan_hash(
     }
 
     (dir, cli_path, log_path)
+}
+
+fn spawn_zk_horizon_server() -> (String, String) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ZK Horizon test server");
+    let addr = listener
+        .local_addr()
+        .expect("ZK Horizon test server local addr");
+    let previous_hash = "1".repeat(64);
+    let submitted_hash = "2".repeat(64);
+    let previous_hash_for_thread = previous_hash.clone();
+    let submitted_hash_for_thread = submitted_hash.clone();
+    thread::spawn(move || {
+        let mut transaction_requests = 0usize;
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut buf = [0u8; 2048];
+            let n = match stream.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if n == 0 {
+                continue;
+            }
+            let req = String::from_utf8_lossy(&buf[..n]);
+            let path = req
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/");
+
+            let (status, body) = if path.contains("/transactions") {
+                let hash = if transaction_requests == 0 {
+                    &previous_hash_for_thread
+                } else {
+                    &submitted_hash_for_thread
+                };
+                transaction_requests += 1;
+                (
+                    "200 OK",
+                    format!(r#"{{"_embedded":{{"records":[{{"hash":"{hash}"}}]}}}}"#),
+                )
+            } else {
+                ("404 Not Found", r#"{"error":"not found"}"#.to_string())
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    (format!("http://{addr}"), submitted_hash)
 }
 
 fn spawn_friendbot_server() -> String {
@@ -143,6 +195,7 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("Stellar REPL quick start"))
         .stdout(contains("help dsl"))
         .stdout(contains("zk.demo approved"))
+        .stdout(contains("zk.stellar.attest approved"))
         .stdout(contains(
             "ZK Guardrail never grants permission to submit the underlying ActionPlan.",
         ))
@@ -375,6 +428,10 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "zk.stellar.verify approved|requires_approval|blocked|last",
         "verify proof on Soroban without state changes",
     );
+    let zk_stellar_attest_row = help_row(
+        "zk.stellar.attest approved|requires_approval|blocked|last",
+        "submit testnet proof-verification transaction",
+    );
     let zk_stellar_consume_row = help_row(
         "zk.stellar.consume approved|requires_approval|blocked|last",
         "owner-only replay consume; local flow only",
@@ -423,6 +480,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&zk_demo_blocked_row));
     assert!(stdout.contains(&zk_verify_row));
     assert!(stdout.contains(&zk_stellar_verify_row));
+    assert!(stdout.contains(&zk_stellar_attest_row));
     assert!(stdout.contains(&zk_stellar_consume_row));
     assert!(stdout.contains(&zk_status_row));
     assert!(stdout.contains(&intent_row));
@@ -474,9 +532,11 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(zk_section.contains("zk.demo blocked"));
     assert!(zk_section.contains("zk.verify action_plan=\"...\" proof=\"...\""));
     assert!(zk_section.contains("zk.stellar.verify approved|requires_approval|blocked|last"));
+    assert!(zk_section.contains("zk.stellar.attest approved|requires_approval|blocked|last"));
     assert!(zk_section.contains("zk.stellar.consume approved|requires_approval|blocked|last"));
     assert!(zk_section.contains("zk status"));
-    assert!(zk_section.contains("Neither command submits or grants permission"));
+    assert!(zk_section.contains("Attest submits only a testnet proof-verification call"));
+    assert!(zk_section.contains("No ZK command grants permission"));
 
     assert!(soroban_v2_section.contains("template registry"));
     assert!(soroban_v2_section.contains("hello"));
@@ -578,6 +638,76 @@ fn stellar_repl_zk_stellar_verify_is_read_only_and_binding_checked() {
     assert!(args.contains("--instruction-leeway 10000000"));
     assert!(args.contains("-- verify --seal"));
     assert!(!args.contains("verify_and_consume"));
+}
+
+#[test]
+fn stellar_repl_zk_stellar_attest_submits_testnet_verification_with_explorer_link() {
+    let (_tmp_dir, fake_cli, log_path) = create_fake_zk_stellar_cli();
+    let (horizon_url, submitted_hash) = spawn_zk_horizon_server();
+    let explorer_url = format!("https://stellar.expert/explorer/testnet/tx/{submitted_hash}");
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--flow")
+        .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
+        .env("NC_STELLAR_HORIZON_URL", horizon_url)
+        .write_stdin(format!(
+            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.attest approved\n\nexit\n\n",
+            fake_cli.to_string_lossy()
+        ))
+        .assert()
+        .success()
+        .stdout(contains("- mode: submitted_testnet_attestation"))
+        .stdout(contains(
+            "- cryptographic_verification: verified_on_stellar",
+        ))
+        .stdout(contains("- nullifier_consumed: false"))
+        .stdout(contains("- verification_transaction_submitted: true"))
+        .stdout(contains(format!("- transaction_hash: {submitted_hash}")))
+        .stdout(contains(format!("- stellar_expert_url: {explorer_url}")))
+        .stdout(contains("- underlying_action_submit_allowed: false"));
+
+    let args = fs::read_to_string(log_path).expect("read fake Stellar CLI args");
+    assert!(args.contains("--send yes"));
+    assert!(args.contains("-- verify --seal"));
+    assert!(!args.contains("verify_and_consume"));
+}
+
+#[test]
+fn stellar_repl_zk_stellar_attest_requires_flow_mode() {
+    let (_tmp_dir, fake_cli, log_path) = create_fake_zk_stellar_cli();
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--no-flow")
+        .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
+        .write_stdin(format!(
+            "stellar_cli: \"{}\"\n\nwallet: demo-source\n\nzk.stellar.attest approved\n\nexit\n\n",
+            fake_cli.to_string_lossy()
+        ))
+        .assert()
+        .success()
+        .stderr(contains("zk.stellar.attest requires flow mode"));
+
+    let args = fs::read_to_string(log_path).unwrap_or_default();
+    assert!(!args.contains("--send yes"));
+}
+
+#[test]
+fn stellar_repl_zk_stellar_attest_rejects_non_testnet_network() {
+    let (_tmp_dir, fake_cli, log_path) = create_fake_zk_stellar_cli();
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--flow")
+        .env("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL")
+        .write_stdin(format!(
+            "stellar_cli: \"{}\"\n\nnetwork: public\n\nwallet: demo-source\n\nzk.stellar.attest approved\n\nexit\n\n",
+            fake_cli.to_string_lossy()
+        ))
+        .assert()
+        .success()
+        .stderr(contains("zk.stellar.attest is testnet-only"));
+
+    let args = fs::read_to_string(log_path).unwrap_or_default();
+    assert!(!args.contains("--send yes"));
 }
 
 #[test]

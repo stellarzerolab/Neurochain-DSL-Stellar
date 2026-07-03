@@ -42,9 +42,12 @@ strictly decodes the journal, and returns the typed result without writing
 state. The owner-authenticated `verify_and_consume` method performs the same
 checks and then atomically consumes the audit nullifier. Requiring owner auth
 on consume prevents a public proof from being front-run merely to burn its
-nullifier. The public REPL exposes only read-only verification; its stateful
-consume command is disabled in remote mode and requires local flow plus an
-explicit confirmation.
+nullifier. The public REPL exposes read-only verification plus the explicit
+`zk.stellar.attest` transaction command. Attest is hard-limited to testnet,
+requires flow mode, calls only the permissionless `verify` method, leaves the
+nullifier unused, and prints the resulting transaction hash and StellarExpert
+link. Its stateful consume command remains disabled in remote mode and requires
+local flow plus an explicit confirmation.
 
 A valid proof is not submit permission: `approved` is only eligible for a
 separate approval flow, while `requires_approval` and blocked exit `3` / `4` /

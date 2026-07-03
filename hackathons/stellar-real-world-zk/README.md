@@ -24,11 +24,12 @@ permission. `requires_approval` remains a no-submit boundary.
 ## CLI and hosted demo bridge
 
 The existing `neurochain-stellar` REPL now presents the complete proof story as
-three explicit steps:
+four explicit steps:
 
 ```text
 zk.demo approved                  # local ActionPlan/journal binding
 zk.stellar.verify approved        # Soroban proof check, --send no
+zk.stellar.attest approved        # real testnet verification tx, --send yes
 zk.stellar.consume approved       # local owner-only replay consume
 ```
 
@@ -36,6 +37,11 @@ zk.stellar.consume approved       # local owner-only replay consume
 compares the contract's action hash, policy commitment/version, decision,
 exit/reason, approval bit and nullifier with the locally bound artifact before
 showing success. It is repeatable and does not write state.
+
+`zk.stellar.attest` is a separate testnet-only transaction command. It calls
+the same permissionless `verify` method with `--send yes`, prints the ledger
+transaction hash and StellarExpert link, and leaves the nullifier unused. It
+never submits the underlying ActionPlan.
 
 `zk.stellar.consume` is disabled in the remote REPL. Locally it requires flow,
 confirmation and the contract owner's source alias. It submits only the

@@ -3,6 +3,8 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use neurochain::actions::{
@@ -2014,8 +2016,16 @@ enum ZkReplCommand {
         proof_path: String,
     },
     StellarVerify(ZkInspectionTarget),
+    StellarAttest(ZkInspectionTarget),
     StellarConsume(ZkInspectionTarget),
     Status,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ZkStellarCommandKind {
+    Verify,
+    Attest,
+    Consume,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2058,11 +2068,13 @@ fn parse_zk_repl_command(line: &str) -> Result<Option<ZkReplCommand>> {
         return Ok(Some(ZkReplCommand::Status));
     }
 
-    for (prefix, consume) in [
-        ("zk stellar verify", false),
-        ("zk.stellar.verify", false),
-        ("zk stellar consume", true),
-        ("zk.stellar.consume", true),
+    for (prefix, kind) in [
+        ("zk stellar verify", ZkStellarCommandKind::Verify),
+        ("zk.stellar.verify", ZkStellarCommandKind::Verify),
+        ("zk stellar attest", ZkStellarCommandKind::Attest),
+        ("zk.stellar.attest", ZkStellarCommandKind::Attest),
+        ("zk stellar consume", ZkStellarCommandKind::Consume),
+        ("zk.stellar.consume", ZkStellarCommandKind::Consume),
     ] {
         if lower == prefix {
             return Err(anyhow!(
@@ -2076,10 +2088,10 @@ fn parse_zk_repl_command(line: &str) -> Result<Option<ZkReplCommand>> {
             continue;
         }
         let target = parse_zk_inspection_target(rest)?;
-        return Ok(Some(if consume {
-            ZkReplCommand::StellarConsume(target)
-        } else {
-            ZkReplCommand::StellarVerify(target)
+        return Ok(Some(match kind {
+            ZkStellarCommandKind::Verify => ZkReplCommand::StellarVerify(target),
+            ZkStellarCommandKind::Attest => ZkReplCommand::StellarAttest(target),
+            ZkStellarCommandKind::Consume => ZkReplCommand::StellarConsume(target),
         }));
     }
 
@@ -2144,7 +2156,7 @@ fn parse_zk_repl_command(line: &str) -> Result<Option<ZkReplCommand>> {
 
     if lower == "zk" || lower.starts_with("zk ") || lower.starts_with("zk.") {
         return Err(anyhow!(
-            "unknown ZK command (use zk.demo, zk.verify, zk.stellar.verify, zk.stellar.consume, or zk status)"
+            "unknown ZK command (use zk.demo, zk.verify, zk.stellar.verify, zk.stellar.attest, zk.stellar.consume, or zk status)"
         ));
     }
 
@@ -2376,6 +2388,57 @@ fn invoke_zk_guardrail_contract(
     parse_zk_stellar_accepted(&normalize_cli_output(&output))
 }
 
+fn ensure_zk_attest_testnet(cfg: &NetworkConfig) -> Result<()> {
+    if cfg.soroban_network.trim().eq_ignore_ascii_case("testnet") {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "zk.stellar.attest is testnet-only; active network is `{}`",
+        cfg.soroban_network
+    ))
+}
+
+fn source_account_for_zk_transaction(cfg: &NetworkConfig) -> Result<String> {
+    let source = cfg.soroban_source.as_deref().ok_or_else(|| {
+        anyhow!("wallet/source is not set; run `wallet: <stellar-key-alias>` first")
+    })?;
+    resolve_horizon_account_from_source(cfg, source).ok_or_else(|| {
+        anyhow!("could not resolve the wallet/source account for transaction evidence")
+    })
+}
+
+fn wait_for_new_zk_transaction_hash(
+    cfg: &NetworkConfig,
+    account: &str,
+    previous_hash: &str,
+) -> Option<String> {
+    let client = Client::new();
+    for attempt in 0..8 {
+        if let Ok(hash) = fetch_latest_tx_hash(&client, &cfg.horizon_url, account) {
+            if !hash.eq_ignore_ascii_case(previous_hash) {
+                return Some(hash);
+            }
+        }
+        if attempt < 7 {
+            thread::sleep(Duration::from_millis(250));
+        }
+    }
+    None
+}
+
+fn submit_zk_stellar_attestation(
+    cfg: &NetworkConfig,
+    proof: &ZkProofArtifact,
+) -> Result<(ZkStellarAccepted, Option<String>)> {
+    ensure_zk_attest_testnet(cfg)?;
+    let account = source_account_for_zk_transaction(cfg)?;
+    let previous_hash = fetch_latest_tx_hash(&Client::new(), &cfg.horizon_url, &account)
+        .context("read the source account transaction baseline before ZK attestation")?;
+    let accepted = invoke_zk_guardrail_contract(cfg, "verify", proof, true)?;
+    let transaction_hash = wait_for_new_zk_transaction_hash(cfg, &account, &previous_hash);
+    Ok((accepted, transaction_hash))
+}
+
 fn expected_zk_decision_status(status: &str) -> Result<u32> {
     match status {
         "approved" => Ok(0),
@@ -2482,11 +2545,37 @@ fn query_zk_nullifier_consumed(cfg: &NetworkConfig, audit_nullifier: &str) -> Re
         .map_err(|_| anyhow!("Stellar ZK nullifier query did not return true or false"))
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ZkStellarResultMode {
+    ReadOnlyVerification,
+    SubmittedTestnetAttestation,
+    StatefulConsume,
+}
+
+impl ZkStellarResultMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ReadOnlyVerification => "read_only_verification",
+            Self::SubmittedTestnetAttestation => "submitted_testnet_attestation",
+            Self::StatefulConsume => "stateful_consume",
+        }
+    }
+
+    fn transaction_submitted(self) -> bool {
+        !matches!(self, Self::ReadOnlyVerification)
+    }
+
+    fn nullifier_consumed(self) -> bool {
+        matches!(self, Self::StatefulConsume)
+    }
+}
+
 fn print_zk_stellar_result(
     cfg: &NetworkConfig,
     inspection: &ZkReplInspection,
     accepted: &ZkStellarAccepted,
-    consumed: bool,
+    mode: ZkStellarResultMode,
+    transaction_hash: Option<&str>,
 ) {
     let attestation = inspection
         .response
@@ -2499,14 +2588,7 @@ fn print_zk_stellar_result(
         cfg.zk_guardrail_contract.as_deref().unwrap_or("(not set)")
     );
     println!("- network: {}", cfg.soroban_network);
-    println!(
-        "- mode: {}",
-        if consumed {
-            "stateful_consume"
-        } else {
-            "read_only_verification"
-        }
-    );
+    println!("- mode: {}", mode.label());
     println!("- cryptographic_verification: verified_on_stellar");
     println!("- authorized_private_policy: verified_on_stellar");
     println!("- action_plan_hash: {}", accepted.action_plan_hash);
@@ -2517,8 +2599,23 @@ fn print_zk_stellar_result(
     println!("- reason: {}", attestation.attested_decision.reason);
     println!("- requires_approval: {}", accepted.requires_approval);
     println!("- audit_nullifier: {}", accepted.audit_nullifier);
-    println!("- nullifier_consumed: {consumed}");
-    println!("- verification_transaction_submitted: {consumed}");
+    println!("- nullifier_consumed: {}", mode.nullifier_consumed());
+    println!(
+        "- verification_transaction_submitted: {}",
+        mode.transaction_submitted()
+    );
+    if matches!(mode, ZkStellarResultMode::SubmittedTestnetAttestation) {
+        println!(
+            "- transaction_hash: {}",
+            transaction_hash.unwrap_or("unavailable")
+        );
+        println!(
+            "- stellar_expert_url: {}",
+            transaction_hash
+                .map(|hash| format!("https://stellar.expert/explorer/testnet/tx/{hash}"))
+                .unwrap_or_else(|| "unavailable".to_string())
+        );
+    }
     println!("- underlying_action_submit_allowed: false");
     println!("- next_step: {}", accepted.next_step);
 }
@@ -3901,6 +3998,10 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
             "zk.stellar.verify approved",
             "(verify on Soroban; read-only and repeatable)",
         ),
+        (
+            "zk.stellar.attest approved",
+            "(submit testnet verification tx + explorer link)",
+        ),
         ("zk status", "(show last ZK inspection)"),
         ("debug", "(optional intent trace on)"),
         (
@@ -4206,14 +4307,19 @@ fn print_repl_help_all() {
             "verify proof on Soroban without state changes",
         ),
         (
+            "zk.stellar.attest approved|requires_approval|blocked|last",
+            "submit testnet proof-verification transaction",
+        ),
+        (
             "zk.stellar.consume approved|requires_approval|blocked|last",
             "owner-only replay consume; local flow only",
         ),
         ("zk status", "show last inspected ZK attestation"),
     ];
     print_repl_help_section("ZK Guardrail", &zk_guardrail);
-    println!("Read-only verification never changes state. Consume stores only the nullifier.");
-    println!("Neither command submits or grants permission for the underlying ActionPlan.");
+    println!("Verify is read-only. Attest submits only a testnet proof-verification call.");
+    println!("Consume stores only the nullifier and remains disabled in remote REPL mode.");
+    println!("No ZK command grants permission to submit the underlying ActionPlan.");
     println!();
 
     let soroban_templates = [
@@ -4765,12 +4871,47 @@ fn run_repl(
                                 false,
                             )?;
                             validate_zk_stellar_result(&inspection, &accepted)?;
-                            print_zk_stellar_result(&flow_cfg, &inspection, &accepted, false);
+                            print_zk_stellar_result(
+                                &flow_cfg,
+                                &inspection,
+                                &accepted,
+                                ZkStellarResultMode::ReadOnlyVerification,
+                                None,
+                            );
                             Ok(inspection)
                         },
                     ) {
                         Ok(inspection) => zk_last_inspection = Some(inspection),
                         Err(err) => eprintln!("zk.stellar.verify failed: {err}"),
+                    }
+                    continue;
+                }
+                Ok(Some(ZkReplCommand::StellarAttest(target))) => {
+                    if !flow {
+                        eprintln!(
+                            "zk.stellar.attest requires flow mode because it submits a testnet proof-verification transaction; restart with --flow"
+                        );
+                        continue;
+                    }
+                    match resolve_zk_inspection(target, zk_last_inspection.as_ref()).and_then(
+                        |inspection| {
+                            let (accepted, transaction_hash) = submit_zk_stellar_attestation(
+                                &flow_cfg,
+                                &inspection.request.proof,
+                            )?;
+                            validate_zk_stellar_result(&inspection, &accepted)?;
+                            print_zk_stellar_result(
+                                &flow_cfg,
+                                &inspection,
+                                &accepted,
+                                ZkStellarResultMode::SubmittedTestnetAttestation,
+                                transaction_hash.as_deref(),
+                            );
+                            Ok(inspection)
+                        },
+                    ) {
+                        Ok(inspection) => zk_last_inspection = Some(inspection),
+                        Err(err) => eprintln!("zk.stellar.attest failed: {err}"),
                     }
                     continue;
                 }
@@ -4808,7 +4949,13 @@ fn run_repl(
                                     "Stellar accepted the transaction but the nullifier was not persisted"
                                 ));
                             }
-                            print_zk_stellar_result(&flow_cfg, &inspection, &accepted, true);
+                            print_zk_stellar_result(
+                                &flow_cfg,
+                                &inspection,
+                                &accepted,
+                                ZkStellarResultMode::StatefulConsume,
+                                None,
+                            );
                             Ok(inspection)
                         },
                     ) {

@@ -89,8 +89,10 @@ policy scenarios. No mainnet claim is made.
 The existing NeuroChain CLI/REPL is the judge-facing bridge. It locally binds
 the ActionPlan and journal, calls Soroban with `zk.stellar.verify <scenario>`
 using `--send no`, and fails closed if the contract result differs from the
-local binding. The separate `zk.stellar.consume` command is local-only and
-never submits the underlying ActionPlan.
+local binding. The explicit `zk.stellar.attest <scenario>` command submits the
+same permissionless verification only on testnet and prints a StellarExpert
+transaction link. The separate `zk.stellar.consume` command is local-only.
+None of these commands submits the underlying ActionPlan.
 
 ## Demonstrated scenarios
 
@@ -125,6 +127,7 @@ a deployed contract and source alias:
 ```text
 zk.demo blocked
 zk.stellar.verify blocked
+zk.stellar.attest blocked
 ```
 
 Generate a genuine RISC Zero Groth16 proof from private inputs:
