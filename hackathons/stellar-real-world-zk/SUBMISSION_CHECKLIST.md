@@ -53,6 +53,9 @@ powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/script
   and confirm that `deployments/testnet.json` was created.
 - [x] Configure the hosted demo with `NC_ZK_GUARDRAIL_CONTRACT` and a read-only
   simulation source, then verify all three `zk.stellar.verify` scenarios.
+- [x] Submit the explicit testnet-only `zk.stellar.attest approved` verification
+  transaction and confirm it in
+  [StellarExpert](https://stellar.expert/explorer/testnet/tx/d2eaea9743cc48a59c91bf3680f17a63babdd18d3dbe49d0b4361172f98915a4).
 
 The package gate validates repository evidence only. It does not claim that
 the video, DoraHacks form or hosted-demo configuration has been completed.
