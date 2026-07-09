@@ -989,6 +989,35 @@ stellar.payment to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" am
 }
 
 #[test]
+fn nc_script_empty_allowlist_enforce_blocks_with_exit_3() {
+    let tmp = std::env::temp_dir().join("nc_script_empty_allowlist_enforce.nc");
+    let script = r#"
+allowlist_enforce
+stellar.payment to="GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P" amount="5" asset_code="XLM"
+"#;
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .env_remove("NC_ASSET_ALLOWLIST")
+        .env_remove("NC_SOROBAN_ALLOWLIST")
+        .output()
+        .expect("run neurochain-stellar script mode with empty allowlist enforce");
+
+    assert_eq!(output.status.code(), Some(3));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("allowlist_unconfigured: asset"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
 fn nc_script_policy_settings_can_enforce_without_env() {
     let policy_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("contracts")
@@ -1022,6 +1051,37 @@ fn nc_script_policy_settings_can_enforce_without_env() {
     assert!(combined.contains("Contract policy violations (enforced):"));
     assert!(combined.contains("- contract_policy:"));
     assert!(combined.contains("- contract_policy_enforce: on"));
+
+    let _ = fs::remove_file(tmp);
+}
+
+#[test]
+fn nc_script_policy_load_failure_blocks_with_exit_4() {
+    let missing_policy = std::env::temp_dir().join("neurochain_missing_policy_script.json");
+    let _ = fs::remove_file(&missing_policy);
+
+    let tmp = std::env::temp_dir().join("nc_script_missing_policy_enforce.nc");
+    let script = format!(
+        "contract_policy: {}\ncontract_policy_enforce\nsoroban.contract.invoke contract_id=\"CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\" function=\"hello\"\n",
+        missing_policy.to_string_lossy()
+    );
+    fs::write(&tmp, script).expect("write temp nc script");
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg(tmp.to_string_lossy().to_string())
+        .output()
+        .expect("run neurochain-stellar script mode with missing policy enforce");
+
+    assert_eq!(output.status.code(), Some(4));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Contract policy violations (enforced):"));
+    assert!(combined.contains("policy_load_failed"));
 
     let _ = fs::remove_file(tmp);
 }

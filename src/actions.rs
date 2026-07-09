@@ -109,6 +109,14 @@ impl Allowlist {
         Self { assets, contracts }
     }
 
+    pub fn has_asset_rules(&self) -> bool {
+        !self.assets.is_empty()
+    }
+
+    pub fn has_contract_rules(&self) -> bool {
+        !self.contracts.is_empty()
+    }
+
     fn is_asset_allowed(&self, code: &str, issuer: Option<&str>) -> bool {
         if self.assets.is_empty() {
             return true;
@@ -181,6 +189,81 @@ pub fn validate_plan(plan: &ActionPlan, allowlist: &Allowlist) -> Vec<AllowlistV
                     action: action.kind().to_string(),
                     reason: format!("asset {asset_code}:{asset_issuer} not in allowlist"),
                 });
+            }
+            _ => {}
+        }
+    }
+
+    violations
+}
+
+pub fn validate_enforced_plan(plan: &ActionPlan, allowlist: &Allowlist) -> Vec<AllowlistViolation> {
+    let mut violations = Vec::new();
+
+    for (idx, action) in plan.actions.iter().enumerate() {
+        match action {
+            Action::SorobanContractInvoke {
+                contract_id,
+                function,
+                ..
+            } => {
+                if !allowlist.has_contract_rules() {
+                    violations.push(AllowlistViolation {
+                        index: idx,
+                        action: action.kind().to_string(),
+                        reason: "allowlist_unconfigured: contract allowlist is empty while allowlist_enforce is enabled"
+                            .to_string(),
+                    });
+                } else if !allowlist.is_contract_allowed(contract_id, function) {
+                    violations.push(AllowlistViolation {
+                        index: idx,
+                        action: action.kind().to_string(),
+                        reason: format!("contract {contract_id}:{function} not in allowlist"),
+                    });
+                }
+            }
+            Action::StellarPayment {
+                asset_code,
+                asset_issuer,
+                ..
+            } => {
+                if !allowlist.has_asset_rules() {
+                    violations.push(AllowlistViolation {
+                        index: idx,
+                        action: action.kind().to_string(),
+                        reason: "allowlist_unconfigured: asset allowlist is empty while allowlist_enforce is enabled"
+                            .to_string(),
+                    });
+                } else if !allowlist.is_asset_allowed(asset_code, asset_issuer.as_deref()) {
+                    violations.push(AllowlistViolation {
+                        index: idx,
+                        action: action.kind().to_string(),
+                        reason: format!(
+                            "asset {asset_code}:{} not in allowlist",
+                            asset_issuer.as_deref().unwrap_or("")
+                        ),
+                    });
+                }
+            }
+            Action::StellarChangeTrust {
+                asset_code,
+                asset_issuer,
+                ..
+            } => {
+                if !allowlist.has_asset_rules() {
+                    violations.push(AllowlistViolation {
+                        index: idx,
+                        action: action.kind().to_string(),
+                        reason: "allowlist_unconfigured: asset allowlist is empty while allowlist_enforce is enabled"
+                            .to_string(),
+                    });
+                } else if !allowlist.is_asset_allowed(asset_code, Some(asset_issuer)) {
+                    violations.push(AllowlistViolation {
+                        index: idx,
+                        action: action.kind().to_string(),
+                        reason: format!("asset {asset_code}:{asset_issuer} not in allowlist"),
+                    });
+                }
             }
             _ => {}
         }

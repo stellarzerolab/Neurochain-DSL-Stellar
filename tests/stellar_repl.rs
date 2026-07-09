@@ -1123,6 +1123,39 @@ fn stellar_repl_allowlist_enforced_reports_step_code_3() {
 }
 
 #[test]
+fn stellar_repl_empty_contract_allowlist_enforced_reports_step_code_3() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--no-flow");
+    let output = cmd
+        .env_remove("NC_ASSET_ALLOWLIST")
+        .env_remove("NC_SOROBAN_ALLOWLIST")
+        .write_stdin(
+            "allowlist_enforce\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello\"\n\nexit\n\n",
+        )
+        .output()
+        .expect("run repl empty contract allowlist enforce");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("allowlist_unconfigured: contract"));
+    assert!(combined.contains("repl step returned code 3"));
+}
+
+#[test]
 fn stellar_repl_policy_enforced_reports_step_code_4() {
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("models")
@@ -1160,6 +1193,40 @@ fn stellar_repl_policy_enforced_reports_step_code_4() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(combined.contains("Contract policy violations (enforced):"));
+    assert!(combined.contains("repl step returned code 4"));
+}
+
+#[test]
+fn stellar_repl_policy_load_failure_reports_step_code_4() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("intent_stellar")
+        .join("model.onnx");
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let missing_policy = std::env::temp_dir().join("neurochain_missing_policy_repl.json");
+    let _ = fs::remove_file(&missing_policy);
+
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    let output = cmd
+        .write_stdin(format!(
+            "contract_policy: {}\n\ncontract_policy_enforce\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello\"\n\nexit\n\n",
+            missing_policy.to_string_lossy()
+        ))
+        .output()
+        .expect("run repl missing policy enforce");
+    assert!(output.status.success());
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("policy_load_failed"));
     assert!(combined.contains("repl step returned code 4"));
 }
 

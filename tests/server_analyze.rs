@@ -1343,6 +1343,123 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
 }
 
 #[test]
+fn api_stellar_intent_plan_empty_allowlist_enforce_blocks_with_exit_3() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_stellar_intent_plan_empty_allowlist_enforce_blocks_with_exit_3 skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let _server = spawn_server(
+        port,
+        &[("NC_ASSET_ALLOWLIST", ""), ("NC_SOROBAN_ALLOWLIST", "")],
+    );
+    wait_for_listen(addr, Duration::from_secs(10));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Send 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+        "threshold": 0.20,
+        "allowlist_enforce": true
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 3);
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|w| w.contains("allowlist_unconfigured: asset")),
+        "expected empty allowlist warning"
+    );
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l == "block: allowlist_enforced"),
+        "expected allowlist block marker in logs"
+    );
+}
+
+#[test]
+fn api_stellar_intent_plan_policy_load_failure_blocks_with_exit_4() {
+    let port = find_free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+
+    let model = intent_stellar_model_path();
+    if !model.exists() {
+        eprintln!(
+            "api_stellar_intent_plan_policy_load_failure_blocks_with_exit_4 skipped: model not found at {}",
+            model.display()
+        );
+        return;
+    }
+
+    let missing_policy = std::env::temp_dir().join("neurochain_missing_policy_server.json");
+    let _ = fs::remove_file(&missing_policy);
+    let empty_policy_dir = std::env::temp_dir().join("neurochain_empty_policy_dir_server");
+    let _ = fs::create_dir_all(&empty_policy_dir);
+    let missing_policy = missing_policy.to_string_lossy().to_string();
+    let empty_policy_dir = empty_policy_dir.to_string_lossy().to_string();
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_CONTRACT_POLICY", &missing_policy),
+            ("NC_CONTRACT_POLICY_DIR", &empty_policy_dir),
+        ],
+    );
+    wait_for_listen(addr, Duration::from_secs(10));
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": "Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello",
+        "threshold": 0.00,
+        "contract_policy_enforce": true
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["blocked"], true);
+    assert_eq!(resp["exit_code"], 4);
+    let warnings = resp["plan"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        warnings
+            .iter()
+            .filter_map(|v| v.as_str())
+            .any(|w| w.contains("policy_load_failed")),
+        "expected policy load failure warning"
+    );
+    let logs = resp["logs"].as_array().cloned().unwrap_or_default();
+    assert!(
+        logs.iter()
+            .filter_map(|v| v.as_str())
+            .any(|l| l == "block: contract_policy_enforced"),
+        "expected contract policy block marker in logs"
+    );
+}
+
+#[test]
 fn api_stellar_intent_plan_stage3_typed_v2_parity() {
     let port = find_free_port();
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();

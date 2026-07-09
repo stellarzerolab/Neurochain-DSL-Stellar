@@ -13,7 +13,7 @@ use axum::{
     Json, Router,
 };
 use neurochain::{
-    actions::{validate_plan, ActionPlan, Allowlist},
+    actions::{validate_enforced_plan, validate_plan, Action, ActionPlan, Allowlist},
     banner, engine,
     intent_stellar::{
         build_action_plan as build_intent_action_plan, classify as classify_intent_stellar,
@@ -222,39 +222,98 @@ fn policy_enforced(override_value: Option<bool>) -> bool {
     )
 }
 
-fn load_contract_policies() -> Vec<ContractPolicy> {
+#[derive(Debug, Default)]
+struct ContractPolicyLoad {
+    policies: Vec<ContractPolicy>,
+    errors: Vec<String>,
+}
+
+fn load_contract_policies() -> ContractPolicyLoad {
     let mut policies = Vec::new();
+    let mut errors = Vec::new();
 
     if let Ok(path) = env::var("NC_CONTRACT_POLICY") {
-        if let Ok(data) = fs::read_to_string(&path) {
-            match serde_json::from_str::<ContractPolicy>(&data) {
-                Ok(policy) => policies.push(policy),
-                Err(err) => eprintln!("Policy parse failed for {path}: {err}"),
-            }
-        } else {
-            eprintln!("Policy file not found: {path}");
-        }
-    }
-
-    let policy_dir = env::var("NC_CONTRACT_POLICY_DIR").unwrap_or_else(|_| "contracts".to_string());
-    if let Ok(entries) = fs::read_dir(&policy_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let policy_path = path.join("policy.json");
-                if let Ok(data) = fs::read_to_string(&policy_path) {
-                    match serde_json::from_str::<ContractPolicy>(&data) {
-                        Ok(policy) => policies.push(policy),
-                        Err(err) => {
-                            eprintln!("Policy parse failed for {}: {err}", policy_path.display())
-                        }
+        if !path.trim().is_empty() {
+            match fs::read_to_string(&path) {
+                Ok(data) => match serde_json::from_str::<ContractPolicy>(&data) {
+                    Ok(policy) => policies.push(policy),
+                    Err(err) => {
+                        let msg =
+                            format!("policy_load_failed: policy parse failed for {path}: {err}");
+                        eprintln!("{msg}");
+                        errors.push(msg);
                     }
+                },
+                Err(err) => {
+                    let msg = format!(
+                        "policy_load_failed: policy file not found or unreadable: {path}: {err}"
+                    );
+                    eprintln!("{msg}");
+                    errors.push(msg);
                 }
             }
         }
     }
 
-    policies
+    let explicit_policy_dir = env::var("NC_CONTRACT_POLICY_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let policy_dir = explicit_policy_dir
+        .clone()
+        .unwrap_or_else(|| "contracts".to_string());
+    match fs::read_dir(&policy_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let policy_path = path.join("policy.json");
+                    if policy_path.exists() {
+                        match fs::read_to_string(&policy_path) {
+                            Ok(data) => match serde_json::from_str::<ContractPolicy>(&data) {
+                                Ok(policy) => policies.push(policy),
+                                Err(err) => {
+                                    let msg = format!(
+                                        "policy_load_failed: policy parse failed for {}: {err}",
+                                        policy_path.display()
+                                    );
+                                    eprintln!("{msg}");
+                                    errors.push(msg);
+                                }
+                            },
+                            Err(err) => {
+                                let msg = format!(
+                                    "policy_load_failed: policy file not readable: {}: {err}",
+                                    policy_path.display()
+                                );
+                                eprintln!("{msg}");
+                                errors.push(msg);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            if explicit_policy_dir.is_some() {
+                let msg = format!(
+                    "policy_load_failed: policy dir not found or unreadable: {policy_dir}: {err}"
+                );
+                eprintln!("{msg}");
+                errors.push(msg);
+            }
+        }
+    }
+
+    ContractPolicyLoad { policies, errors }
+}
+
+fn plan_needs_contract_policy(plan: &ActionPlan) -> bool {
+    plan.actions.iter().any(|action| {
+        matches!(
+            action,
+            Action::SorobanContractInvoke { .. } | Action::SorobanContractDeploy { .. }
+        )
+    })
 }
 
 fn normalize(s: &str) -> String {
@@ -803,12 +862,21 @@ fn build_stellar_intent_plan_response(
         }
     };
 
-    let policies = load_contract_policies();
+    let policy_load = load_contract_policies();
+    let policies = &policy_load.policies;
     let mut plan = build_intent_action_plan(&prompt, &decision);
     plan.warnings
         .push(format!("intent_model: path={model_path}"));
     let (template_warnings, template_errors) =
-        soroban_deep::validate_contract_policy_templates(&policies);
+        soroban_deep::validate_contract_policy_templates(policies);
+    logs.push(format!(
+        "policy_load: policies={} errors={}",
+        policies.len(),
+        policy_load.errors.len()
+    ));
+    for err in &policy_load.errors {
+        plan.warnings.push(format!("policy error: {err}"));
+    }
     logs.push(format!(
         "policy_template: warnings={} errors={}",
         template_warnings.len(),
@@ -822,7 +890,7 @@ fn build_stellar_intent_plan_response(
         plan.warnings.push(format!("policy_template error: {err}"));
     }
     let template_report =
-        soroban_deep::apply_contract_intent_templates(&prompt, &mut plan, &policies);
+        soroban_deep::apply_contract_intent_templates(&prompt, &mut plan, policies);
     logs.push(format!(
         "soroban_deep_template: expanded={} template={} contract_id={} function={} reason={}",
         template_report.expanded,
@@ -831,7 +899,7 @@ fn build_stellar_intent_plan_response(
         template_report.function.as_deref().unwrap_or("(none)"),
         template_report.reason.as_deref().unwrap_or("(none)")
     ));
-    let typed_v2_report = soroban_deep::apply_policy_typed_templates_v2(&mut plan, &policies);
+    let typed_v2_report = soroban_deep::apply_policy_typed_templates_v2(&mut plan, policies);
     logs.push(format!(
         "typed_template_v2: policy_slot_type_converted={} normalized_args={}",
         typed_v2_report.converted, typed_v2_report.normalized_args
@@ -846,8 +914,12 @@ fn build_stellar_intent_plan_response(
         .clone()
         .unwrap_or_else(|| env::var("NC_SOROBAN_ALLOWLIST").unwrap_or_default());
     let allowlist = Allowlist::from_raw(&assets_raw, &contracts_raw);
-    let allowlist_violations = validate_plan(&plan, &allowlist);
     let allowlist_is_enforced = allowlist_enforced(req.allowlist_enforce);
+    let allowlist_violations = if allowlist_is_enforced {
+        validate_enforced_plan(&plan, &allowlist)
+    } else {
+        validate_plan(&plan, &allowlist)
+    };
     logs.push(format!(
         "allowlist: violations={} enforced={allowlist_is_enforced}",
         allowlist_violations.len()
@@ -860,9 +932,18 @@ fn build_stellar_intent_plan_response(
         ));
     }
 
-    let (policy_warnings, policy_errors) =
-        soroban_deep::validate_contract_policies(&plan, &policies);
+    let (policy_warnings, mut policy_errors) =
+        soroban_deep::validate_contract_policies(&plan, policies);
     let policy_is_enforced = policy_enforced(req.contract_policy_enforce);
+    if policy_is_enforced && plan_needs_contract_policy(&plan) {
+        policy_errors.extend(policy_load.errors.iter().cloned());
+        if policies.is_empty() {
+            policy_errors.push(
+                "policy_unconfigured: contract_policy_enforce enabled but no contract policies loaded"
+                    .to_string(),
+            );
+        }
+    }
     logs.push(format!(
         "policy: warnings={} errors={} enforced={policy_is_enforced}",
         policy_warnings.len(),

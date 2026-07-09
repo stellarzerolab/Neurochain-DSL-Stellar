@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use neurochain::actions::{
-    parse_action_plan_from_nc, validate_plan, Action, ActionPlan, Allowlist,
+    parse_action_plan_from_nc, validate_enforced_plan, validate_plan, Action, ActionPlan, Allowlist,
 };
 use neurochain::ai::model::AIModel;
 use neurochain::banner;
@@ -372,8 +372,16 @@ fn load_network_config() -> NetworkConfig {
     }
 }
 
-fn load_contract_policies(runtime: Option<&RuntimeSettings>) -> Vec<ContractPolicy> {
+#[derive(Debug, Default)]
+struct ContractPolicyLoad {
+    policies: Vec<ContractPolicy>,
+    errors: Vec<String>,
+}
+
+fn load_contract_policies(runtime: Option<&RuntimeSettings>) -> ContractPolicyLoad {
+    let mut load = ContractPolicyLoad::default();
     let mut policies = Vec::new();
+    let mut errors = Vec::new();
 
     let direct_policy_path = runtime
         .and_then(|r| r.contract_policy.as_deref())
@@ -381,40 +389,91 @@ fn load_contract_policies(runtime: Option<&RuntimeSettings>) -> Vec<ContractPoli
         .or_else(|| env::var("NC_CONTRACT_POLICY").ok())
         .filter(|v| !v.trim().is_empty());
     if let Some(path) = direct_policy_path {
-        if let Ok(data) = fs::read_to_string(&path) {
-            match serde_json::from_str::<ContractPolicy>(&data) {
+        match fs::read_to_string(&path) {
+            Ok(data) => match serde_json::from_str::<ContractPolicy>(&data) {
                 Ok(policy) => policies.push(policy),
-                Err(err) => eprintln!("Policy parse failed for {path}: {err}"),
+                Err(err) => {
+                    let msg = format!("policy_load_failed: policy parse failed for {path}: {err}");
+                    eprintln!("{msg}");
+                    errors.push(msg);
+                }
+            },
+            Err(err) => {
+                let msg = format!(
+                    "policy_load_failed: policy file not found or unreadable: {path}: {err}"
+                );
+                eprintln!("{msg}");
+                errors.push(msg);
             }
-        } else {
-            eprintln!("Policy file not found: {path}");
         }
     }
 
+    let explicit_policy_dir = runtime
+        .and_then(|r| r.contract_policy_dir.as_deref())
+        .map(str::to_string)
+        .or_else(|| env::var("NC_CONTRACT_POLICY_DIR").ok())
+        .filter(|v| !v.trim().is_empty());
     let policy_dir = runtime
         .and_then(|r| r.contract_policy_dir.as_deref())
         .map(str::to_string)
         .or_else(|| env::var("NC_CONTRACT_POLICY_DIR").ok())
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| "contracts".to_string());
-    if let Ok(entries) = fs::read_dir(&policy_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let policy_path = path.join("policy.json");
-                if let Ok(data) = fs::read_to_string(&policy_path) {
-                    match serde_json::from_str::<ContractPolicy>(&data) {
-                        Ok(policy) => policies.push(policy),
-                        Err(err) => {
-                            eprintln!("Policy parse failed for {}: {err}", policy_path.display())
+    match fs::read_dir(&policy_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let policy_path = path.join("policy.json");
+                    if policy_path.exists() {
+                        match fs::read_to_string(&policy_path) {
+                            Ok(data) => match serde_json::from_str::<ContractPolicy>(&data) {
+                                Ok(policy) => policies.push(policy),
+                                Err(err) => {
+                                    let msg = format!(
+                                        "policy_load_failed: policy parse failed for {}: {err}",
+                                        policy_path.display()
+                                    );
+                                    eprintln!("{msg}");
+                                    errors.push(msg);
+                                }
+                            },
+                            Err(err) => {
+                                let msg = format!(
+                                    "policy_load_failed: policy file not readable: {}: {err}",
+                                    policy_path.display()
+                                );
+                                eprintln!("{msg}");
+                                errors.push(msg);
+                            }
                         }
                     }
                 }
             }
         }
+        Err(err) => {
+            if explicit_policy_dir.is_some() {
+                let msg = format!(
+                    "policy_load_failed: policy dir not found or unreadable: {policy_dir}: {err}"
+                );
+                eprintln!("{msg}");
+                errors.push(msg);
+            }
+        }
     }
 
-    policies
+    load.policies = policies;
+    load.errors = errors;
+    load
+}
+
+fn plan_needs_contract_policy(plan: &ActionPlan) -> bool {
+    plan.actions.iter().any(|action| {
+        matches!(
+            action,
+            Action::SorobanContractInvoke { .. } | Action::SorobanContractDeploy { .. }
+        )
+    })
 }
 
 fn is_base32_char(c: char) -> bool {
@@ -3117,12 +3176,12 @@ impl ScriptBuildContext {
 
     fn append_intent_prompt(&mut self, prompt: &str) -> Result<()> {
         self.intent_mode = true;
-        let policies = load_contract_policies(Some(&self.runtime_settings));
+        let policy_load = load_contract_policies(Some(&self.runtime_settings));
         let prompt_plan = build_plan_from_intent_prompt(
             prompt,
             &self.model_path,
             self.threshold,
-            &policies,
+            &policy_load.policies,
             self.debug,
         )?;
         merge_action_plans(&mut self.plan, prompt_plan);
@@ -3606,9 +3665,10 @@ fn execute_plan(
     debug: bool,
 ) -> i32 {
     let runtime_settings = runtime_settings.cloned().unwrap_or_default();
-    let policies = load_contract_policies(Some(&runtime_settings));
+    let policy_load = load_contract_policies(Some(&runtime_settings));
+    let policies = &policy_load.policies;
     if intent_mode {
-        let typed_v2_report = soroban_deep::apply_policy_typed_templates_v2(&mut plan, &policies);
+        let typed_v2_report = soroban_deep::apply_policy_typed_templates_v2(&mut plan, policies);
         intent_debug_log(
             debug,
             "typed-template-v2",
@@ -3619,8 +3679,12 @@ fn execute_plan(
         );
     }
     let allowlist = runtime_settings.allowlist();
-    let violations = validate_plan(&plan, &allowlist);
     let allowlist_is_enforced = allowlist_enforced(runtime_settings.allowlist_enforce);
+    let violations = if allowlist_is_enforced {
+        validate_enforced_plan(&plan, &allowlist)
+    } else {
+        validate_plan(&plan, &allowlist)
+    };
     intent_debug_log(
         debug,
         "guardrails",
@@ -3660,9 +3724,18 @@ fn execute_plan(
         }
     }
 
-    let (policy_warnings, policy_errors) =
-        soroban_deep::validate_contract_policies(&plan, &policies);
+    let (policy_warnings, mut policy_errors) =
+        soroban_deep::validate_contract_policies(&plan, policies);
     let policy_is_enforced = policy_enforced(runtime_settings.contract_policy_enforce);
+    if policy_is_enforced && plan_needs_contract_policy(&plan) {
+        policy_errors.extend(policy_load.errors.iter().cloned());
+        if policies.is_empty() {
+            policy_errors.push(
+                "policy_unconfigured: contract_policy_enforce enabled but no contract policies loaded"
+                    .to_string(),
+            );
+        }
+    }
     intent_debug_log(
         debug,
         "guardrails",
@@ -3675,6 +3748,9 @@ fn execute_plan(
     );
     for warning in &policy_warnings {
         plan.warnings.push(format!("policy warning: {warning}"));
+    }
+    for err in &policy_load.errors {
+        plan.warnings.push(format!("policy error: {err}"));
     }
     if !policy_errors.is_empty() {
         if policy_is_enforced {
@@ -5088,12 +5164,12 @@ fn run_repl(
 
             if let Some((name, prompt)) = parse_set_from_ai_assignment(&line) {
                 if is_intent_assignment_name(&name) {
-                    let policies = load_contract_policies(Some(&runtime_settings));
+                    let policy_load = load_contract_policies(Some(&runtime_settings));
                     match build_plan_from_intent_prompt(
                         &prompt,
                         &model_path,
                         threshold,
-                        &policies,
+                        &policy_load.policies,
                         debug,
                     ) {
                         Ok(plan) => {
@@ -5139,8 +5215,14 @@ fn run_repl(
             }
 
             let prompt = strip_wrapping_quotes(&line);
-            let policies = load_contract_policies(Some(&runtime_settings));
-            match build_plan_from_intent_prompt(&prompt, &model_path, threshold, &policies, debug) {
+            let policy_load = load_contract_policies(Some(&runtime_settings));
+            match build_plan_from_intent_prompt(
+                &prompt,
+                &model_path,
+                threshold,
+                &policy_load.policies,
+                debug,
+            ) {
                 Ok(plan) => {
                     let code = execute_plan(
                         plan,
@@ -5204,8 +5286,14 @@ fn main() {
         };
         let model_path = cli.intent_model.unwrap_or_else(resolve_intent_model_path);
         let runtime_settings = RuntimeSettings::default();
-        let policies = load_contract_policies(Some(&runtime_settings));
-        match build_plan_from_intent_prompt(&prompt, &model_path, threshold, &policies, debug) {
+        let policy_load = load_contract_policies(Some(&runtime_settings));
+        match build_plan_from_intent_prompt(
+            &prompt,
+            &model_path,
+            threshold,
+            &policy_load.policies,
+            debug,
+        ) {
             Ok(plan) => plan,
             Err(err) => {
                 eprintln!("Error: {err}");

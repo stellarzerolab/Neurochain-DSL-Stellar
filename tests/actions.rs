@@ -1,6 +1,6 @@
 use neurochain::actions::{
-    parse_action_plan_from_nc, parse_action_plan_from_txrep, validate_plan, Action, ActionPlan,
-    Allowlist,
+    parse_action_plan_from_nc, parse_action_plan_from_txrep, validate_enforced_plan, validate_plan,
+    Action, ActionPlan, Allowlist,
 };
 use serde_json::Value;
 use std::sync::{Mutex, OnceLock};
@@ -11,6 +11,40 @@ fn with_env_lock<F: FnOnce()>(f: F) {
     let lock = ENV_MUTEX.get_or_init(|| Mutex::new(()));
     let _guard = lock.lock().unwrap();
     f();
+}
+
+#[test]
+fn enforced_allowlist_treats_empty_relevant_rules_as_blocking() {
+    let plan = ActionPlan {
+        schema_version: 1,
+        actions: vec![
+            Action::StellarPayment {
+                to: "GDEST".to_string(),
+                amount: "5".to_string(),
+                asset_code: "XLM".to_string(),
+                asset_issuer: None,
+            },
+            Action::SorobanContractInvoke {
+                contract_id: "C1".to_string(),
+                function: "transfer".to_string(),
+                args: Value::Null,
+            },
+        ],
+        warnings: vec![],
+        source: None,
+    };
+    let allowlist = Allowlist::from_raw("", "");
+
+    assert!(validate_plan(&plan, &allowlist).is_empty());
+
+    let violations = validate_enforced_plan(&plan, &allowlist);
+    assert_eq!(violations.len(), 2);
+    assert!(violations
+        .iter()
+        .any(|v| v.reason.contains("allowlist_unconfigured: asset")));
+    assert!(violations
+        .iter()
+        .any(|v| v.reason.contains("allowlist_unconfigured: contract")));
 }
 
 #[test]

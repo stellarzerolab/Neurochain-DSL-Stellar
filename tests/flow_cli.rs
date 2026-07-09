@@ -193,6 +193,39 @@ fn intent_mode_allowlist_enforced_blocks_with_exit_3() {
 }
 
 #[test]
+fn intent_mode_empty_allowlist_enforced_blocks_with_exit_3() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg("Send 5 XLM to GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P")
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.20")
+        .env_remove("NC_ASSET_ALLOWLIST")
+        .env_remove("NC_SOROBAN_ALLOWLIST")
+        .env("NC_ALLOWLIST_ENFORCE", "1")
+        .output()
+        .expect("run neurochain-stellar with empty allowlist enforce");
+
+    assert_eq!(output.status.code(), Some(3));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Allowlist violations (enforced)"));
+    assert!(combined.contains("allowlist_unconfigured: asset"));
+}
+
+#[test]
 fn intent_mode_policy_enforced_blocks_with_exit_4() {
     let model_path = intent_model_path();
     if !model_path.exists() {
@@ -236,6 +269,46 @@ fn intent_mode_policy_enforced_blocks_with_exit_4() {
     );
     assert!(combined.contains("Contract policy violations (enforced)"));
     assert!(combined.contains("policy_args_missing"));
+}
+
+#[test]
+fn intent_mode_policy_load_failure_enforced_blocks_with_exit_4() {
+    let model_path = intent_model_path();
+    if !model_path.exists() {
+        eprintln!("skipping test; missing model: {}", model_path.display());
+        return;
+    }
+
+    let missing_policy = std::env::temp_dir().join("neurochain_missing_policy_flow_cli.json");
+    let _ = fs::remove_file(&missing_policy);
+
+    let bin = env!("CARGO_BIN_EXE_neurochain-stellar");
+    let output = Command::new(bin)
+        .arg("--intent-text")
+        .arg(
+            "Call contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello",
+        )
+        .arg("--intent-model")
+        .arg(model_path.to_string_lossy().to_string())
+        .arg("--intent-threshold")
+        .arg("0.00")
+        .env(
+            "NC_CONTRACT_POLICY",
+            missing_policy.to_string_lossy().to_string(),
+        )
+        .env("NC_CONTRACT_POLICY_ENFORCE", "1")
+        .output()
+        .expect("run neurochain-stellar with missing contract policy enforce");
+
+    assert_eq!(output.status.code(), Some(4));
+
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Contract policy violations (enforced):"));
+    assert!(combined.contains("policy_load_failed"));
 }
 
 #[test]

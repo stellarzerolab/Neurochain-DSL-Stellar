@@ -264,10 +264,15 @@ Validation always runs. Enforce mode controls whether a violation becomes a hard
   - allowlist violations are warnings and execution continues
 - `NC_ALLOWLIST_ENFORCE=1`:
   - allowlist violation hard-fails with exit code `3`
+  - if the relevant asset or contract allowlist is empty, execution also
+    hard-fails with exit code `3`
 - `NC_CONTRACT_POLICY_ENFORCE=0`, or unset:
   - policy violations are warnings and execution continues
 - `NC_CONTRACT_POLICY_ENFORCE=1`:
   - policy violation hard-fails with exit code `4`
+  - missing, unreadable, or invalid policy files hard-fail with exit code `4`
+  - contract actions hard-fail with exit code `4` if no contract policies are
+    loaded
 - In intent mode (`--intent-text` or `set stellar intent from AI`):
   - `Unknown`, `intent_error`, and `intent_warning` block flow safely and return exit code `5`
 
