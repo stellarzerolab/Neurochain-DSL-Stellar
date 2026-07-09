@@ -65,6 +65,53 @@ sha256_file() {
   fi
 }
 
+safe_extract_zip() {
+  local zip_file="$1"
+  local destination="$2"
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for safe model zip extraction."
+    exit 1
+  fi
+
+  REPO_ROOT="${destination}" ZIP_PATH="${zip_file}" python3 - <<'PY'
+import os
+import pathlib
+import re
+import stat
+import sys
+import zipfile
+
+repo_root = pathlib.Path(os.environ["REPO_ROOT"]).resolve()
+zip_path = os.environ["ZIP_PATH"]
+
+def reject(name: str, reason: str) -> None:
+    print(f"ERROR: unsafe zip entry `{name}`: {reason}", file=sys.stderr)
+    raise SystemExit(1)
+
+with zipfile.ZipFile(zip_path) as zf:
+    for info in zf.infolist():
+        raw_name = info.filename
+        name = raw_name.replace("\\", "/")
+        parts = pathlib.PurePosixPath(name).parts
+
+        if not raw_name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+            reject(raw_name, "absolute path")
+        if any(part in ("", ".", "..") for part in parts):
+            reject(raw_name, "relative traversal segment")
+
+        mode = (info.external_attr >> 16) & 0o170000
+        if mode == stat.S_IFLNK:
+            reject(raw_name, "symbolic link")
+
+        target = (repo_root / pathlib.Path(*parts)).resolve()
+        if os.path.commonpath([str(repo_root), str(target)]) != str(repo_root):
+            reject(raw_name, "target escapes repository root")
+
+    zf.extractall(repo_root)
+PY
+}
+
 echo "Downloading model pack..."
 echo "  url: ${url}"
 download_file "${url}" "${zip_path}"
@@ -145,24 +192,7 @@ echo "Signed SHA256SUMS check: OK"
 
 echo "Extracting into repo root: ${repo_root}"
 
-if command -v unzip >/dev/null 2>&1; then
-  unzip -o -q "${zip_path}" -d "${repo_root}"
-elif command -v python3 >/dev/null 2>&1; then
-  REPO_ROOT="${repo_root}" ZIP_PATH="${zip_path}" python3 - <<'PY'
-import os
-import sys
-import zipfile
-
-repo_root = os.environ["REPO_ROOT"]
-zip_path = os.environ["ZIP_PATH"]
-
-with zipfile.ZipFile(zip_path) as zf:
-    zf.extractall(repo_root)
-PY
-else
-  echo "ERROR: need unzip or python3 to extract zip files."
-  exit 1
-fi
+safe_extract_zip "${zip_path}" "${repo_root}"
 
 required=(
   "models/intent_macro/model.onnx"
