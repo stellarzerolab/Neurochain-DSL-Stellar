@@ -388,6 +388,7 @@ Start here:
 - `docs/stellar_actions_guide.md` - full Stellar CLI, REPL, `.nc`, flow, guardrail, and API reference
 - `docs/getting_started.md` - base NeuroChain quickstart
 - `docs/language.md` - `.nc` language guide
+- `docs/mcp_v0_tool_contract.md` - no-submit MCP v0 tool contract
 - `docs/models.md` - model pack download, verification, and release notes
 - `docs/product_direction_mcp_skills.md` - MCP and Skills product direction
 - `docs/security.md` - security, CI, audit, and runtime safety notes

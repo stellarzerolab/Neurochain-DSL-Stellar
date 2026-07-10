@@ -62,6 +62,9 @@ The MCP and Skills direction is deliberately narrow:
 MCP v0 should be read-only and no-submit by default. It should expose a small
 surface that can be safely called by an agent or automation runner.
 
+The detailed contract is in
+[`docs/mcp_v0_tool_contract.md`](mcp_v0_tool_contract.md).
+
 | Tool | Purpose | Output | Safety boundary |
 | --- | --- | --- | --- |
 | `plan_stellar_action` | Convert intent or structured input into a typed ActionPlan. | Canonical ActionPlan preview. | No signing, simulation, or submit. |
@@ -162,7 +165,7 @@ permission to submit the underlying ActionPlan.
 
 1. Publish this direction document and link it from the README.
 2. Draft the MCP v0 tool contract as fixtures or documentation before adding a
-   server.
+   server. Done in [`docs/mcp_v0_tool_contract.md`](mcp_v0_tool_contract.md).
 3. Draft the `NeuroChain Stellar Guardrails` skill as a small instruction
    package.
 4. Build a local read-only/no-submit MCP shim only after the contract is clear.
