@@ -393,6 +393,7 @@ Start here:
 - `docs/product_direction_mcp_skills.md` - MCP and Skills product direction
 - `docs/security.md` - security, CI, audit, and runtime safety notes
 - `docs/troubleshooting.md` - common local development issues
+- `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
 
 ## Development Checks
 

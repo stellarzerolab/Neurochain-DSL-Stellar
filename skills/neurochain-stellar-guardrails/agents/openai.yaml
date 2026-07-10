@@ -1,0 +1,4 @@
+interface:
+  display_name: "NeuroChain Stellar Guardrails"
+  short_description: "No-submit Stellar agent guardrails"
+  default_prompt: "Use $neurochain-stellar-guardrails to evaluate a Stellar ActionPlan without granting submit permission."

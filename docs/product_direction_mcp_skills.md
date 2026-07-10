@@ -89,7 +89,7 @@ submit the underlying ActionPlan.
 
 The first community skill candidate should be:
 
-**NeuroChain Stellar Guardrails**
+[`NeuroChain Stellar Guardrails`](../skills/neurochain-stellar-guardrails/SKILL.md)
 
 The skill should teach an agent to:
 
@@ -167,7 +167,8 @@ permission to submit the underlying ActionPlan.
 2. Draft the MCP v0 tool contract as fixtures or documentation before adding a
    server. Done in [`docs/mcp_v0_tool_contract.md`](mcp_v0_tool_contract.md).
 3. Draft the `NeuroChain Stellar Guardrails` skill as a small instruction
-   package.
+   package. Done in
+   [`skills/neurochain-stellar-guardrails/SKILL.md`](../skills/neurochain-stellar-guardrails/SKILL.md).
 4. Build a local read-only/no-submit MCP shim only after the contract is clear.
 5. Keep `submit_testnet_attestation` separate and opt-in.
 6. Finish x402 as optional paid ingress behind the existing fail-closed
