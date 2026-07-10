@@ -63,6 +63,21 @@ downloads, or Docker image pulls after prerequisites are cached:
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1 -IncludeLocalnet -OfflineLocalnet
 ```
 
+## Current Product Direction
+
+The post-hackathon direction is to package NeuroChain as a small no-submit MCP
+and Skills guardrail surface for AI agents, bots, scripts, schedulers, and
+backend automations. The product shape is intentionally narrow:
+
+```text
+Plan -> Evaluate -> Prove -> Verify -> no automatic submit
+```
+
+Raven and Stellar Skills are useful development-time guidance and packaging
+models, but NeuroChain must not depend on them at runtime.
+
+See [`docs/product_direction_mcp_skills.md`](docs/product_direction_mcp_skills.md).
+
 ## What It Does
 
 `neurochain-stellar` supports one unified workflow across `.nc` scripts, an interactive REPL, and the server API:
@@ -374,6 +389,7 @@ Start here:
 - `docs/getting_started.md` - base NeuroChain quickstart
 - `docs/language.md` - `.nc` language guide
 - `docs/models.md` - model pack download, verification, and release notes
+- `docs/product_direction_mcp_skills.md` - MCP and Skills product direction
 - `docs/security.md` - security, CI, audit, and runtime safety notes
 - `docs/troubleshooting.md` - common local development issues
 
