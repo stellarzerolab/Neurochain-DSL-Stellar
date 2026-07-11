@@ -169,11 +169,13 @@ permission to submit the underlying ActionPlan.
 3. Draft the `NeuroChain Stellar Guardrails` skill as a small instruction
    package. Done in
    [`skills/neurochain-stellar-guardrails/SKILL.md`](../skills/neurochain-stellar-guardrails/SKILL.md).
-4. Build a local read-only/no-submit MCP shim only after the contract is clear.
-5. Keep `submit_testnet_attestation` separate and opt-in.
-6. Finish x402 as optional paid ingress behind the existing fail-closed
+4. Simplify the public walkthrough to Plan -> Evaluate -> Prove -> Verify.
+   Done in [`docs/public_demo_flow.md`](public_demo_flow.md).
+5. Build a local read-only/no-submit MCP shim only after the contract is clear.
+6. Keep `submit_testnet_attestation` separate and opt-in.
+7. Finish x402 as optional paid ingress behind the existing fail-closed
    facilitator boundary.
-7. Finish ZK status and artifact polish without weakening
+8. Finish ZK status and artifact polish without weakening
    `underlying_action_submit_allowed=false`.
 
 ## Acceptance Checklist

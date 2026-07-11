@@ -77,6 +77,8 @@ Raven and Stellar Skills are useful development-time guidance and packaging
 models, but NeuroChain must not depend on them at runtime.
 
 See [`docs/product_direction_mcp_skills.md`](docs/product_direction_mcp_skills.md).
+For the public walkthrough, start with
+[`docs/public_demo_flow.md`](docs/public_demo_flow.md).
 
 ## What It Does
 
@@ -391,6 +393,7 @@ Start here:
 - `docs/mcp_v0_tool_contract.md` - no-submit MCP v0 tool contract
 - `docs/models.md` - model pack download, verification, and release notes
 - `docs/product_direction_mcp_skills.md` - MCP and Skills product direction
+- `docs/public_demo_flow.md` - simplified Plan -> Evaluate -> Prove -> Verify public demo path
 - `docs/security.md` - security, CI, audit, and runtime safety notes
 - `docs/troubleshooting.md` - common local development issues
 - `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
