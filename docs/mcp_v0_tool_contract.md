@@ -28,6 +28,7 @@ There is also a tiny offline JSON-RPC stdio shim for checking the MCP-shaped
 boundary before any live MCP server or runtime integration exists:
 
 ```powershell
+'{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}' | cargo run --bin neurochain-mcp-v0-stdio
 '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run --bin neurochain-mcp-v0-stdio
 '{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}' | cargo run --bin neurochain-mcp-v0-stdio
 ```
@@ -38,7 +39,12 @@ nullifiers. The `--call-json` mode is an offline MCP-style call adapter; it
 rejects submit-like tool names and secret-like field names.
 
 The stdio shim follows the same rules and returns JSON-RPC `result` or `error`
-objects. It is still an offline contract adapter, not a live MCP server.
+objects. Its `initialize` response advertises only static tools plus an
+experimental `neurochainNoSubmit` capability that makes the read-only mode,
+excluded tools, and no-submit boundary machine-readable. The shim still reads
+one request and exits, so it is an offline contract adapter rather than a
+long-lived MCP session server. It does not claim support for the subsequent
+`notifications/initialized` lifecycle step yet.
 
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,

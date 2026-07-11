@@ -308,6 +308,87 @@ fn mcp_v0_stdio_lists_only_safe_tools() {
 }
 
 #[test]
+fn mcp_v0_stdio_initializes_with_read_only_no_submit_capabilities() {
+    let output = run_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}"#,
+    );
+    assert!(
+        output.status.success(),
+        "stdio initialize failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio initialize json");
+    let result = &value["result"];
+
+    assert_eq!(value["jsonrpc"], "2.0");
+    assert_eq!(value["id"], "init-1");
+    assert_eq!(result["protocolVersion"], "2025-06-18");
+    assert_eq!(result["capabilities"]["tools"]["listChanged"], false);
+    assert_eq!(
+        result["capabilities"]["experimental"]["neurochainNoSubmit"]["mode"],
+        "read_only"
+    );
+    assert_eq!(
+        result["capabilities"]["experimental"]["neurochainNoSubmit"]["noSubmit"],
+        true
+    );
+    assert_eq!(
+        result["capabilities"]["experimental"]["neurochainNoSubmit"]
+            ["underlyingActionSubmitAllowed"],
+        false
+    );
+    assert_eq!(result["serverInfo"]["name"], "neurochain-mcp-v0-stdio");
+    assert!(result["instructions"]
+        .as_str()
+        .expect("initialize instructions")
+        .contains("never grant signing"));
+
+    let excluded = result["capabilities"]["experimental"]["neurochainNoSubmit"]["excludedTools"]
+        .as_array()
+        .expect("excluded tools array");
+    for tool in EXCLUDED_TOOLS {
+        assert!(
+            excluded.iter().any(|value| value == tool),
+            "initialize capability missing excluded tool {tool}"
+        );
+    }
+}
+
+#[test]
+fn mcp_v0_stdio_negotiates_to_supported_protocol_version() {
+    let output = run_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2099-01-01","capabilities":{},"clientInfo":{"name":"future-client","version":"1.0.0"}}}"#,
+    );
+    assert!(output.status.success(), "stdio initialize should serialize");
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio initialize json");
+
+    assert_eq!(value["result"]["protocolVersion"], "2025-06-18");
+    assert_eq!(
+        value["result"]["capabilities"]["experimental"]["neurochainNoSubmit"]
+            ["underlyingActionSubmitAllowed"],
+        false
+    );
+}
+
+#[test]
+fn mcp_v0_stdio_rejects_incomplete_initialize_params() {
+    let output = run_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":5,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}"#,
+    );
+    assert!(
+        output.status.success(),
+        "stdio initialize error should serialize"
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio initialize error");
+
+    assert_eq!(value["error"]["code"], -32602);
+    assert!(value["error"]["message"]
+        .as_str()
+        .expect("initialize error message")
+        .contains("clientInfo"));
+}
+
+#[test]
 fn mcp_v0_stdio_calls_fixture_without_submit() {
     let output = run_mcp_stdio(
         r#"{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}"#,
