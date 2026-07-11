@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 const FIXTURE_DIR: &str = "examples/mcp_v0_no_submit_contract";
+const STDIO_CLIENT_DIR: &str = "examples/mcp_v0_stdio_client";
 
 const REQUIRED_FIELDS: &[&str] = &[
     "schema_version",
@@ -293,6 +294,13 @@ fn mcp_v0_stdio_lists_only_safe_tools() {
         );
     }
 
+    for tool in tools {
+        assert_eq!(tool["annotations"]["readOnlyHint"], true);
+        assert_eq!(tool["annotations"]["destructiveHint"], false);
+        assert_eq!(tool["annotations"]["idempotentHint"], true);
+        assert_eq!(tool["annotations"]["openWorldHint"], false);
+    }
+
     for excluded in EXCLUDED_TOOLS {
         assert!(
             !tool_names.contains(excluded),
@@ -337,11 +345,90 @@ fn mcp_v0_stdio_runs_persistent_initialized_session() {
     assert_eq!(responses[0]["id"], "init-1");
     assert_eq!(responses[1]["id"], "list-1");
     assert_eq!(responses[2]["id"], "call-2");
-    assert_eq!(responses[2]["result"]["decision"], "approved");
     assert_eq!(
-        responses[2]["result"]["underlying_action_submit_allowed"],
+        responses[2]["result"]["structuredContent"]["decision"],
+        "approved"
+    );
+    assert_eq!(
+        responses[2]["result"]["structuredContent"]["underlying_action_submit_allowed"],
         false
     );
+    assert_eq!(responses[2]["result"]["isError"], false);
+}
+
+#[test]
+fn mcp_v0_stdio_client_examples_preserve_safe_host_configuration() {
+    let config_path = Path::new(STDIO_CLIENT_DIR).join("mcp_servers.json.example");
+    let config: Value = serde_json::from_str(
+        &fs::read_to_string(config_path).expect("read MCP host config example"),
+    )
+    .expect("parse MCP host config example");
+    let server = &config["mcpServers"]["neurochain-stellar-guardrails"];
+
+    assert!(server["command"]
+        .as_str()
+        .expect("stdio command")
+        .ends_with("neurochain-mcp-v0-stdio"));
+    assert_eq!(server["args"], serde_json::json!([]));
+    assert!(
+        server.get("env").is_none(),
+        "example must not inject secrets"
+    );
+
+    let session_path = Path::new(STDIO_CLIENT_DIR).join("session.jsonl");
+    let session = fs::read_to_string(session_path).expect("read MCP session example");
+    let messages = session
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<Value>(line).expect("session JSON-RPC line"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(messages.len(), 4);
+    assert_eq!(messages[0]["method"], "initialize");
+    assert_eq!(messages[1]["method"], "notifications/initialized");
+    assert!(messages[1].get("id").is_none());
+    assert_eq!(messages[2]["method"], "tools/list");
+    assert_eq!(messages[3]["method"], "tools/call");
+    assert_eq!(messages[3]["params"]["name"], "evaluate_guardrails");
+    assert_eq!(
+        messages[3]["params"]["arguments"]["scenario"],
+        "requires_approval"
+    );
+}
+
+#[test]
+fn mcp_v0_client_smoke_validates_real_stdio_process() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!(
+        "neurochain-mcp-v0-client-smoke"
+    ))
+    .arg("--server")
+    .arg(assert_cmd::cargo::cargo_bin!("neurochain-mcp-v0-stdio"))
+    .output()
+    .expect("run MCP v0 client smoke");
+
+    assert!(
+        output.status.success(),
+        "client smoke failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let summary: Value = serde_json::from_slice(&output.stdout).expect("client smoke summary JSON");
+
+    assert_eq!(summary["status"], "passed");
+    assert_eq!(summary["transport"], "stdio");
+    assert_eq!(summary["protocol_version"], "2025-06-18");
+    assert_eq!(summary["sample_decision"], "requires_approval");
+    assert_eq!(summary["underlying_action_submit_allowed"], false);
+    assert_eq!(summary["attestation_submitted"], false);
+    assert_eq!(summary["verification_transaction_submitted"], false);
+    assert_eq!(summary["nullifier_consumed"], false);
+
+    let tools = summary["tools"].as_array().expect("summary tools");
+    for tool in DEFAULT_TOOLS {
+        assert!(tools.iter().any(|value| value == tool));
+    }
+    for excluded in EXCLUDED_TOOLS {
+        assert!(!tools.iter().any(|value| value == excluded));
+    }
 }
 
 #[test]
@@ -430,10 +517,23 @@ fn mcp_v0_stdio_calls_fixture_without_submit() {
     let value = run_ready_mcp_stdio(
         r#"{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}"#,
     );
-    let result = &value["result"];
+    let result = &value["result"]["structuredContent"];
 
     assert_eq!(value["jsonrpc"], "2.0");
     assert_eq!(value["id"], "call-1");
+    assert_eq!(value["result"]["isError"], false);
+    let content = value["result"]["content"]
+        .as_array()
+        .expect("MCP content array");
+    assert_eq!(content.len(), 1);
+    assert_eq!(content[0]["type"], "text");
+    let text_value: Value = serde_json::from_str(
+        content[0]["text"]
+            .as_str()
+            .expect("MCP text content string"),
+    )
+    .expect("MCP text content JSON");
+    assert_eq!(&text_value, result);
     assert_eq!(result["tool"], "evaluate_guardrails");
     assert_eq!(result["decision"], "requires_approval");
     assert_eq!(result["underlying_action_submit_allowed"], false);

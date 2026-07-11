@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "neurochain-stellar-guardrails": {
+      "command": "/absolute/path/to/neurochain-mcp-v0-stdio",
+      "args": []
+    }
+  }
+}

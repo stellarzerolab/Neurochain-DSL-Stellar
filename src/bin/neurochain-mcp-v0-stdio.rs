@@ -113,7 +113,7 @@ fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Result<Option<Value
                 .get("params")
                 .ok_or_else(|| "tools/call must include params".to_string())?;
             match neurochain::mcp_v0_fixture::fixture_value_by_call_value(params) {
-                Ok(result) => Ok(Some(json_rpc_result(id, result))),
+                Ok(result) => Ok(Some(json_rpc_result(id, tool_call_result(result)))),
                 Err(err) => Ok(Some(json_rpc_error(id, -32000, err))),
             }
         }
@@ -123,6 +123,19 @@ fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Result<Option<Value
             format!("unsupported read-only MCP v0 method: {other}"),
         ))),
     }
+}
+
+fn tool_call_result(structured_content: Value) -> Value {
+    let text = serde_json::to_string(&structured_content)
+        .expect("fixture value must serialize as MCP text content");
+    json!({
+        "content": [{
+            "type": "text",
+            "text": text
+        }],
+        "structuredContent": structured_content,
+        "isError": false
+    })
 }
 
 fn session_not_ready(id: Value) -> Value {

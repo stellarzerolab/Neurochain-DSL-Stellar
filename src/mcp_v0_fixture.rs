@@ -124,6 +124,12 @@ pub fn tool_list_value() -> Value {
             json!({
                 "name": tool,
                 "description": tool_description(tool),
+                "annotations": {
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false
+                },
                 "inputSchema": {
                     "type": "object",
                     "additionalProperties": true,

@@ -42,7 +42,10 @@ nullifiers. The `--call-json` mode is an offline MCP-style call adapter; it
 rejects submit-like tool names and secret-like field names.
 
 The stdio shim follows the same rules and returns JSON-RPC `result` or `error`
-objects. Its `initialize` response advertises only static tools plus an
+objects. Successful tool calls use the MCP `content` array and mirror the same
+JSON envelope in `structuredContent`; `isError` remains `false`. Tool metadata
+marks every default operation read-only, non-destructive, idempotent, and
+closed-world. Its `initialize` response advertises only static tools plus an
 experimental `neurochainNoSubmit` capability that makes the read-only mode,
 excluded tools, and no-submit boundary machine-readable. The process reads
 newline-delimited JSON-RPC messages until stdin closes. It requires
@@ -50,6 +53,26 @@ newline-delimited JSON-RPC messages until stdin closes. It requires
 response for the notification, and flushes one compact JSON response line per
 request. It remains an offline fixture adapter rather than a live NeuroChain
 runtime server.
+
+A process-level client harness and MCP host configuration example live in:
+
+```text
+examples/mcp_v0_stdio_client/
+```
+
+Build both binaries and run the harness:
+
+```bash
+cargo build --bin neurochain-mcp-v0-stdio --bin neurochain-mcp-v0-client-smoke
+cargo run --bin neurochain-mcp-v0-client-smoke
+```
+
+The harness starts the stdio server as a child process, performs the MCP
+lifecycle, discovers the five default tools, calls the `requires_approval`
+fixture, and validates that submit, attestation, transaction, and nullifier
+state remain disabled. MCP hosts should use an absolute executable path, as
+shown in `mcp_servers.json.example`, because their working directory is not a
+stable runtime contract.
 
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,

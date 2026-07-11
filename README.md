@@ -397,6 +397,7 @@ Start here:
 - `docs/security.md` - security, CI, audit, and runtime safety notes
 - `docs/troubleshooting.md` - common local development issues
 - `examples/mcp_v0_no_submit_contract/` - machine-checkable MCP v0 no-submit fixtures
+- `examples/mcp_v0_stdio_client/` - stdio host config and process-level no-submit smoke client
 - `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
 
 ## Development Checks

@@ -175,6 +175,9 @@ permission to submit the underlying ActionPlan.
 4. Simplify the public walkthrough to Plan -> Evaluate -> Prove -> Verify.
    Done in [`docs/public_demo_flow.md`](public_demo_flow.md).
 5. Build a local read-only/no-submit MCP shim only after the contract is clear.
+   Done with `neurochain-mcp-v0-stdio`; the process-level host example and
+   no-submit client smoke live in
+   [`examples/mcp_v0_stdio_client/`](../examples/mcp_v0_stdio_client/).
 6. Keep `submit_testnet_attestation` separate and opt-in.
 7. Finish x402 as optional paid ingress behind the existing fail-closed
    facilitator boundary.
