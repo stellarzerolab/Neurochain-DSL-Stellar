@@ -1,7 +1,8 @@
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 const FIXTURE_DIR: &str = "examples/mcp_v0_no_submit_contract";
 
@@ -273,6 +274,109 @@ fn mcp_v0_fixture_runner_rejects_secret_like_call_json_fields() {
     );
 }
 
+#[test]
+fn mcp_v0_stdio_lists_only_safe_tools() {
+    let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    assert!(
+        output.status.success(),
+        "stdio tools/list failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio list json");
+    assert_eq!(value["jsonrpc"], "2.0");
+    assert_eq!(value["id"], 1);
+
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let tool_names: Vec<&str> = tools
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+
+    for expected in DEFAULT_TOOLS {
+        assert!(
+            tool_names.contains(expected),
+            "stdio tools/list missing {expected}"
+        );
+    }
+
+    for excluded in EXCLUDED_TOOLS {
+        assert!(
+            !tool_names.contains(excluded),
+            "stdio tools/list leaked excluded tool {excluded}"
+        );
+    }
+}
+
+#[test]
+fn mcp_v0_stdio_calls_fixture_without_submit() {
+    let output = run_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}"#,
+    );
+    assert!(
+        output.status.success(),
+        "stdio tools/call failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio call json");
+    let result = &value["result"];
+
+    assert_eq!(value["jsonrpc"], "2.0");
+    assert_eq!(value["id"], "call-1");
+    assert_eq!(result["tool"], "evaluate_guardrails");
+    assert_eq!(result["decision"], "requires_approval");
+    assert_eq!(result["underlying_action_submit_allowed"], false);
+    assert_eq!(result["attestation_submitted"], false);
+    assert_eq!(result["verification_transaction_submitted"], false);
+    assert_eq!(result["nullifier_consumed"], false);
+    assert!(result["transaction_hash"].is_null());
+}
+
+#[test]
+fn mcp_v0_stdio_rejects_submit_like_tools() {
+    let output = run_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"submit_underlying_action","arguments":{}}}"#,
+    );
+    assert!(
+        output.status.success(),
+        "stdio error response should still serialize successfully"
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio error json");
+
+    assert_eq!(value["jsonrpc"], "2.0");
+    assert_eq!(value["id"], 2);
+    assert_eq!(value["error"]["code"], -32000);
+    assert!(
+        value["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .contains("excluded from default MCP v0"),
+        "unexpected error: {value}"
+    );
+}
+
+#[test]
+fn mcp_v0_stdio_rejects_secret_like_arguments() {
+    let output = run_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"approved","api_key":null}}}"#,
+    );
+    assert!(
+        output.status.success(),
+        "stdio error response should still serialize successfully"
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio error json");
+
+    assert_eq!(value["jsonrpc"], "2.0");
+    assert_eq!(value["id"], 3);
+    assert_eq!(value["error"]["code"], -32000);
+    assert!(
+        value["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .contains("secret-like field"),
+        "unexpected error: {value}"
+    );
+}
+
 fn run_fixture_runner(args: &[&str]) -> Output {
     Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-fixture-runner"
@@ -280,6 +384,22 @@ fn run_fixture_runner(args: &[&str]) -> Output {
     .args(args)
     .output()
     .expect("run fixture runner")
+}
+
+fn run_mcp_stdio(request: &str) -> Output {
+    let mut child = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-mcp-v0-stdio"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn stdio shim");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdio shim stdin")
+        .write_all(request.as_bytes())
+        .expect("write stdio request");
+    child.wait_with_output().expect("stdio shim output")
 }
 
 fn fixture_paths() -> Vec<std::path::PathBuf> {

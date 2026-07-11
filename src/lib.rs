@@ -6,6 +6,7 @@ pub mod help_text;
 pub mod intent_stellar;
 pub mod interpreter;
 pub mod lexer;
+pub mod mcp_v0_fixture;
 pub mod parser;
 pub mod soroban_deep;
 pub mod x402_audit;

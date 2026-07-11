@@ -24,10 +24,21 @@ cargo run --bin neurochain-mcp-v0-fixture-runner -- --fixture verify_zk_on_stell
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"evaluate_guardrails\",\"arguments\":{\"scenario\":\"requires_approval\"}}"
 ```
 
+There is also a tiny offline JSON-RPC stdio shim for checking the MCP-shaped
+boundary before any live MCP server or runtime integration exists:
+
+```powershell
+'{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run --bin neurochain-mcp-v0-stdio
+'{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}' | cargo run --bin neurochain-mcp-v0-stdio
+```
+
 The runner only reads embedded fixtures and preserves the same no-submit
 invariants. It does not connect to Stellar, sign, broadcast, submit, or consume
 nullifiers. The `--call-json` mode is an offline MCP-style call adapter; it
 rejects submit-like tool names and secret-like field names.
+
+The stdio shim follows the same rules and returns JSON-RPC `result` or `error`
+objects. It is still an offline contract adapter, not a live MCP server.
 
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,

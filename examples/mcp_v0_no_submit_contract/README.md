@@ -75,3 +75,17 @@ The runner validates no-submit fields before printing a fixture. It is an
 offline contract adapter, not a live MCP server and not a Stellar submit path.
 The `--call-json` mode accepts a small MCP-style tool call shape and rejects
 secret-like field names before selecting a fixture.
+
+## Offline Stdio Shim
+
+Use the stdio shim when an agent harness wants a JSON-RPC-shaped boundary
+without running a live MCP server:
+
+```powershell
+'{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run --bin neurochain-mcp-v0-stdio
+'{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}' | cargo run --bin neurochain-mcp-v0-stdio
+```
+
+The shim only serves the embedded fixture contract. It does not connect to
+Stellar, sign, broadcast, submit, consume nullifiers, or accept secret-like
+fields.
