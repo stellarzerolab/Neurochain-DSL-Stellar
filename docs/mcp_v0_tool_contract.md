@@ -21,11 +21,13 @@ tests before a live MCP server exists:
 ```text
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --list
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --fixture verify_zk_on_stellar_read_only
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"evaluate_guardrails\",\"arguments\":{\"scenario\":\"requires_approval\"}}"
 ```
 
 The runner only reads embedded fixtures and preserves the same no-submit
 invariants. It does not connect to Stellar, sign, broadcast, submit, or consume
-nullifiers.
+nullifiers. The `--call-json` mode is an offline MCP-style call adapter; it
+rejects submit-like tool names and secret-like field names.
 
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,

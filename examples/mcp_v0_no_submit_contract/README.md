@@ -68,7 +68,10 @@ submit paths:
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --list
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --fixture verify_zk_on_stellar_read_only
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --tool evaluate_guardrails --scenario requires_approval
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"evaluate_guardrails\",\"arguments\":{\"scenario\":\"requires_approval\"}}"
 ```
 
 The runner validates no-submit fields before printing a fixture. It is an
 offline contract adapter, not a live MCP server and not a Stellar submit path.
+The `--call-json` mode accepts a small MCP-style tool call shape and rejects
+secret-like field names before selecting a fixture.

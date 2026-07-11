@@ -203,11 +203,73 @@ fn mcp_v0_fixture_runner_supports_tool_and_scenario_lookup() {
 }
 
 #[test]
+fn mcp_v0_fixture_runner_accepts_mcp_style_call_json() {
+    let output = run_fixture_runner(&[
+        "--call-json",
+        r#"{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}"#,
+    ]);
+    assert!(
+        output.status.success(),
+        "runner call-json failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("runner fixture json");
+
+    assert_eq!(value["tool"], "evaluate_guardrails");
+    assert_eq!(value["decision"], "requires_approval");
+    assert_eq!(value["underlying_action_submit_allowed"], false);
+    assert_eq!(value["attestation_submitted"], false);
+    assert_eq!(value["verification_transaction_submitted"], false);
+}
+
+#[test]
+fn mcp_v0_fixture_runner_accepts_fixture_call_json() {
+    let output = run_fixture_runner(&[
+        "--call-json",
+        r#"{"fixture":"get_guardrail_status_verified"}"#,
+    ]);
+    assert!(
+        output.status.success(),
+        "runner fixture call-json failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("runner fixture json");
+
+    assert_eq!(value["tool"], "get_guardrail_status");
+    assert_eq!(value["stellar_verification"], "verified_on_stellar");
+    assert_eq!(value["underlying_action_submit_allowed"], false);
+}
+
+#[test]
 fn mcp_v0_fixture_runner_rejects_submit_like_fixture_names() {
     let output = run_fixture_runner(&["--fixture", "submit_testnet_attestation"]);
     assert!(
         !output.status.success(),
         "runner accepted a submit-like fixture name"
+    );
+}
+
+#[test]
+fn mcp_v0_fixture_runner_rejects_submit_like_call_json_tools() {
+    let output = run_fixture_runner(&[
+        "--call-json",
+        r#"{"name":"submit_underlying_action","arguments":{}}"#,
+    ]);
+    assert!(
+        !output.status.success(),
+        "runner accepted a submit-like call-json tool"
+    );
+}
+
+#[test]
+fn mcp_v0_fixture_runner_rejects_secret_like_call_json_fields() {
+    let output = run_fixture_runner(&[
+        "--call-json",
+        r#"{"name":"evaluate_guardrails","arguments":{"scenario":"approved","seed_phrase":"never-store-this"}}"#,
+    ]);
+    assert!(
+        !output.status.success(),
+        "runner accepted a secret-like call-json field"
     );
 }
 

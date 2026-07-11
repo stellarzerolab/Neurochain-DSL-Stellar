@@ -102,6 +102,7 @@ fn run(args: Vec<String>) -> Result<String, String> {
         [arg] if arg == "--help" || arg == "-h" => Ok(usage()),
         [arg] if arg == "--list" => list_fixtures(),
         [flag, name] if flag == "--fixture" => fixture_by_name(name),
+        [flag, raw] if flag == "--call-json" => fixture_by_call_json(raw),
         [tool_flag, tool, scenario_flag, scenario]
             if tool_flag == "--tool" && scenario_flag == "--scenario" =>
         {
@@ -131,6 +132,32 @@ fn list_fixtures() -> Result<String, String> {
     serde_json::to_string_pretty(&value).map_err(|err| err.to_string())
 }
 
+fn fixture_by_call_json(raw: &str) -> Result<String, String> {
+    let value: Value =
+        serde_json::from_str(raw).map_err(|err| format!("invalid call JSON: {err}"))?;
+    validate_no_secret_like_fields("call", &value)?;
+
+    if let Some(fixture) =
+        string_at(&value, &["fixture"]).or_else(|| string_at(&value, &["arguments", "fixture"]))
+    {
+        return fixture_by_name(fixture);
+    }
+
+    let tool = string_at(&value, &["tool"])
+        .or_else(|| string_at(&value, &["name"]))
+        .ok_or_else(|| "call JSON must include tool/name or fixture".to_string())?;
+    if EXCLUDED_TOOLS.contains(&tool) {
+        return Err(format!("tool {tool} is excluded from default MCP v0"));
+    }
+
+    let scenario = string_at(&value, &["scenario"])
+        .or_else(|| string_at(&value, &["arguments", "scenario"]))
+        .or_else(|| default_scenario(tool))
+        .ok_or_else(|| format!("tool {tool} needs an explicit scenario"))?;
+
+    fixture_by_tool_and_scenario(tool, scenario)
+}
+
 fn fixture_by_name(name: &str) -> Result<String, String> {
     let fixture = FIXTURES
         .iter()
@@ -152,6 +179,25 @@ fn fixture_json(fixture: &Fixture) -> Result<String, String> {
         .map_err(|err| format!("fixture {} is invalid JSON: {err}", fixture.name))?;
     validate_no_submit_fixture(fixture, &value)?;
     serde_json::to_string_pretty(&value).map_err(|err| err.to_string())
+}
+
+fn string_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_str()
+}
+
+fn default_scenario(tool: &str) -> Option<&'static str> {
+    match tool {
+        "plan_stellar_action" => Some("preview"),
+        "evaluate_guardrails" => Some("approved"),
+        "prove_guardrail_decision" => Some("approved"),
+        "verify_zk_on_stellar" => Some("read_only"),
+        "get_guardrail_status" => Some("verified"),
+        _ => None,
+    }
 }
 
 fn validate_no_submit_fixture(fixture: &Fixture, value: &Value) -> Result<(), String> {
@@ -198,6 +244,39 @@ fn validate_no_submit_fixture(fixture: &Fixture, value: &Value) -> Result<(), St
     Ok(())
 }
 
+fn validate_no_secret_like_fields(context: &str, value: &Value) -> Result<(), String> {
+    fn walk(context: &str, value: &Value, path: &str) -> Result<(), String> {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    let lowered = key.to_ascii_lowercase();
+                    if matches!(
+                        lowered.as_str(),
+                        "seed_phrase"
+                            | "secret_key"
+                            | "private_key"
+                            | "wallet_secret"
+                            | "api_key"
+                            | "bearer_token"
+                    ) {
+                        return Err(format!("{context} contains secret-like field {path}.{key}"));
+                    }
+                    walk(context, child, &format!("{path}.{key}"))?;
+                }
+            }
+            Value::Array(items) => {
+                for (idx, child) in items.iter().enumerate() {
+                    walk(context, child, &format!("{path}[{idx}]"))?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    walk(context, value, "$")
+}
+
 fn expect_eq(
     fixture: &Fixture,
     value: &Value,
@@ -216,7 +295,7 @@ fn expect_eq(
 
 fn usage() -> String {
     format!(
-        "Usage:\n  neurochain-mcp-v0-fixture-runner --list\n  neurochain-mcp-v0-fixture-runner --fixture <name>\n  neurochain-mcp-v0-fixture-runner --tool <tool> --scenario <scenario>\n\nAvailable fixtures:\n{}",
+        "Usage:\n  neurochain-mcp-v0-fixture-runner --list\n  neurochain-mcp-v0-fixture-runner --fixture <name>\n  neurochain-mcp-v0-fixture-runner --tool <tool> --scenario <scenario>\n  neurochain-mcp-v0-fixture-runner --call-json <json>\n\nCall JSON shape:\n  {{\"name\":\"evaluate_guardrails\",\"arguments\":{{\"scenario\":\"requires_approval\"}}}}\n\nAvailable fixtures:\n{}",
         FIXTURES
             .iter()
             .map(|fixture| format!(
