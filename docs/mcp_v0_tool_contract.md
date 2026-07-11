@@ -15,6 +15,18 @@ Validate them with:
 cargo test --test mcp_v0_contract
 ```
 
+An offline fixture runner is available for local agent/frontend integration
+tests before a live MCP server exists:
+
+```text
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --list
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --fixture verify_zk_on_stellar_read_only
+```
+
+The runner only reads embedded fixtures and preserves the same no-submit
+invariants. It does not connect to Stellar, sign, broadcast, submit, or consume
+nullifiers.
+
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,
 signing, broadcast, or submit capability.

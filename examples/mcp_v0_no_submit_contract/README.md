@@ -57,3 +57,18 @@ cargo test --test mcp_v0_contract
 
 The test parses every fixture and verifies the shared no-submit fields,
 decision/exit consistency, and schema-level exclusions.
+
+## Offline Runner
+
+Use the local fixture runner when an agent, frontend, or future MCP shim needs
+machine-readable sample responses without touching network, wallet, signing, or
+submit paths:
+
+```powershell
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --list
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --fixture verify_zk_on_stellar_read_only
+cargo run --bin neurochain-mcp-v0-fixture-runner -- --tool evaluate_guardrails --scenario requires_approval
+```
+
+The runner validates no-submit fields before printing a fixture. It is an
+offline contract adapter, not a live MCP server and not a Stellar submit path.

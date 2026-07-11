@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Output};
 
 const FIXTURE_DIR: &str = "examples/mcp_v0_no_submit_contract";
 
@@ -134,6 +135,89 @@ fn mcp_v0_schema_excludes_submit_like_tools() {
         schema["properties"]["transaction_hash"]["type"], "null",
         "default MCP v0 schema should not include transaction hashes"
     );
+}
+
+#[test]
+fn mcp_v0_fixture_runner_lists_only_safe_default_tools() {
+    let output = run_fixture_runner(&["--list"]);
+    assert!(
+        output.status.success(),
+        "runner list failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("runner list json");
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["mode"], "read_only");
+
+    let fixtures = value["fixtures"].as_array().expect("fixtures array");
+    assert_eq!(fixtures.len(), fixture_paths().len());
+
+    for fixture in fixtures {
+        let tool = fixture["tool"].as_str().expect("tool string");
+        assert!(DEFAULT_TOOLS.contains(&tool), "unexpected tool {tool}");
+        assert!(
+            !EXCLUDED_TOOLS.contains(&tool),
+            "excluded tool {tool} leaked into runner list"
+        );
+    }
+}
+
+#[test]
+fn mcp_v0_fixture_runner_returns_no_submit_envelope() {
+    let output = run_fixture_runner(&["--fixture", "verify_zk_on_stellar_read_only"]);
+    assert!(
+        output.status.success(),
+        "runner fixture failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("runner fixture json");
+
+    assert_eq!(value["tool"], "verify_zk_on_stellar");
+    assert_eq!(value["stellar_verification"], "verified_on_stellar");
+    assert_eq!(value["underlying_action_submit_allowed"], false);
+    assert_eq!(value["attestation_submitted"], false);
+    assert_eq!(value["verification_transaction_submitted"], false);
+    assert_eq!(value["nullifier_consumed"], false);
+    assert!(value["transaction_hash"].is_null());
+    assert_decision_exit_consistency("runner verify fixture", &value);
+}
+
+#[test]
+fn mcp_v0_fixture_runner_supports_tool_and_scenario_lookup() {
+    let output = run_fixture_runner(&[
+        "--tool",
+        "evaluate_guardrails",
+        "--scenario",
+        "requires_approval",
+    ]);
+    assert!(
+        output.status.success(),
+        "runner tool/scenario failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("runner fixture json");
+
+    assert_eq!(value["tool"], "evaluate_guardrails");
+    assert_eq!(value["decision"], "requires_approval");
+    assert_eq!(value["underlying_action_submit_allowed"], false);
+}
+
+#[test]
+fn mcp_v0_fixture_runner_rejects_submit_like_fixture_names() {
+    let output = run_fixture_runner(&["--fixture", "submit_testnet_attestation"]);
+    assert!(
+        !output.status.success(),
+        "runner accepted a submit-like fixture name"
+    );
+}
+
+fn run_fixture_runner(args: &[&str]) -> Output {
+    Command::new(assert_cmd::cargo::cargo_bin!(
+        "neurochain-mcp-v0-fixture-runner"
+    ))
+    .args(args)
+    .output()
+    .expect("run fixture runner")
 }
 
 fn fixture_paths() -> Vec<std::path::PathBuf> {
