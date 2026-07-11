@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "tool": "evaluate_guardrails",
+  "mode": "read_only",
+  "status": "blocked",
+  "decision": "blocked",
+  "exit_code": 4,
+  "reason_code": "contract_policy",
+  "action_plan_hash": "c008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cf",
+  "policy_commitment": "f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150",
+  "policy_version": 7,
+  "stellar_verification": "not_requested",
+  "attestation_submitted": false,
+  "verification_transaction_submitted": false,
+  "transaction_hash": null,
+  "nullifier_consumed": false,
+  "underlying_action_submit_allowed": false,
+  "guardrails": {
+    "allowlist": "passed",
+    "contract_policy": "blocked",
+    "intent_safety": "passed"
+  },
+  "next_recommended_tool": "get_guardrail_status",
+  "logs": [
+    "contract policy blocked the ActionPlan",
+    "exit 4 remains a terminal no-submit result"
+  ]
+}

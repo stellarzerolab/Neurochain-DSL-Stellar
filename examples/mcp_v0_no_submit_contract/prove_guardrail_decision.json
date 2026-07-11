@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "tool": "prove_guardrail_decision",
+  "mode": "read_only",
+  "status": "ok",
+  "decision": "approved",
+  "exit_code": 0,
+  "reason_code": "passed",
+  "action_plan_hash": "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+  "policy_commitment": "f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150",
+  "policy_version": 7,
+  "stellar_verification": "required_on_stellar",
+  "attestation_submitted": false,
+  "verification_transaction_submitted": false,
+  "transaction_hash": null,
+  "nullifier_consumed": false,
+  "underlying_action_submit_allowed": false,
+  "proof_artifact_ref": "bundled-demo-approved",
+  "evaluator_image_id": "9d57f7b8f15448f18ca5d6d4c76da0f5750e5a81b609fc8f9965b3ed9d06e3a6",
+  "journal_digest": "6ab6b4aef5f8b78625b050f4a4e8801c7b8716f7360ef1ea8e49acddbd88e54a",
+  "audit_nullifier": "3fd9244e7190477ce87cd9e2d9d7726eb6ebf9b503fbf07a55f3b7f5e8807231",
+  "next_recommended_tool": "verify_zk_on_stellar",
+  "logs": [
+    "proof artifact reference produced",
+    "private policy contents were not returned"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "tool": "evaluate_guardrails",
+  "mode": "read_only",
+  "status": "ok",
+  "decision": "requires_approval",
+  "exit_code": 0,
+  "reason_code": "approval_required",
+  "action_plan_hash": "b008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970ce",
+  "policy_commitment": "f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150",
+  "policy_version": 7,
+  "stellar_verification": "not_requested",
+  "attestation_submitted": false,
+  "verification_transaction_submitted": false,
+  "transaction_hash": null,
+  "nullifier_consumed": false,
+  "underlying_action_submit_allowed": false,
+  "guardrails": {
+    "allowlist": "passed",
+    "contract_policy": "requires_approval",
+    "intent_safety": "passed"
+  },
+  "next_recommended_tool": "get_guardrail_status",
+  "logs": [
+    "owner approval threshold reached",
+    "requires_approval is terminal no-submit for MCP v0"
+  ]
+}

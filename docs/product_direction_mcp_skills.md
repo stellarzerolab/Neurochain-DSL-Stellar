@@ -165,7 +165,8 @@ permission to submit the underlying ActionPlan.
 
 1. Publish this direction document and link it from the README.
 2. Draft the MCP v0 tool contract as fixtures or documentation before adding a
-   server. Done in [`docs/mcp_v0_tool_contract.md`](mcp_v0_tool_contract.md).
+   server. Done in [`docs/mcp_v0_tool_contract.md`](mcp_v0_tool_contract.md)
+   and [`examples/mcp_v0_no_submit_contract/`](../examples/mcp_v0_no_submit_contract/).
 3. Draft the `NeuroChain Stellar Guardrails` skill as a small instruction
    package. Done in
    [`skills/neurochain-stellar-guardrails/SKILL.md`](../skills/neurochain-stellar-guardrails/SKILL.md).

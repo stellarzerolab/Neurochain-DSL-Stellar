@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "tool": "get_guardrail_status",
+  "mode": "read_only",
+  "status": "ok",
+  "decision": "approved",
+  "exit_code": 0,
+  "reason_code": "passed",
+  "action_plan_hash": "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+  "policy_commitment": "f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150",
+  "policy_version": 7,
+  "stellar_verification": "verified_on_stellar",
+  "attestation_submitted": false,
+  "verification_transaction_submitted": false,
+  "transaction_hash": null,
+  "nullifier_consumed": false,
+  "underlying_action_submit_allowed": false,
+  "local_binding": "binding_validated",
+  "verification_mode": "read_only",
+  "logs": [
+    "latest local and Stellar verification state returned",
+    "status is observational and did not trigger verification or submit"
+  ]
+}

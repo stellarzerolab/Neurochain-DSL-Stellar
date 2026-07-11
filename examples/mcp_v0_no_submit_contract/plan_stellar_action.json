@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "tool": "plan_stellar_action",
+  "mode": "read_only",
+  "status": "ok",
+  "decision": "not_evaluated",
+  "exit_code": null,
+  "reason_code": "plan_preview_only",
+  "action_plan_hash": "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+  "policy_commitment": null,
+  "policy_version": null,
+  "stellar_verification": "not_requested",
+  "attestation_submitted": false,
+  "verification_transaction_submitted": false,
+  "transaction_hash": null,
+  "nullifier_consumed": false,
+  "underlying_action_submit_allowed": false,
+  "action_plan": {
+    "schema_version": 1,
+    "label": "ContractInvoke",
+    "action": "soroban_contract_invoke",
+    "network": "testnet",
+    "contract_id": "CDEMO0000000000000000000000000000000000000000000000000000000000",
+    "function": "purchase_credits",
+    "args": {
+      "amount": "100",
+      "asset": "native"
+    }
+  },
+  "next_recommended_tool": "evaluate_guardrails",
+  "logs": [
+    "typed ActionPlan preview created",
+    "no signing, broadcast, simulation, or submit was requested"
+  ]
+}

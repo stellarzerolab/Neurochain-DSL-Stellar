@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neurochain.local/schemas/mcp-v0-no-submit-response.schema.json",
+  "title": "NeuroChain MCP V0 No-Submit Response",
+  "description": "Stable read-only/no-submit MCP v0 response envelope for NeuroChain Stellar guardrail decisions.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "tool",
+    "mode",
+    "status",
+    "decision",
+    "exit_code",
+    "reason_code",
+    "action_plan_hash",
+    "policy_commitment",
+    "policy_version",
+    "stellar_verification",
+    "attestation_submitted",
+    "verification_transaction_submitted",
+    "transaction_hash",
+    "nullifier_consumed",
+    "underlying_action_submit_allowed",
+    "logs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "plan_stellar_action",
+        "evaluate_guardrails",
+        "prove_guardrail_decision",
+        "verify_zk_on_stellar",
+        "get_guardrail_status"
+      ]
+    },
+    "mode": {
+      "const": "read_only"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "blocked",
+        "state_unavailable"
+      ]
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "not_evaluated",
+        "approved",
+        "requires_approval",
+        "blocked"
+      ]
+    },
+    "exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "enum": [
+        0,
+        3,
+        4,
+        5,
+        null
+      ]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "action_plan_hash": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_commitment": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_version": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "stellar_verification": {
+      "type": "string",
+      "enum": [
+        "not_requested",
+        "required_on_stellar",
+        "verified_on_stellar",
+        "failed_on_stellar"
+      ]
+    },
+    "attestation_submitted": {
+      "const": false
+    },
+    "verification_transaction_submitted": {
+      "const": false
+    },
+    "transaction_hash": {
+      "type": "null"
+    },
+    "nullifier_consumed": {
+      "const": false
+    },
+    "underlying_action_submit_allowed": {
+      "const": false
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

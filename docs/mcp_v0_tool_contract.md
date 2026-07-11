@@ -3,6 +3,18 @@
 This document defines the first no-submit MCP surface for NeuroChain DSL for
 Stellar. It is a contract document, not a server implementation.
 
+Machine-checkable response fixtures live in:
+
+```text
+examples/mcp_v0_no_submit_contract/
+```
+
+Validate them with:
+
+```text
+cargo test --test mcp_v0_contract
+```
+
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,
 signing, broadcast, or submit capability.

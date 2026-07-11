@@ -396,6 +396,7 @@ Start here:
 - `docs/public_demo_flow.md` - simplified Plan -> Evaluate -> Prove -> Verify public demo path
 - `docs/security.md` - security, CI, audit, and runtime safety notes
 - `docs/troubleshooting.md` - common local development issues
+- `examples/mcp_v0_no_submit_contract/` - machine-checkable MCP v0 no-submit fixtures
 - `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
 
 ## Development Checks
