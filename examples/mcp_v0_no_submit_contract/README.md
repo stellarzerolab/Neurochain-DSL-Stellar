@@ -82,14 +82,18 @@ Use the stdio shim when an agent harness wants a JSON-RPC-shaped boundary
 without running a live MCP server:
 
 ```powershell
-'{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}' | cargo run --bin neurochain-mcp-v0-stdio
-'{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run --bin neurochain-mcp-v0-stdio
-'{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}' | cargo run --bin neurochain-mcp-v0-stdio
+@(
+  '{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}'
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  '{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}'
+) | cargo run --bin neurochain-mcp-v0-stdio
 ```
 
 The shim only serves the embedded fixture contract. It does not connect to
 Stellar, sign, broadcast, submit, consume nullifiers, or accept secret-like
 fields. `initialize` advertises the safe tool capability and an explicit
-experimental `neurochainNoSubmit` boundary. The process handles one request
-and exits; a persistent MCP lifecycle and `notifications/initialized` remain a
-later milestone.
+experimental `neurochainNoSubmit` boundary. The process accepts newline-
+delimited messages until stdin closes, requires the initialized notification
+before tool calls, and writes one compact JSON response line per request. The
+notification itself correctly produces no response.

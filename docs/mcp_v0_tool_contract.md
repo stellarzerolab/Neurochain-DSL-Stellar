@@ -28,9 +28,12 @@ There is also a tiny offline JSON-RPC stdio shim for checking the MCP-shaped
 boundary before any live MCP server or runtime integration exists:
 
 ```powershell
-'{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}' | cargo run --bin neurochain-mcp-v0-stdio
-'{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | cargo run --bin neurochain-mcp-v0-stdio
-'{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}' | cargo run --bin neurochain-mcp-v0-stdio
+@(
+  '{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}'
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+  '{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}'
+) | cargo run --bin neurochain-mcp-v0-stdio
 ```
 
 The runner only reads embedded fixtures and preserves the same no-submit
@@ -41,10 +44,12 @@ rejects submit-like tool names and secret-like field names.
 The stdio shim follows the same rules and returns JSON-RPC `result` or `error`
 objects. Its `initialize` response advertises only static tools plus an
 experimental `neurochainNoSubmit` capability that makes the read-only mode,
-excluded tools, and no-submit boundary machine-readable. The shim still reads
-one request and exits, so it is an offline contract adapter rather than a
-long-lived MCP session server. It does not claim support for the subsequent
-`notifications/initialized` lifecycle step yet.
+excluded tools, and no-submit boundary machine-readable. The process reads
+newline-delimited JSON-RPC messages until stdin closes. It requires
+`initialize` and `notifications/initialized` before tool operations, emits no
+response for the notification, and flushes one compact JSON response line per
+request. It remains an offline fixture adapter rather than a live NeuroChain
+runtime server.
 
 MCP v0 exists so an AI agent, bot, script, scheduled job, or backend automation
 can ask NeuroChain for a typed policy decision without receiving a wallet,

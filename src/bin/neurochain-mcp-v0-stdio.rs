@@ -1,39 +1,63 @@
 use serde_json::{json, Value};
-use std::io::{self, Read};
+use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
 const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LifecycleState {
+    Uninitialized,
+    Initialized,
+    Ready,
+}
+
 fn main() -> ExitCode {
-    let mut raw = String::new();
-    if let Err(err) = io::stdin().read_to_string(&mut raw) {
-        eprintln!("failed to read stdin: {err}");
-        return ExitCode::from(2);
+    let stdin = io::stdin();
+    let mut stdout = io::stdout().lock();
+    let mut state = LifecycleState::Uninitialized;
+    let mut saw_request = false;
+
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(err) => {
+                eprintln!("failed to read stdin: {err}");
+                return ExitCode::from(2);
+            }
+        };
+        let raw = line.trim();
+        if raw.is_empty() {
+            continue;
+        }
+        saw_request = true;
+
+        let response = match handle_json_rpc(raw, &mut state) {
+            Ok(value) => value,
+            Err(err) => Some(json_rpc_error(Value::Null, -32700, err)),
+        };
+
+        let Some(response) = response else {
+            continue;
+        };
+        if let Err(err) = serde_json::to_writer(&mut stdout, &response) {
+            eprintln!("failed to serialize response: {err}");
+            return ExitCode::from(2);
+        }
+        if let Err(err) = writeln!(stdout).and_then(|_| stdout.flush()) {
+            eprintln!("failed to write response: {err}");
+            return ExitCode::from(2);
+        }
     }
 
-    if raw.trim().is_empty() {
+    if !saw_request {
         eprintln!("{}", usage());
         return ExitCode::from(2);
     }
 
-    let response = match handle_json_rpc(raw.trim()) {
-        Ok(value) => value,
-        Err(err) => json_rpc_error(Value::Null, -32700, err),
-    };
-
-    match serde_json::to_string_pretty(&response) {
-        Ok(output) => {
-            println!("{output}");
-            ExitCode::SUCCESS
-        }
-        Err(err) => {
-            eprintln!("failed to serialize response: {err}");
-            ExitCode::from(2)
-        }
-    }
+    ExitCode::SUCCESS
 }
 
-fn handle_json_rpc(raw: &str) -> Result<Value, String> {
+fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Result<Option<Value>, String> {
     let request: Value =
         serde_json::from_str(raw).map_err(|err| format!("invalid JSON-RPC request: {err}"))?;
     let id = request.get("id").cloned().unwrap_or(Value::Null);
@@ -43,29 +67,70 @@ fn handle_json_rpc(raw: &str) -> Result<Value, String> {
         .ok_or_else(|| "JSON-RPC request must include method".to_string())?;
 
     match method {
-        "initialize" => match initialize_result(&request) {
-            Ok(result) => Ok(json_rpc_result(id, result)),
-            Err(err) => Ok(json_rpc_error(id, -32602, err)),
-        },
-        "tools/list" => Ok(json_rpc_result(
-            id,
-            neurochain::mcp_v0_fixture::tool_list_value(),
-        )),
+        "initialize" => {
+            if *state != LifecycleState::Uninitialized {
+                return Ok(Some(json_rpc_error(
+                    id,
+                    -32600,
+                    "MCP session is already initialized",
+                )));
+            }
+            match initialize_result(&request) {
+                Ok(result) => {
+                    *state = LifecycleState::Initialized;
+                    Ok(Some(json_rpc_result(id, result)))
+                }
+                Err(err) => Ok(Some(json_rpc_error(id, -32602, err))),
+            }
+        }
+        "notifications/initialized" => {
+            if request.get("id").is_some() {
+                return Ok(Some(json_rpc_error(
+                    id,
+                    -32600,
+                    "notifications/initialized must not include id",
+                )));
+            }
+            if *state == LifecycleState::Initialized {
+                *state = LifecycleState::Ready;
+            }
+            Ok(None)
+        }
+        "tools/list" => {
+            if *state != LifecycleState::Ready {
+                return Ok(Some(session_not_ready(id)));
+            }
+            Ok(Some(json_rpc_result(
+                id,
+                neurochain::mcp_v0_fixture::tool_list_value(),
+            )))
+        }
         "tools/call" => {
+            if *state != LifecycleState::Ready {
+                return Ok(Some(session_not_ready(id)));
+            }
             let params = request
                 .get("params")
                 .ok_or_else(|| "tools/call must include params".to_string())?;
             match neurochain::mcp_v0_fixture::fixture_value_by_call_value(params) {
-                Ok(result) => Ok(json_rpc_result(id, result)),
-                Err(err) => Ok(json_rpc_error(id, -32000, err)),
+                Ok(result) => Ok(Some(json_rpc_result(id, result))),
+                Err(err) => Ok(Some(json_rpc_error(id, -32000, err))),
             }
         }
-        other => Ok(json_rpc_error(
+        other => Ok(Some(json_rpc_error(
             id,
             -32601,
             format!("unsupported read-only MCP v0 method: {other}"),
-        )),
+        ))),
     }
+}
+
+fn session_not_ready(id: Value) -> Value {
+    json_rpc_error(
+        id,
+        -32002,
+        "MCP session is not ready; send initialize and notifications/initialized first",
+    )
 }
 
 fn initialize_result(request: &Value) -> Result<Value, String> {
@@ -144,5 +209,5 @@ fn json_rpc_error(id: Value, code: i64, message: impl Into<String>) -> Value {
 }
 
 fn usage() -> &'static str {
-    "Usage: send one JSON-RPC request on stdin, for example initialize, tools/list, or tools/call"
+    "Usage: send newline-delimited JSON-RPC messages on stdin: initialize, notifications/initialized, then tools/list or tools/call"
 }

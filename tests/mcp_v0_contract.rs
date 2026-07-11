@@ -276,13 +276,7 @@ fn mcp_v0_fixture_runner_rejects_secret_like_call_json_fields() {
 
 #[test]
 fn mcp_v0_stdio_lists_only_safe_tools() {
-    let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
-    assert!(
-        output.status.success(),
-        "stdio tools/list failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio list json");
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
     assert_eq!(value["jsonrpc"], "2.0");
     assert_eq!(value["id"], 1);
 
@@ -305,6 +299,49 @@ fn mcp_v0_stdio_lists_only_safe_tools() {
             "stdio tools/list leaked excluded tool {excluded}"
         );
     }
+}
+
+#[test]
+fn mcp_v0_stdio_rejects_tools_before_session_is_ready() {
+    let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#);
+    assert!(
+        output.status.success(),
+        "stdio readiness error should serialize"
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio readiness error");
+
+    assert_eq!(value["id"], 6);
+    assert_eq!(value["error"]["code"], -32002);
+    assert!(value["error"]["message"]
+        .as_str()
+        .expect("readiness error message")
+        .contains("notifications/initialized"));
+}
+
+#[test]
+fn mcp_v0_stdio_runs_persistent_initialized_session() {
+    let output = run_mcp_stdio_session(&[
+        MCP_INIT_REQUEST,
+        MCP_INITIALIZED_NOTIFICATION,
+        r#"{"jsonrpc":"2.0","id":"list-1","method":"tools/list"}"#,
+        r#"{"jsonrpc":"2.0","id":"call-2","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"approved"}}}"#,
+    ]);
+    assert!(
+        output.status.success(),
+        "stdio session failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let responses = parse_mcp_stdio_responses(&output);
+
+    assert_eq!(responses.len(), 3, "notification must not emit response");
+    assert_eq!(responses[0]["id"], "init-1");
+    assert_eq!(responses[1]["id"], "list-1");
+    assert_eq!(responses[2]["id"], "call-2");
+    assert_eq!(responses[2]["result"]["decision"], "approved");
+    assert_eq!(
+        responses[2]["result"]["underlying_action_submit_allowed"],
+        false
+    );
 }
 
 #[test]
@@ -390,15 +427,9 @@ fn mcp_v0_stdio_rejects_incomplete_initialize_params() {
 
 #[test]
 fn mcp_v0_stdio_calls_fixture_without_submit() {
-    let output = run_mcp_stdio(
+    let value = run_ready_mcp_stdio(
         r#"{"jsonrpc":"2.0","id":"call-1","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"requires_approval"}}}"#,
     );
-    assert!(
-        output.status.success(),
-        "stdio tools/call failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio call json");
     let result = &value["result"];
 
     assert_eq!(value["jsonrpc"], "2.0");
@@ -414,14 +445,9 @@ fn mcp_v0_stdio_calls_fixture_without_submit() {
 
 #[test]
 fn mcp_v0_stdio_rejects_submit_like_tools() {
-    let output = run_mcp_stdio(
+    let value = run_ready_mcp_stdio(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"submit_underlying_action","arguments":{}}}"#,
     );
-    assert!(
-        output.status.success(),
-        "stdio error response should still serialize successfully"
-    );
-    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio error json");
 
     assert_eq!(value["jsonrpc"], "2.0");
     assert_eq!(value["id"], 2);
@@ -437,14 +463,9 @@ fn mcp_v0_stdio_rejects_submit_like_tools() {
 
 #[test]
 fn mcp_v0_stdio_rejects_secret_like_arguments() {
-    let output = run_mcp_stdio(
+    let value = run_ready_mcp_stdio(
         r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"approved","api_key":null}}}"#,
     );
-    assert!(
-        output.status.success(),
-        "stdio error response should still serialize successfully"
-    );
-    let value: Value = serde_json::from_slice(&output.stdout).expect("stdio error json");
 
     assert_eq!(value["jsonrpc"], "2.0");
     assert_eq!(value["id"], 3);
@@ -467,7 +488,31 @@ fn run_fixture_runner(args: &[&str]) -> Output {
     .expect("run fixture runner")
 }
 
+const MCP_INIT_REQUEST: &str = r#"{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}"#;
+const MCP_INITIALIZED_NOTIFICATION: &str =
+    r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+
+fn run_ready_mcp_stdio(request: &str) -> Value {
+    let output = run_mcp_stdio_session(&[MCP_INIT_REQUEST, MCP_INITIALIZED_NOTIFICATION, request]);
+    assert!(
+        output.status.success(),
+        "ready stdio session failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mut responses = parse_mcp_stdio_responses(&output);
+    assert_eq!(
+        responses.len(),
+        2,
+        "expected initialize and request responses"
+    );
+    responses.pop().expect("request response")
+}
+
 fn run_mcp_stdio(request: &str) -> Output {
+    run_mcp_stdio_session(&[request])
+}
+
+fn run_mcp_stdio_session(requests: &[&str]) -> Output {
     let mut child = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-mcp-v0-stdio"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -478,9 +523,16 @@ fn run_mcp_stdio(request: &str) -> Output {
         .stdin
         .as_mut()
         .expect("stdio shim stdin")
-        .write_all(request.as_bytes())
-        .expect("write stdio request");
+        .write_all(format!("{}\n", requests.join("\n")).as_bytes())
+        .expect("write stdio requests");
     child.wait_with_output().expect("stdio shim output")
+}
+
+fn parse_mcp_stdio_responses(output: &Output) -> Vec<Value> {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("stdio JSON response line"))
+        .collect()
 }
 
 fn fixture_paths() -> Vec<std::path::PathBuf> {
