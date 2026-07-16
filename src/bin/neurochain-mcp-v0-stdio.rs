@@ -148,7 +148,7 @@ fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Option<Value> {
                     "tools/call must include object params",
                 ));
             };
-            match neurochain::mcp_v0_fixture::fixture_value_by_call_value(params) {
+            match neurochain::mcp_v0_runtime::tool_value_by_call_value(params) {
                 Ok(result) => Some(json_rpc_result(id, tool_call_result(result))),
                 Err(err) => Some(json_rpc_error(id, -32602, err)),
             }
@@ -163,7 +163,7 @@ fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Option<Value> {
 
 fn tool_call_result(structured_content: Value) -> Value {
     let text = serde_json::to_string(&structured_content)
-        .expect("fixture value must serialize as MCP text content");
+        .expect("tool value must serialize as MCP text content");
     json!({
         "content": [{
             "type": "text",
@@ -231,10 +231,10 @@ fn initialize_result(request: &Value) -> Result<Value, String> {
         },
         "serverInfo": {
             "name": "neurochain-mcp-v0-stdio",
-            "title": "NeuroChain MCP V0 Offline Fixture Shim",
+            "title": "NeuroChain MCP V0 Read-Only Runtime",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Offline read-only fixture shim. Plan, evaluate, prove, and verify responses never grant signing, broadcast, nullifier-consume, attestation, or underlying ActionPlan submit authority."
+        "instructions": "Read-only no-submit runtime. plan_stellar_action uses the local NeuroChain intent model; later tools remain explicit conformance fixtures. All responses never grant signing, broadcast, nullifier-consume, attestation, or underlying ActionPlan submit authority."
     }))
 }
 

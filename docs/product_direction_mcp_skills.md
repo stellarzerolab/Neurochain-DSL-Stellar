@@ -178,10 +178,14 @@ permission to submit the underlying ActionPlan.
    Done with `neurochain-mcp-v0-stdio`; the process-level host example and
    no-submit client smoke live in
    [`examples/mcp_v0_stdio_client/`](../examples/mcp_v0_stdio_client/).
-6. Keep `submit_testnet_attestation` separate and opt-in.
-7. Finish x402 as optional paid ingress behind the existing fail-closed
+6. Connect tools to the real runtime one at a time. `plan_stellar_action` now
+   uses the local intent classifier and deterministic ActionPlan builder;
+   `evaluate_guardrails` is next. Explicit fixtures remain available only for
+   conformance tests.
+7. Keep `submit_testnet_attestation` separate and opt-in.
+8. Finish x402 as optional paid ingress behind the existing fail-closed
    facilitator boundary.
-8. Finish ZK status and artifact polish without weakening
+9. Finish ZK status and artifact polish without weakening
    `underlying_action_submit_allowed=false`.
 
 ## Acceptance Checklist

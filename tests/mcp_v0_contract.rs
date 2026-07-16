@@ -310,6 +310,30 @@ fn mcp_v0_stdio_lists_only_safe_tools() {
 }
 
 #[test]
+fn mcp_v0_stdio_advertises_real_plan_runtime_input() {
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let plan_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "plan_stellar_action")
+        .expect("plan tool");
+    let schema = &plan_tool["inputSchema"];
+
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["properties"]["network"]["enum"],
+        serde_json::json!(["testnet"])
+    );
+    assert_eq!(
+        schema["properties"]["plan_mode"]["enum"],
+        serde_json::json!(["preview_only"])
+    );
+    assert!(schema["properties"].get("intent_text").is_some());
+    assert!(schema["properties"].get("source_hint").is_some());
+    assert!(schema["properties"].get("secret_key").is_none());
+}
+
+#[test]
 fn mcp_v0_stdio_rejects_tools_before_session_is_ready() {
     let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#);
     assert!(
@@ -370,10 +394,12 @@ fn mcp_v0_stdio_client_examples_preserve_safe_host_configuration() {
         .expect("stdio command")
         .ends_with("neurochain-mcp-v0-stdio"));
     assert_eq!(server["args"], serde_json::json!([]));
-    assert!(
-        server.get("env").is_none(),
-        "example must not inject secrets"
-    );
+    assert!(server["env"]["NC_INTENT_STELLAR_MODEL"]
+        .as_str()
+        .expect("model path string")
+        .ends_with("models/intent_stellar/model.onnx"));
+    assert!(server["env"].get("NC_STELLAR_SOURCE").is_none());
+    assert!(server["env"].get("NC_API_KEY").is_none());
 
     let session_path = Path::new(STDIO_CLIENT_DIR).join("session.jsonl");
     let session = fs::read_to_string(session_path).expect("read MCP session example");
@@ -559,6 +585,37 @@ fn mcp_v0_stdio_calls_fixture_without_submit() {
     assert_eq!(&text_value, result);
     assert_eq!(result["tool"], "evaluate_guardrails");
     assert_eq!(result["decision"], "requires_approval");
+    assert_eq!(result["underlying_action_submit_allowed"], false);
+    assert_eq!(result["attestation_submitted"], false);
+    assert_eq!(result["verification_transaction_submitted"], false);
+    assert_eq!(result["nullifier_consumed"], false);
+    assert!(result["transaction_hash"].is_null());
+}
+
+#[test]
+fn mcp_v0_stdio_plan_requires_intent_or_explicit_fixture() {
+    let value = run_ready_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":"plan-empty","method":"tools/call","params":{"name":"plan_stellar_action","arguments":{}}}"#,
+    );
+
+    assert_eq!(value["id"], "plan-empty");
+    assert_eq!(value["error"]["code"], -32602);
+    assert!(value["error"]["message"]
+        .as_str()
+        .expect("error message")
+        .contains("requires non-empty intent_text"));
+}
+
+#[test]
+fn mcp_v0_stdio_keeps_explicit_plan_fixture_for_conformance() {
+    let value = run_ready_mcp_stdio(
+        r#"{"jsonrpc":"2.0","id":"plan-fixture","method":"tools/call","params":{"name":"plan_stellar_action","arguments":{"scenario":"preview"}}}"#,
+    );
+    let result = &value["result"]["structuredContent"];
+
+    assert_eq!(value["id"], "plan-fixture");
+    assert_eq!(result["tool"], "plan_stellar_action");
+    assert_eq!(result["mode"], "read_only");
     assert_eq!(result["underlying_action_submit_allowed"], false);
     assert_eq!(result["attestation_submitted"], false);
     assert_eq!(result["verification_transaction_submitted"], false);

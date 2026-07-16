@@ -62,7 +62,7 @@ try {
 
     [ordered]@{
         status = "passed"
-        mode = "offline_no_submit"
+        mode = "read_only_no_submit"
         protocol_version = $Smoke.protocol_version
         conformance_cases = [int]$Smoke.conformance_cases
         tools = @($Smoke.tools)

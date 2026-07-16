@@ -130,20 +130,7 @@ pub fn tool_list_value() -> Value {
                     "idempotentHint": true,
                     "openWorldHint": false
                 },
-                "inputSchema": {
-                    "type": "object",
-                    "additionalProperties": true,
-                    "properties": {
-                        "scenario": {
-                            "type": "string",
-                            "description": "Optional offline fixture scenario selector"
-                        },
-                        "fixture": {
-                            "type": "string",
-                            "description": "Optional exact offline fixture name"
-                        }
-                    }
-                }
+                "inputSchema": tool_input_schema(tool)
             })
         })
         .collect();
@@ -151,6 +138,65 @@ pub fn tool_list_value() -> Value {
         "tools": tools,
         "excluded_from_default_mcp_v0": EXCLUDED_TOOLS,
         "mode": "read_only",
+    })
+}
+
+fn tool_input_schema(tool: &str) -> Value {
+    if tool == "plan_stellar_action" {
+        return json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "intent_text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "description": "Natural-language Stellar intent classified by the local NeuroChain runtime"
+                },
+                "network": {
+                    "type": "string",
+                    "enum": ["testnet"],
+                    "default": "testnet"
+                },
+                "source_hint": {
+                    "type": "string",
+                    "description": "Optional public wallet alias only; never a secret"
+                },
+                "plan_mode": {
+                    "type": "string",
+                    "enum": ["preview_only"],
+                    "default": "preview_only"
+                },
+                "scenario": {
+                    "type": "string",
+                    "description": "Explicit offline fixture scenario selector for conformance tests"
+                },
+                "fixture": {
+                    "type": "string",
+                    "description": "Explicit offline fixture name for conformance tests"
+                }
+            },
+            "anyOf": [
+                {"required": ["intent_text"]},
+                {"required": ["scenario"]},
+                {"required": ["fixture"]}
+            ]
+        });
+    }
+
+    json!({
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "scenario": {
+                "type": "string",
+                "description": "Optional offline fixture scenario selector"
+            },
+            "fixture": {
+                "type": "string",
+                "description": "Optional exact offline fixture name"
+            }
+        }
     })
 }
 
@@ -238,47 +284,64 @@ fn default_scenario(tool: &str) -> Option<&'static str> {
 }
 
 fn validate_no_submit_fixture(fixture: &Fixture, value: &Value) -> Result<(), String> {
+    validate_no_submit_value(fixture.name, value)
+}
+
+pub fn validate_no_submit_value(context: &str, value: &Value) -> Result<(), String> {
     let tool = value
         .get("tool")
         .and_then(Value::as_str)
-        .ok_or_else(|| format!("fixture {} missing tool", fixture.name))?;
+        .ok_or_else(|| format!("{context} missing tool"))?;
     if !DEFAULT_TOOLS.contains(&tool) {
-        return Err(format!("fixture {} uses non-v0 tool {tool}", fixture.name));
+        return Err(format!("{context} uses non-v0 tool {tool}"));
     }
     if EXCLUDED_TOOLS.contains(&tool) {
         return Err(format!(
-            "fixture {} uses excluded submit/stateful tool {tool}",
-            fixture.name
+            "{context} uses excluded submit/stateful tool {tool}"
         ));
     }
 
-    expect_eq(fixture, value, "mode", &json!("read_only"))?;
-    expect_eq(
-        fixture,
+    expect_context_eq(context, value, "mode", &json!("read_only"))?;
+    expect_context_eq(
+        context,
         value,
         "underlying_action_submit_allowed",
         &json!(false),
     )?;
-    expect_eq(fixture, value, "attestation_submitted", &json!(false))?;
-    expect_eq(
-        fixture,
+    expect_context_eq(context, value, "attestation_submitted", &json!(false))?;
+    expect_context_eq(
+        context,
         value,
         "verification_transaction_submitted",
         &json!(false),
     )?;
-    expect_eq(fixture, value, "nullifier_consumed", &json!(false))?;
+    expect_context_eq(context, value, "nullifier_consumed", &json!(false))?;
 
     if !value
         .get("transaction_hash")
         .is_some_and(serde_json::Value::is_null)
     {
         return Err(format!(
-            "fixture {} must keep transaction_hash null in default MCP v0",
-            fixture.name
+            "{context} must keep transaction_hash null in default MCP v0"
         ));
     }
 
     Ok(())
+}
+
+fn expect_context_eq(
+    context: &str,
+    value: &Value,
+    field: &str,
+    expected: &Value,
+) -> Result<(), String> {
+    match value.get(field) {
+        Some(actual) if actual == expected => Ok(()),
+        Some(actual) => Err(format!(
+            "{context} field {field} expected {expected}, got {actual}"
+        )),
+        None => Err(format!("{context} missing {field}")),
+    }
 }
 
 pub fn validate_no_secret_like_fields(context: &str, value: &Value) -> Result<(), String> {
@@ -314,25 +377,11 @@ pub fn validate_no_secret_like_fields(context: &str, value: &Value) -> Result<()
     walk(context, value, "$")
 }
 
-fn expect_eq(
-    fixture: &Fixture,
-    value: &Value,
-    field: &str,
-    expected: &Value,
-) -> Result<(), String> {
-    match value.get(field) {
-        Some(actual) if actual == expected => Ok(()),
-        Some(actual) => Err(format!(
-            "fixture {} field {field} expected {expected}, got {actual}",
-            fixture.name
-        )),
-        None => Err(format!("fixture {} missing {field}", fixture.name)),
-    }
-}
-
 fn tool_description(tool: &str) -> &'static str {
     match tool {
-        "plan_stellar_action" => "Preview a typed Stellar ActionPlan without submit capability.",
+        "plan_stellar_action" => {
+            "Classify a Stellar intent locally and preview the real typed ActionPlan without submit capability."
+        }
         "evaluate_guardrails" => "Evaluate guardrail decision fields without submitting.",
         "prove_guardrail_decision" => "Return a fixture proof artifact reference.",
         "verify_zk_on_stellar" => "Return read-only Stellar verification status.",

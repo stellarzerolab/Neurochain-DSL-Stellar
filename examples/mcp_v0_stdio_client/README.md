@@ -1,7 +1,9 @@
 # MCP V0 Stdio Client Example
 
-This directory shows how an MCP host can launch the offline NeuroChain MCP v0
-stdio server and complete one no-submit session.
+This directory shows how an MCP host can launch the read-only NeuroChain MCP v0
+stdio server and complete one no-submit session. `plan_stellar_action` uses the
+real local intent model and deterministic ActionPlan builder. The later tools
+remain explicit fixtures while their runtime adapters are added one at a time.
 
 The example has no network, wallet, signing, broadcast, attestation, nullifier
 consume, or underlying ActionPlan execution capability.
@@ -62,17 +64,21 @@ not connect to Stellar or require wallet credentials.
 ## MCP Host Configuration
 
 Copy `mcp_servers.json.example` into the configuration shape expected by the
-host. Replace `command` with the absolute path to the built stdio executable.
-On Windows, use the `.exe` path.
+host. Replace `command` with the absolute path to the built stdio executable and
+set `NC_INTENT_STELLAR_MODEL` to the absolute local ONNX model path. On Windows,
+use the `.exe` path.
 
-The server needs no arguments and no environment secrets. An MCP host should:
+The server needs no arguments and no environment secrets. The model path is
+local runtime configuration, not a credential. An MCP host should:
 
 1. Spawn the configured executable over stdio.
 2. Send `initialize`.
 3. Send `notifications/initialized`.
 4. Discover the five read-only tools with `tools/list`.
-5. Call a tool and preserve `underlying_action_submit_allowed=false`.
-6. Close the transport when the session ends.
+5. Call `plan_stellar_action` with `intent_text`, or use an explicit fixture for
+   conformance testing.
+6. Preserve `underlying_action_submit_allowed=false`.
+7. Close the transport when the session ends.
 
 Do not add wallet secrets, API keys, seed phrases, transaction signing, or
 submit tools to this default configuration. `submit_testnet_attestation` stays

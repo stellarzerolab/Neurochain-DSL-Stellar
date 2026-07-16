@@ -1,7 +1,10 @@
 # NeuroChain MCP V0 Tool Contract
 
 This document defines the first no-submit MCP surface for NeuroChain DSL for
-Stellar. It is a contract document, not a server implementation.
+Stellar. The stdio server now connects `plan_stellar_action` to the real local
+NeuroChain intent classifier and deterministic ActionPlan builder. The four
+later tools remain fixture-backed while their runtime adapters are implemented
+one at a time.
 
 Machine-checkable response fixtures live in:
 
@@ -24,8 +27,8 @@ cargo run --bin neurochain-mcp-v0-fixture-runner -- --fixture verify_zk_on_stell
 cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"evaluate_guardrails\",\"arguments\":{\"scenario\":\"requires_approval\"}}"
 ```
 
-There is also a tiny offline JSON-RPC stdio shim for checking the MCP-shaped
-boundary before any live MCP server or runtime integration exists:
+There is also a JSON-RPC stdio server for checking the MCP-shaped boundary and
+calling the first real runtime-backed planning tool:
 
 ```powershell
 @(
@@ -36,10 +39,10 @@ boundary before any live MCP server or runtime integration exists:
 ) | cargo run --bin neurochain-mcp-v0-stdio
 ```
 
-The runner only reads embedded fixtures and preserves the same no-submit
-invariants. It does not connect to Stellar, sign, broadcast, submit, or consume
-nullifiers. The `--call-json` mode is an offline MCP-style call adapter; it
-rejects submit-like tool names and secret-like field names.
+The standalone fixture runner only reads embedded fixtures and preserves the
+same no-submit invariants. It does not connect to Stellar, sign, broadcast,
+submit, or consume nullifiers. The `--call-json` mode is an offline MCP-style
+call adapter; it rejects submit-like tool names and secret-like field names.
 
 The stdio shim follows the same rules and returns JSON-RPC `result` or `error`
 objects. Successful tool calls use the MCP `content` array and mirror the same
@@ -53,8 +56,16 @@ newline-delimited JSON-RPC messages until stdin closes. It requires
 response for notifications, and flushes one compact JSON response line per
 request. Parse errors, invalid requests, unsupported methods, and invalid
 parameters use the standard JSON-RPC error codes `-32700`, `-32600`, `-32601`,
-and `-32602`. It remains an offline fixture adapter rather than a live
-NeuroChain runtime server.
+and `-32602`.
+
+For `plan_stellar_action`, an `intent_text` call loads the local
+`intent_stellar` ONNX model and calls the same deterministic ActionPlan builder
+used by the CLI and API. The model asset is not embedded in the executable;
+configure an absolute `NC_INTENT_STELLAR_MODEL` path for MCP hosts whose working
+directory is not the repository root. Calls with an explicit `scenario` or
+`fixture` stay offline and deterministic for conformance testing. Calls without
+either `intent_text` or an explicit fixture selector fail closed. No MCP path
+calls simulation, flow execution, signing, broadcast, or submit.
 
 A process-level client harness and MCP host configuration example live in:
 
@@ -186,9 +197,13 @@ Output additions:
 Safety rules:
 
 - `source_hint` may be an alias, never a secret.
+- `network` is limited to `testnet` in MCP v0.
+- The classification threshold is server-controlled; clients cannot lower it.
 - The tool must not simulate, sign, or submit.
-- Low-confidence or missing-slot plans should use exit `5` and stay
-  no-submit.
+- The returned `action_plan_hash` is SHA-256 over the domain-separated,
+  serialized NeuroChain ActionPlan (`neurochain:mcp-v0:action-plan-json:v1`).
+- Low-confidence or missing-slot plans contain an `Unknown` action and remain
+  `not_evaluated`; the next `evaluate_guardrails` phase assigns exit `5`.
 
 ## Tool 2: evaluate_guardrails
 
