@@ -45,6 +45,20 @@ cargo run --bin neurochain-mcp-v0-client-smoke -- `
   --server C:\absolute\path\to\neurochain-mcp-v0-stdio.exe
 ```
 
+## Release Gate On Windows
+
+Build the locked release binaries, run the same host-neutral conformance
+session against the absolute release server path, and emit artifact SHA-256
+hashes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1
+```
+
+The command exits non-zero unless all seven conformance cases pass and every
+submit, attestation, transaction, and nullifier state remains disabled. It does
+not connect to Stellar or require wallet credentials.
+
 ## MCP Host Configuration
 
 Copy `mcp_servers.json.example` into the configuration shape expected by the

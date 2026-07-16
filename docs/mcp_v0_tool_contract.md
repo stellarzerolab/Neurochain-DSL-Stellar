@@ -69,6 +69,14 @@ cargo build --bin neurochain-mcp-v0-stdio --bin neurochain-mcp-v0-client-smoke
 cargo run --bin neurochain-mcp-v0-client-smoke
 ```
 
+On Windows, the repeatable release gate builds both locked release binaries,
+runs the conformance harness against the absolute server path, and prints
+artifact SHA-256 hashes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1
+```
+
 The harness starts the stdio server as a child process, performs the MCP
 lifecycle, discovers the five default tools, calls the `requires_approval`
 fixture, and validates that submit, attestation, transaction, and nullifier
