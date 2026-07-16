@@ -20,10 +20,16 @@ Run the smoke client after both binaries exist in the same target directory:
 cargo run --bin neurochain-mcp-v0-client-smoke
 ```
 
-The client owns the stdio server process, sends the session from
-`session.jsonl`, validates tool discovery, calls the
+The client owns the stdio server process, sends the host-neutral protocol cases
+from `conformance_session.jsonl`, validates tool discovery, calls the
 `evaluate_guardrails` `requires_approval` fixture, and exits only after all
-no-submit invariants pass.
+no-submit and JSON-RPC conformance checks pass. The gate also confirms that
+notifications stay silent and that excluded tools, secret-like arguments,
+unsupported methods, and invalid parameters fail with standard protocol error
+codes.
+
+`session.jsonl` remains the smallest readable happy-path example for host
+integrators.
 
 To verify a separately built server, pass its absolute path:
 

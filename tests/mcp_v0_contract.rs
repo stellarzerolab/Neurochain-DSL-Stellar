@@ -397,6 +397,28 @@ fn mcp_v0_stdio_client_examples_preserve_safe_host_configuration() {
 }
 
 #[test]
+fn mcp_v0_stdio_client_conformance_session_covers_fail_closed_cases() {
+    let session_path = Path::new(STDIO_CLIENT_DIR).join("conformance_session.jsonl");
+    let session = fs::read_to_string(session_path).expect("read MCP conformance session");
+    let messages = session
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<Value>(line).expect("conformance JSON-RPC line"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(messages.len(), 9);
+    assert_eq!(messages[0]["method"], "initialize");
+    assert_eq!(messages[1]["method"], "notifications/initialized");
+    assert_eq!(messages[2]["method"], "notifications/progress");
+    assert!(messages[1].get("id").is_none());
+    assert!(messages[2].get("id").is_none());
+    assert_eq!(messages[5]["params"]["name"], "submit_underlying_action");
+    assert!(messages[6]["params"]["arguments"].get("api_key").is_some());
+    assert_eq!(messages[7]["method"], "resources/list");
+    assert!(messages[8].get("params").is_none());
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"
@@ -415,6 +437,7 @@ fn mcp_v0_client_smoke_validates_real_stdio_process() {
 
     assert_eq!(summary["status"], "passed");
     assert_eq!(summary["transport"], "stdio");
+    assert_eq!(summary["conformance_cases"], 7);
     assert_eq!(summary["protocol_version"], "2025-06-18");
     assert_eq!(summary["sample_decision"], "requires_approval");
     assert_eq!(summary["underlying_action_submit_allowed"], false);
@@ -551,7 +574,7 @@ fn mcp_v0_stdio_rejects_submit_like_tools() {
 
     assert_eq!(value["jsonrpc"], "2.0");
     assert_eq!(value["id"], 2);
-    assert_eq!(value["error"]["code"], -32000);
+    assert_eq!(value["error"]["code"], -32602);
     assert!(
         value["error"]["message"]
             .as_str()
@@ -569,7 +592,7 @@ fn mcp_v0_stdio_rejects_secret_like_arguments() {
 
     assert_eq!(value["jsonrpc"], "2.0");
     assert_eq!(value["id"], 3);
-    assert_eq!(value["error"]["code"], -32000);
+    assert_eq!(value["error"]["code"], -32602);
     assert!(
         value["error"]["message"]
             .as_str()
@@ -577,6 +600,50 @@ fn mcp_v0_stdio_rejects_secret_like_arguments() {
             .contains("secret-like field"),
         "unexpected error: {value}"
     );
+}
+
+#[test]
+fn mcp_v0_stdio_uses_standard_json_rpc_error_codes() {
+    let parse_error = run_mcp_stdio("{");
+    let parse_value: Value =
+        serde_json::from_slice(&parse_error.stdout).expect("parse error response");
+    assert_eq!(parse_value["id"], Value::Null);
+    assert_eq!(parse_value["error"]["code"], -32700);
+
+    let invalid_request = run_mcp_stdio(r#"{"jsonrpc":"1.0","id":7,"method":"initialize"}"#);
+    let invalid_value: Value =
+        serde_json::from_slice(&invalid_request.stdout).expect("invalid request response");
+    assert_eq!(invalid_value["id"], 7);
+    assert_eq!(invalid_value["error"]["code"], -32600);
+
+    let unknown_method =
+        run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":8,"method":"resources/list","params":{}}"#);
+    assert_eq!(unknown_method["id"], 8);
+    assert_eq!(unknown_method["error"]["code"], -32601);
+
+    let invalid_params = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":9,"method":"tools/call"}"#);
+    assert_eq!(invalid_params["id"], 9);
+    assert_eq!(invalid_params["error"]["code"], -32602);
+}
+
+#[test]
+fn mcp_v0_stdio_keeps_notifications_silent() {
+    let output = run_mcp_stdio_session(&[
+        MCP_INIT_REQUEST,
+        MCP_INITIALIZED_NOTIFICATION,
+        r#"{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"offline-test","progress":1}}"#,
+        r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"evaluate_guardrails","arguments":{"scenario":"approved"}}}"#,
+        r#"{"jsonrpc":"2.0","id":"list-after-notifications","method":"tools/list","params":{}}"#,
+    ]);
+    assert!(
+        output.status.success(),
+        "notification session failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let responses = parse_mcp_stdio_responses(&output);
+    assert_eq!(responses.len(), 2, "notifications must not emit responses");
+    assert_eq!(responses[0]["id"], "init-1");
+    assert_eq!(responses[1]["id"], "list-after-notifications");
 }
 
 fn run_fixture_runner(args: &[&str]) -> Output {

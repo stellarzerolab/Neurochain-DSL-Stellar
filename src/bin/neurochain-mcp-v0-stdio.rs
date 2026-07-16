@@ -31,10 +31,7 @@ fn main() -> ExitCode {
         }
         saw_request = true;
 
-        let response = match handle_json_rpc(raw, &mut state) {
-            Ok(value) => value,
-            Err(err) => Some(json_rpc_error(Value::Null, -32700, err)),
-        };
+        let response = handle_json_rpc(raw, &mut state);
 
         let Some(response) = response else {
             continue;
@@ -57,71 +54,110 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Result<Option<Value>, String> {
-    let request: Value =
-        serde_json::from_str(raw).map_err(|err| format!("invalid JSON-RPC request: {err}"))?;
+fn handle_json_rpc(raw: &str, state: &mut LifecycleState) -> Option<Value> {
+    let request: Value = match serde_json::from_str(raw) {
+        Ok(request) => request,
+        Err(err) => {
+            return Some(json_rpc_error(
+                Value::Null,
+                -32700,
+                format!("invalid JSON-RPC request: {err}"),
+            ));
+        }
+    };
     let id = request.get("id").cloned().unwrap_or(Value::Null);
-    let method = request
-        .get("method")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "JSON-RPC request must include method".to_string())?;
+
+    if !request.is_object() || request.get("jsonrpc") != Some(&json!("2.0")) {
+        return Some(json_rpc_error(
+            id,
+            -32600,
+            "JSON-RPC request must use jsonrpc 2.0",
+        ));
+    }
+
+    let Some(method) = request.get("method").and_then(Value::as_str) else {
+        return Some(json_rpc_error(
+            id,
+            -32600,
+            "JSON-RPC request must include method",
+        ));
+    };
+
+    let is_notification = request.get("id").is_none();
+    if is_notification && method != "notifications/initialized" {
+        return None;
+    }
 
     match method {
         "initialize" => {
             if *state != LifecycleState::Uninitialized {
-                return Ok(Some(json_rpc_error(
+                return Some(json_rpc_error(
                     id,
                     -32600,
                     "MCP session is already initialized",
-                )));
+                ));
             }
             match initialize_result(&request) {
                 Ok(result) => {
                     *state = LifecycleState::Initialized;
-                    Ok(Some(json_rpc_result(id, result)))
+                    Some(json_rpc_result(id, result))
                 }
-                Err(err) => Ok(Some(json_rpc_error(id, -32602, err))),
+                Err(err) => Some(json_rpc_error(id, -32602, err)),
             }
         }
         "notifications/initialized" => {
             if request.get("id").is_some() {
-                return Ok(Some(json_rpc_error(
+                return Some(json_rpc_error(
                     id,
                     -32600,
                     "notifications/initialized must not include id",
-                )));
+                ));
             }
             if *state == LifecycleState::Initialized {
                 *state = LifecycleState::Ready;
             }
-            Ok(None)
+            None
         }
         "tools/list" => {
             if *state != LifecycleState::Ready {
-                return Ok(Some(session_not_ready(id)));
+                return Some(session_not_ready(id));
             }
-            Ok(Some(json_rpc_result(
+            if request
+                .get("params")
+                .is_some_and(|params| !params.is_object())
+            {
+                return Some(json_rpc_error(
+                    id,
+                    -32602,
+                    "tools/list params must be an object when present",
+                ));
+            }
+            Some(json_rpc_result(
                 id,
                 neurochain::mcp_v0_fixture::tool_list_value(),
-            )))
+            ))
         }
         "tools/call" => {
             if *state != LifecycleState::Ready {
-                return Ok(Some(session_not_ready(id)));
+                return Some(session_not_ready(id));
             }
-            let params = request
-                .get("params")
-                .ok_or_else(|| "tools/call must include params".to_string())?;
+            let Some(params) = request.get("params").filter(|params| params.is_object()) else {
+                return Some(json_rpc_error(
+                    id,
+                    -32602,
+                    "tools/call must include object params",
+                ));
+            };
             match neurochain::mcp_v0_fixture::fixture_value_by_call_value(params) {
-                Ok(result) => Ok(Some(json_rpc_result(id, tool_call_result(result)))),
-                Err(err) => Ok(Some(json_rpc_error(id, -32000, err))),
+                Ok(result) => Some(json_rpc_result(id, tool_call_result(result))),
+                Err(err) => Some(json_rpc_error(id, -32602, err)),
             }
         }
-        other => Ok(Some(json_rpc_error(
+        other => Some(json_rpc_error(
             id,
             -32601,
             format!("unsupported read-only MCP v0 method: {other}"),
-        ))),
+        )),
     }
 }
 

@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 
-const SESSION: &str = include_str!("../../examples/mcp_v0_stdio_client/session.jsonl");
+const SESSION: &str = include_str!("../../examples/mcp_v0_stdio_client/conformance_session.jsonl");
 
 fn main() -> ExitCode {
     match run() {
@@ -88,9 +88,9 @@ fn parse_server_path() -> Result<PathBuf, String> {
 }
 
 fn validate_responses(responses: &[Value]) -> Result<Value, String> {
-    if responses.len() != 3 {
+    if responses.len() != 7 {
         return Err(format!(
-            "expected 3 responses; initialized notification must stay silent, got {}",
+            "expected 7 responses; both notifications must stay silent, got {}",
             responses.len()
         ));
     }
@@ -165,9 +165,25 @@ fn validate_responses(responses: &[Value]) -> Result<Value, String> {
     }
     expect_eq(call, &["transaction_hash"], &Value::Null)?;
 
+    expect_error(
+        &responses[3],
+        "excluded-1",
+        -32602,
+        "excluded from default MCP v0",
+    )?;
+    expect_error(&responses[4], "secret-1", -32602, "secret-like field")?;
+    expect_error(
+        &responses[5],
+        "method-1",
+        -32601,
+        "unsupported read-only MCP v0 method",
+    )?;
+    expect_error(&responses[6], "params-1", -32602, "object params")?;
+
     Ok(json!({
         "status": "passed",
         "transport": "stdio",
+        "conformance_cases": 7,
         "protocol_version": initialize["protocolVersion"],
         "tools": names,
         "sample_decision": call["decision"],
@@ -176,6 +192,32 @@ fn validate_responses(responses: &[Value]) -> Result<Value, String> {
         "verification_transaction_submitted": false,
         "nullifier_consumed": false
     }))
+}
+
+fn expect_error(
+    response: &Value,
+    expected_id: &str,
+    expected_code: i64,
+    expected_message: &str,
+) -> Result<(), String> {
+    if response.get("id") != Some(&json!(expected_id)) {
+        return Err(format!(
+            "expected error response id {expected_id}, got {response}"
+        ));
+    }
+    expect_eq(response, &["error", "code"], &json!(expected_code))?;
+    let message = response
+        .get("error")
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("error response {expected_id} has no message"))?;
+    if message.contains(expected_message) {
+        Ok(())
+    } else {
+        Err(format!(
+            "error response {expected_id} expected message containing {expected_message:?}, got {message:?}"
+        ))
+    }
 }
 
 fn result_for_id<'a>(response: &'a Value, expected_id: &str) -> Result<&'a Value, String> {
