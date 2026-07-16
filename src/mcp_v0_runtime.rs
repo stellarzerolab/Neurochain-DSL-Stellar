@@ -12,14 +12,19 @@ use crate::mcp_v0_fixture::{
     self, validate_no_secret_like_fields, validate_no_submit_value, EXCLUDED_TOOLS,
 };
 use crate::soroban_deep::{self, ContractPolicy};
+use crate::zk_attestation::{
+    inspect_zk_attestation, ZkAttestationViewRequest, ZkProofArtifact, ZkTypedActionPlan,
+};
 
 const PLAN_TOOL: &str = "plan_stellar_action";
 const EVALUATE_TOOL: &str = "evaluate_guardrails";
+const PROVE_TOOL: &str = "prove_guardrail_decision";
 const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 const MAX_INTENT_TEXT_BYTES: usize = 4096;
 const MAX_SOURCE_HINT_BYTES: usize = 64;
 const MAX_ACTION_PLAN_JSON_BYTES: usize = 65_536;
 const MAX_ACTIONS_PER_PLAN: usize = 64;
+const MAX_ZK_REQUEST_JSON_BYTES: usize = 2 * 1024 * 1024;
 
 pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     validate_no_secret_like_fields("call", value)?;
@@ -36,7 +41,7 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     if EXCLUDED_TOOLS.contains(&tool) {
         return Err(format!("tool {tool} is excluded from default MCP v0"));
     }
-    if !matches!(tool, PLAN_TOOL | EVALUATE_TOOL) {
+    if !matches!(tool, PLAN_TOOL | EVALUATE_TOOL | PROVE_TOOL) {
         return mcp_v0_fixture::fixture_value_by_call_value(value);
     }
 
@@ -53,6 +58,7 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     match tool {
         PLAN_TOOL => plan_stellar_action_value(arguments),
         EVALUATE_TOOL => evaluate_guardrails_value(arguments),
+        PROVE_TOOL => prove_guardrail_decision_value(arguments),
         _ => unreachable!("tool dispatch checked above"),
     }
 }
@@ -73,6 +79,96 @@ pub fn evaluate_guardrails_value(arguments: &Map<String, Value>) -> Result<Value
     let requires_approval = optional_bool(arguments, "requires_approval")?.unwrap_or(false);
     let config = GuardrailRuntimeConfig::from_env(requires_approval);
     evaluate_guardrails_with_config(arguments, config)
+}
+
+pub fn prove_guardrail_decision_value(arguments: &Map<String, Value>) -> Result<Value, String> {
+    validate_prove_arguments(arguments)?;
+
+    let proof_mode = optional_trimmed_string_for(PROVE_TOOL, arguments, "proof_mode")?
+        .unwrap_or("inspect_public_artifact");
+    if proof_mode != "inspect_public_artifact" {
+        return Err(
+            "prove_guardrail_decision v0 accepts only proof_mode=inspect_public_artifact"
+                .to_string(),
+        );
+    }
+
+    let serialized_size = serde_json::to_vec(arguments)
+        .map_err(|err| format!("prove_guardrail_decision arguments are invalid: {err}"))?
+        .len();
+    if serialized_size > MAX_ZK_REQUEST_JSON_BYTES {
+        return Err(format!(
+            "prove_guardrail_decision arguments exceed {MAX_ZK_REQUEST_JSON_BYTES} serialized bytes"
+        ));
+    }
+
+    let action_plan: ZkTypedActionPlan = serde_json::from_value(
+        arguments
+            .get("action_plan")
+            .cloned()
+            .ok_or_else(|| "prove_guardrail_decision requires action_plan".to_string())?,
+    )
+    .map_err(|err| format!("prove_guardrail_decision action_plan is invalid: {err}"))?;
+    let proof: ZkProofArtifact = serde_json::from_value(
+        arguments
+            .get("proof")
+            .cloned()
+            .ok_or_else(|| "prove_guardrail_decision requires proof".to_string())?,
+    )
+    .map_err(|err| format!("prove_guardrail_decision proof is invalid: {err}"))?;
+    let journal_digest = proof.journal_digest_hex.to_ascii_lowercase();
+
+    let inspected = inspect_zk_attestation(ZkAttestationViewRequest { action_plan, proof })
+        .map_err(|err| {
+            format!(
+                "prove_guardrail_decision rejected public artifact: {}",
+                err.code()
+            )
+        })?;
+    let attestation = inspected
+        .zk_attestation
+        .ok_or_else(|| "prove_guardrail_decision inspection returned no attestation".to_string())?;
+    let decision = attestation.attested_decision;
+
+    let response = json!({
+        "schema_version": 1,
+        "tool": PROVE_TOOL,
+        "mode": "read_only",
+        "runtime_source": "neurochain_zk_attestation_view",
+        "status": if decision.status == "blocked" { "blocked" } else { "ok" },
+        "decision": decision.status,
+        "exit_code": decision.exit_code,
+        "reason_code": decision.reason,
+        "action_plan_hash": attestation.action_plan_hash,
+        "policy_commitment": attestation.policy_commitment,
+        "policy_version": attestation.policy_version,
+        "stellar_verification": "required_on_stellar",
+        "attestation_submitted": false,
+        "verification_transaction_submitted": false,
+        "transaction_hash": null,
+        "nullifier_consumed": false,
+        "underlying_action_submit_allowed": false,
+        "proof_artifact_ref": format!("inline:{journal_digest}"),
+        "proof_kind": attestation.proof_kind,
+        "proof_binding": attestation.verification_state,
+        "cryptographically_verified": attestation.cryptographically_verified,
+        "stellar_verification_required": attestation.stellar_verification_required,
+        "evaluator_image_id": attestation.evaluator_image_id,
+        "verifier_selector": attestation.verifier_selector,
+        "journal_digest": journal_digest,
+        "audit_nullifier": attestation.audit_nullifier,
+        "private_policy_revealed": attestation.private_policy_revealed,
+        "requires_approval": decision.requires_approval,
+        "next_recommended_tool": "verify_zk_on_stellar",
+        "logs": [
+            "public ZK journal and canonical typed ActionPlan bindings validated locally",
+            "Groth16 seal not cryptographically verified by this tool; Stellar verification remains required",
+            "private policy, proof seal, and public journal bytes were not returned",
+            "read only: no signing, broadcast, attestation, nullifier consume, or ActionPlan submit"
+        ]
+    });
+    validate_no_submit_value("prove_guardrail_decision runtime", &response)?;
+    Ok(response)
 }
 
 struct GuardrailRuntimeConfig {
@@ -466,6 +562,19 @@ fn validate_evaluate_arguments(arguments: &Map<String, Value>) -> Result<(), Str
     Ok(())
 }
 
+fn validate_prove_arguments(arguments: &Map<String, Value>) -> Result<(), String> {
+    let allowed = BTreeSet::from(["action_plan", "proof", "proof_mode"]);
+    if let Some(field) = arguments
+        .keys()
+        .find(|field| !allowed.contains(field.as_str()))
+    {
+        return Err(format!(
+            "prove_guardrail_decision does not accept argument {field}"
+        ));
+    }
+    Ok(())
+}
+
 fn required_trimmed_string<'a>(
     arguments: &'a Map<String, Value>,
     field: &str,
@@ -605,6 +714,20 @@ mod tests {
             warnings: Vec::new(),
             source: Some("mcp-test".to_string()),
         }
+    }
+
+    fn proof_arguments(proof_json: &str) -> Map<String, Value> {
+        json!({
+            "action_plan": serde_json::from_str::<Value>(include_str!(
+                "../hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json"
+            ))
+            .expect("ZK typed ActionPlan fixture"),
+            "proof": serde_json::from_str::<Value>(proof_json).expect("ZK proof fixture"),
+            "proof_mode": "inspect_public_artifact"
+        })
+        .as_object()
+        .expect("proof arguments")
+        .clone()
     }
 
     #[test]
@@ -952,6 +1075,87 @@ mod tests {
             guardrail_config(Allowlist::default(), false, Vec::new(), false, false),
         )
         .expect_err("serialized plan size must be bounded");
+        assert!(error.contains("serialized bytes"));
+    }
+
+    #[test]
+    fn real_proof_adapter_inspects_public_artifacts_without_submit() {
+        for (proof, expected_decision, expected_exit, expected_reason) in [
+            (
+                include_str!("../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"),
+                "approved",
+                0,
+                "passed",
+            ),
+            (
+                include_str!(
+                    "../hackathons/stellar-real-world-zk/fixtures/groth16_requires_approval.json"
+                ),
+                "requires_approval",
+                0,
+                "approval_threshold",
+            ),
+            (
+                include_str!(
+                    "../hackathons/stellar-real-world-zk/fixtures/groth16_blocked_exit_3.json"
+                ),
+                "blocked",
+                3,
+                "allowlist",
+            ),
+        ] {
+            let response = prove_guardrail_decision_value(&proof_arguments(proof))
+                .expect("public artifact inspection");
+
+            assert_eq!(response["runtime_source"], "neurochain_zk_attestation_view");
+            assert_eq!(response["decision"], expected_decision);
+            assert_eq!(response["exit_code"], expected_exit);
+            assert_eq!(response["reason_code"], expected_reason);
+            assert_eq!(response["proof_binding"], "binding_validated");
+            assert_eq!(response["cryptographically_verified"], false);
+            assert_eq!(response["stellar_verification_required"], true);
+            assert_eq!(response["stellar_verification"], "required_on_stellar");
+            assert_eq!(response["underlying_action_submit_allowed"], false);
+            assert_eq!(response["attestation_submitted"], false);
+            assert_eq!(response["verification_transaction_submitted"], false);
+            assert_eq!(response["nullifier_consumed"], false);
+            assert!(response["transaction_hash"].is_null());
+            assert!(response.get("seal_hex").is_none());
+            assert!(response.get("journal_hex").is_none());
+        }
+    }
+
+    #[test]
+    fn real_proof_adapter_rejects_tampered_binding() {
+        let mut arguments = proof_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        arguments["action_plan"]["args"][0]["value"] = Value::String("500000001".to_string());
+
+        let error = prove_guardrail_decision_value(&arguments)
+            .expect_err("tampered ActionPlan binding must fail closed");
+        assert!(error.contains("action_plan_hash_mismatch"));
+    }
+
+    #[test]
+    fn real_proof_adapter_rejects_paths_and_bounds_inline_input() {
+        let mut arguments = proof_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        arguments.insert(
+            "proof_path".to_string(),
+            Value::String("private/proof.json".to_string()),
+        );
+        let error = prove_guardrail_decision_value(&arguments)
+            .expect_err("client path argument must fail closed");
+        assert!(error.contains("does not accept argument proof_path"));
+
+        let mut arguments = proof_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        arguments["proof"]["seal_hex"] = Value::String("aa".repeat(MAX_ZK_REQUEST_JSON_BYTES));
+        let error = prove_guardrail_decision_value(&arguments)
+            .expect_err("oversized public artifact must fail closed");
         assert!(error.contains("serialized bytes"));
     }
 }

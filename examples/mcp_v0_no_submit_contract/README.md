@@ -1,7 +1,9 @@
 # MCP V0 No-Submit Contract Fixtures
 
-These fixtures turn the MCP v0 contract into machine-checkable examples before
-there is a dedicated MCP server implementation.
+These fixtures keep the MCP v0 response contract machine-checkable alongside
+the read-only stdio server. Explicit fixture/scenario calls remain available
+for conformance tests; normal calls to the first three tools use NeuroChain
+runtime adapters.
 
 The default MCP v0 surface is read-only and no-submit:
 
@@ -22,7 +24,9 @@ plan_stellar_action
 - `evaluate_guardrails_requires_approval.json` shows a terminal no-submit
   approval boundary.
 - `evaluate_guardrails_blocked_exit_4.json` shows a contract-policy block.
-- `prove_guardrail_decision.json` shows a public ZK proof artifact reference.
+- `prove_guardrail_decision.json` shows a locally validated public ZK artifact
+  binding. It intentionally reports `cryptographically_verified: false` until
+  the separate Stellar verification step.
 - `verify_zk_on_stellar_read_only.json` shows read-only Soroban verification.
 - `get_guardrail_status_verified.json` shows the final observational status.
 

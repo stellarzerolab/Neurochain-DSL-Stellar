@@ -365,6 +365,33 @@ fn mcp_v0_stdio_advertises_real_guardrail_runtime_input() {
 }
 
 #[test]
+fn mcp_v0_stdio_advertises_bounded_inline_proof_inspection() {
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let prove_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "prove_guardrail_decision")
+        .expect("prove tool");
+    let schema = &prove_tool["inputSchema"];
+
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["properties"]["proof_mode"]["enum"],
+        serde_json::json!(["inspect_public_artifact"])
+    );
+    assert_eq!(schema["properties"]["proof"]["additionalProperties"], false);
+    assert_eq!(
+        schema["properties"]["proof"]["properties"]["journal_digest_hex"]["pattern"],
+        "^[0-9a-fA-F]{64}$"
+    );
+    assert!(schema["properties"].get("proof_path").is_none());
+    assert!(schema["properties"].get("private_policy").is_none());
+    assert!(schema["properties"]["proof"]["properties"]
+        .get("policy")
+        .is_none());
+}
+
+#[test]
 fn mcp_v0_stdio_rejects_tools_before_session_is_ready() {
     let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#);
     assert!(
@@ -722,6 +749,91 @@ fn mcp_v0_stdio_rejects_action_plan_hash_mismatch() {
         .as_str()
         .expect("hash error message")
         .contains("does not match"));
+}
+
+#[test]
+fn mcp_v0_stdio_inspects_real_zk_artifact_without_submit() {
+    let action_plan = read_json(Path::new(
+        "hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json",
+    ));
+    let proof = read_json(Path::new(
+        "hackathons/stellar-real-world-zk/fixtures/groth16_approved.json",
+    ));
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "prove-runtime",
+        "method": "tools/call",
+        "params": {
+            "name": "prove_guardrail_decision",
+            "arguments": {
+                "action_plan": action_plan,
+                "proof": proof,
+                "proof_mode": "inspect_public_artifact"
+            }
+        }
+    });
+    let value = run_ready_mcp_stdio(&request.to_string());
+    let result = &value["result"]["structuredContent"];
+
+    assert_eq!(value["id"], "prove-runtime");
+    assert_eq!(result["runtime_source"], "neurochain_zk_attestation_view");
+    assert_eq!(result["decision"], "approved");
+    assert_eq!(result["exit_code"], 0);
+    assert_eq!(result["reason_code"], "passed");
+    assert_eq!(result["proof_binding"], "binding_validated");
+    assert_eq!(result["cryptographically_verified"], false);
+    assert_eq!(result["stellar_verification_required"], true);
+    assert_eq!(result["stellar_verification"], "required_on_stellar");
+    assert_eq!(
+        result["evaluator_image_id"],
+        "d12dc4e578c8000108c739bc4a071a451791ac4011c2688033ee13f5d60b3473"
+    );
+    assert_eq!(
+        result["journal_digest"],
+        "55d9f3e4223db1687f060a00f0caa64c081f441347e0f00c2d285e539b5ee13c"
+    );
+    assert_eq!(
+        result["proof_artifact_ref"],
+        "inline:55d9f3e4223db1687f060a00f0caa64c081f441347e0f00c2d285e539b5ee13c"
+    );
+    assert_eq!(result["underlying_action_submit_allowed"], false);
+    assert_eq!(result["attestation_submitted"], false);
+    assert_eq!(result["verification_transaction_submitted"], false);
+    assert_eq!(result["nullifier_consumed"], false);
+    assert!(result["transaction_hash"].is_null());
+    assert!(result.get("seal_hex").is_none());
+    assert!(result.get("journal_hex").is_none());
+}
+
+#[test]
+fn mcp_v0_stdio_rejects_tampered_zk_action_plan_binding() {
+    let mut action_plan = read_json(Path::new(
+        "hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json",
+    ));
+    action_plan["args"][0]["value"] = Value::String("500000001".to_string());
+    let proof = read_json(Path::new(
+        "hackathons/stellar-real-world-zk/fixtures/groth16_approved.json",
+    ));
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "prove-tampered",
+        "method": "tools/call",
+        "params": {
+            "name": "prove_guardrail_decision",
+            "arguments": {
+                "action_plan": action_plan,
+                "proof": proof
+            }
+        }
+    });
+    let value = run_ready_mcp_stdio(&request.to_string());
+
+    assert_eq!(value["id"], "prove-tampered");
+    assert_eq!(value["error"]["code"], -32602);
+    assert!(value["error"]["message"]
+        .as_str()
+        .expect("proof binding error")
+        .contains("action_plan_hash_mismatch"));
 }
 
 #[test]

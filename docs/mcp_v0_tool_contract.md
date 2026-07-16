@@ -268,16 +268,34 @@ Safety rules:
 
 ## Tool 3: prove_guardrail_decision
 
-Purpose: produce or inspect a proof artifact for a guardrail decision.
+Purpose: inspect an inline public Groth16 artifact against the exact ZK typed
+ActionPlan bound into its journal. This tool uses the existing NeuroChain ZK
+attestation-view validator. It does not generate a proof and does not perform
+cryptographic verification.
 
 Inputs:
 
 ```json
 {
-  "action_plan": {},
-  "policy_ref": "local-policy-or-configured-service-policy",
-  "proof_mode": "local_or_bundled",
-  "evaluator_image_id": "hex-string"
+  "action_plan": {
+    "schema_version": 1,
+    "intent_label": "ContractInvoke",
+    "action_kind": "soroban_contract_invoke",
+    "contract_id": "C...",
+    "function": "purchase_credits",
+    "args": [
+      {"name": "amount", "type": "u64", "value": "500000000"}
+    ],
+    "intent_confidence_bps": 9800
+  },
+  "proof": {
+    "schema_version": 1,
+    "seal_hex": "hex-string",
+    "image_id_hex": "64-hex-characters",
+    "journal_hex": "hex-string",
+    "journal_digest_hex": "64-hex-characters"
+  },
+  "proof_mode": "inspect_public_artifact"
 }
 ```
 
@@ -285,8 +303,14 @@ Output additions:
 
 ```json
 {
-  "proof_artifact_ref": "local-or-bundled-artifact-id",
+  "runtime_source": "neurochain_zk_attestation_view",
+  "proof_artifact_ref": "inline:<journal-digest>",
+  "proof_kind": "groth16",
+  "proof_binding": "binding_validated",
+  "cryptographically_verified": false,
+  "stellar_verification_required": true,
   "evaluator_image_id": "hex-string",
+  "verifier_selector": "hex-string",
   "journal_digest": "hex-string",
   "policy_commitment": "hex-string",
   "policy_version": 7,
@@ -300,9 +324,22 @@ Output additions:
 
 Safety rules:
 
-- The proof artifact proves a decision only.
-- The proof artifact must not expose private policy rules.
-- A valid proof must not change `underlying_action_submit_allowed`.
+- Only inline public JSON is accepted. Client file paths and private policy
+  fields are rejected.
+- The request is bounded to 2 MiB, matching the existing CLI artifact limit.
+- The validator checks the journal digest, strict journal encoding, evaluator
+  image ID binding, and canonical ZK typed ActionPlan hash binding.
+- The tool does not cryptographically verify the Groth16 seal. A successful
+  result is `binding_validated`, not `verified_on_stellar`.
+- The seal and journal bytes are not echoed in the response.
+- The proof artifact proves a decision only and must not expose private policy
+  rules.
+- A valid binding must not change `underlying_action_submit_allowed` or submit
+  an attestation.
+- The generic MCP planning ActionPlan and the ZK typed ActionPlan currently use
+  separate versioned schemas and hash domains. MCP v0 therefore requires the
+  exact ZK typed ActionPlan produced by the existing proof-artifact workflow;
+  it does not apply a heuristic conversion.
 
 ## Tool 4: verify_zk_on_stellar
 

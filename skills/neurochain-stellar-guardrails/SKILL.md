@@ -46,7 +46,7 @@ Use the MCP v0 tools as a read-only sequence:
 | --- | --- | --- |
 | 1 | `plan_stellar_action` | Return a typed ActionPlan preview. Do not simulate, sign, or submit. |
 | 2 | `evaluate_guardrails` | Return `approved`, `requires_approval`, or `blocked` with exit/reason. |
-| 3 | `prove_guardrail_decision` | Return proof metadata without revealing private policy. |
+| 3 | `prove_guardrail_decision` | Inspect the inline public artifact against its exact ZK typed ActionPlan. Report local binding validation as non-cryptographic and do not reveal private policy. |
 | 4 | `verify_zk_on_stellar` | Verify in read-only mode. Do not consume nullifiers or submit attestations. |
 | 5 | `get_guardrail_status` | Report state only. Do not trigger new verification or submit work. |
 

@@ -69,7 +69,7 @@ The detailed contract is in
 | --- | --- | --- | --- |
 | `plan_stellar_action` | Convert intent or structured input into a typed ActionPlan. | Canonical ActionPlan preview. | No signing, simulation, or submit. |
 | `evaluate_guardrails` | Run deterministic guardrails against the ActionPlan. | `approved`, `requires_approval`, or `blocked` plus exit/reason. | Blocks remain terminal for MCP v0. |
-| `prove_guardrail_decision` | Produce or inspect the ZK decision artifact for supported scenarios. | Proof metadata, ActionPlan hash, policy commitment, decision. | Proof is evidence, not submit permission. |
+| `prove_guardrail_decision` | Inspect an inline public ZK artifact against its exact typed ActionPlan. | Local binding state, proof metadata, ActionPlan hash, policy commitment, decision. | Local binding validation is not cryptographic verification or submit permission. |
 | `verify_zk_on_stellar` | Verify the decision against Soroban in read-only mode. | Stellar verification status and contract binding. | Read-only verification leaves state unchanged. |
 | `get_guardrail_status` | Return the latest local and Stellar verification status. | Status, transaction hash if available, nullifier state, submit boundary. | `underlying_action_submit_allowed` remains false. |
 
@@ -182,8 +182,11 @@ permission to submit the underlying ActionPlan.
    the local intent classifier and deterministic ActionPlan builder, and
    `evaluate_guardrails` uses the existing configured allowlist,
    contract-policy, and intent-safety validators with canonical hash binding.
-   `prove_guardrail_decision` is next. Explicit fixtures remain available only
-   for conformance tests.
+   `prove_guardrail_decision` now uses the existing ZK attestation-view
+   validator to inspect inline public Groth16 artifacts, journals, evaluator
+   image IDs, and exact ZK typed ActionPlan bindings. It deliberately reports
+   `cryptographically_verified=false`; `verify_zk_on_stellar` is next.
+   Explicit fixtures remain available only for conformance tests.
 7. Keep `submit_testnet_attestation` separate and opt-in.
 8. Finish x402 as optional paid ingress behind the existing fail-closed
    facilitator boundary.

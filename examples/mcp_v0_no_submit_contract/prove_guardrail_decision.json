@@ -2,6 +2,7 @@
   "schema_version": 1,
   "tool": "prove_guardrail_decision",
   "mode": "read_only",
+  "runtime_source": "neurochain_zk_attestation_view",
   "status": "ok",
   "decision": "approved",
   "exit_code": 0,
@@ -15,13 +16,22 @@
   "transaction_hash": null,
   "nullifier_consumed": false,
   "underlying_action_submit_allowed": false,
-  "proof_artifact_ref": "bundled-demo-approved",
-  "evaluator_image_id": "9d57f7b8f15448f18ca5d6d4c76da0f5750e5a81b609fc8f9965b3ed9d06e3a6",
-  "journal_digest": "6ab6b4aef5f8b78625b050f4a4e8801c7b8716f7360ef1ea8e49acddbd88e54a",
-  "audit_nullifier": "3fd9244e7190477ce87cd9e2d9d7726eb6ebf9b503fbf07a55f3b7f5e8807231",
+  "proof_artifact_ref": "inline:55d9f3e4223db1687f060a00f0caa64c081f441347e0f00c2d285e539b5ee13c",
+  "proof_kind": "groth16",
+  "proof_binding": "binding_validated",
+  "cryptographically_verified": false,
+  "stellar_verification_required": true,
+  "evaluator_image_id": "d12dc4e578c8000108c739bc4a071a451791ac4011c2688033ee13f5d60b3473",
+  "verifier_selector": "73c457ba",
+  "journal_digest": "55d9f3e4223db1687f060a00f0caa64c081f441347e0f00c2d285e539b5ee13c",
+  "audit_nullifier": "c62e6a97e27f67c0370a45b52ff84f27796b9d7f55df02ad35aff2e90b7328da",
+  "private_policy_revealed": false,
+  "requires_approval": false,
   "next_recommended_tool": "verify_zk_on_stellar",
   "logs": [
-    "proof artifact reference produced",
-    "private policy contents were not returned"
+    "public ZK journal and canonical typed ActionPlan bindings validated locally",
+    "Groth16 seal not cryptographically verified by this tool; Stellar verification remains required",
+    "private policy, proof seal, and public journal bytes were not returned",
+    "read only: no signing, broadcast, attestation, nullifier consume, or ActionPlan submit"
   ]
 }
