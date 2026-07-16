@@ -90,10 +90,12 @@ without running a live MCP server:
 ) | cargo run --bin neurochain-mcp-v0-stdio
 ```
 
-The shim only serves the embedded fixture contract. It does not connect to
-Stellar, sign, broadcast, submit, consume nullifiers, or accept secret-like
-fields. `initialize` advertises the safe tool capability and an explicit
-experimental `neurochainNoSubmit` boundary. The process accepts newline-
-delimited messages until stdin closes, requires the initialized notification
-before tool calls, and writes one compact JSON response line per request. The
-notification itself correctly produces no response.
+The shim serves real local runtime calls for `plan_stellar_action` and
+`evaluate_guardrails`; explicit `scenario` or `fixture` arguments retain the
+embedded conformance path. It does not connect to Stellar, sign, broadcast,
+submit, consume nullifiers, or accept secret-like fields. `initialize`
+advertises the safe tool capability and an explicit experimental
+`neurochainNoSubmit` boundary. The process accepts newline-delimited messages
+until stdin closes, requires the initialized notification before tool calls,
+and writes one compact JSON response line per request. The notification itself
+correctly produces no response.

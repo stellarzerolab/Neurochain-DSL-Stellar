@@ -1,20 +1,25 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, env, fs};
 
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-use crate::actions::ActionPlan;
+use crate::actions::{validate_enforced_plan, validate_plan, Action, ActionPlan, Allowlist};
 use crate::intent_stellar::{
-    build_action_plan, classify, resolve_model_path, IntentBuildConfig, IntentDecision,
+    build_action_plan, classify, has_intent_blocking_issue, resolve_model_path, IntentBuildConfig,
+    IntentDecision,
 };
 use crate::mcp_v0_fixture::{
     self, validate_no_secret_like_fields, validate_no_submit_value, EXCLUDED_TOOLS,
 };
+use crate::soroban_deep::{self, ContractPolicy};
 
 const PLAN_TOOL: &str = "plan_stellar_action";
+const EVALUATE_TOOL: &str = "evaluate_guardrails";
 const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 const MAX_INTENT_TEXT_BYTES: usize = 4096;
 const MAX_SOURCE_HINT_BYTES: usize = 64;
+const MAX_ACTION_PLAN_JSON_BYTES: usize = 65_536;
+const MAX_ACTIONS_PER_PLAN: usize = 64;
 
 pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     validate_no_secret_like_fields("call", value)?;
@@ -31,7 +36,7 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     if EXCLUDED_TOOLS.contains(&tool) {
         return Err(format!("tool {tool} is excluded from default MCP v0"));
     }
-    if tool != PLAN_TOOL {
+    if !matches!(tool, PLAN_TOOL | EVALUATE_TOOL) {
         return mcp_v0_fixture::fixture_value_by_call_value(value);
     }
 
@@ -39,14 +44,17 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
         .get("arguments")
         .and_then(Value::as_object)
         .ok_or_else(|| {
-            "plan_stellar_action requires object arguments with intent_text or an explicit fixture/scenario"
-                .to_string()
+            format!("{tool} requires object arguments or an explicit fixture/scenario")
         })?;
     if arguments.contains_key("fixture") || arguments.contains_key("scenario") {
         return mcp_v0_fixture::fixture_value_by_call_value(value);
     }
 
-    plan_stellar_action_value(arguments)
+    match tool {
+        PLAN_TOOL => plan_stellar_action_value(arguments),
+        EVALUATE_TOOL => evaluate_guardrails_value(arguments),
+        _ => unreachable!("tool dispatch checked above"),
+    }
 }
 
 pub fn plan_stellar_action_value(arguments: &Map<String, Value>) -> Result<Value, String> {
@@ -59,6 +67,281 @@ pub fn plan_stellar_action_value(arguments: &Map<String, Value>) -> Result<Value
                 .to_string()
         })
     })
+}
+
+pub fn evaluate_guardrails_value(arguments: &Map<String, Value>) -> Result<Value, String> {
+    let requires_approval = optional_bool(arguments, "requires_approval")?.unwrap_or(false);
+    let config = GuardrailRuntimeConfig::from_env(requires_approval);
+    evaluate_guardrails_with_config(arguments, config)
+}
+
+struct GuardrailRuntimeConfig {
+    allowlist: Allowlist,
+    allowlist_enforced: bool,
+    policies: Vec<ContractPolicy>,
+    policy_load_errors: Vec<String>,
+    policy_enforced: bool,
+    requires_approval: bool,
+}
+
+impl GuardrailRuntimeConfig {
+    fn from_env(requires_approval: bool) -> Self {
+        let policy_load = load_contract_policies();
+        Self {
+            allowlist: Allowlist::from_env(),
+            allowlist_enforced: env_bool("NC_ALLOWLIST_ENFORCE"),
+            policies: policy_load.policies,
+            policy_load_errors: policy_load.errors,
+            policy_enforced: env_bool("NC_CONTRACT_POLICY_ENFORCE"),
+            requires_approval,
+        }
+    }
+}
+
+#[derive(Default)]
+struct ContractPolicyLoad {
+    policies: Vec<ContractPolicy>,
+    errors: Vec<String>,
+}
+
+fn load_contract_policies() -> ContractPolicyLoad {
+    let mut load = ContractPolicyLoad::default();
+
+    if let Ok(path) = env::var("NC_CONTRACT_POLICY") {
+        if !path.trim().is_empty() {
+            load_contract_policy_file(&path, &mut load);
+        }
+    }
+
+    let explicit_policy_dir = env::var("NC_CONTRACT_POLICY_DIR")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let policy_dir = explicit_policy_dir
+        .clone()
+        .unwrap_or_else(|| "contracts".to_string());
+    match fs::read_dir(&policy_dir) {
+        Ok(entries) => {
+            let mut policy_paths: Vec<_> = entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .map(|path| path.join("policy.json"))
+                .filter(|path| path.exists())
+                .collect();
+            policy_paths.sort();
+            for policy_path in policy_paths {
+                load_contract_policy_file(&policy_path.to_string_lossy(), &mut load);
+            }
+        }
+        Err(err) if explicit_policy_dir.is_some() => load.errors.push(format!(
+            "policy_load_failed: policy dir not found or unreadable: {policy_dir}: {err}"
+        )),
+        Err(_) => {}
+    }
+
+    load
+}
+
+fn load_contract_policy_file(path: &str, load: &mut ContractPolicyLoad) {
+    match fs::read_to_string(path) {
+        Ok(data) => match serde_json::from_str::<ContractPolicy>(&data) {
+            Ok(policy) => load.policies.push(policy),
+            Err(err) => load.errors.push(format!(
+                "policy_load_failed: policy parse failed for {path}: {err}"
+            )),
+        },
+        Err(err) => load.errors.push(format!(
+            "policy_load_failed: policy file not found or unreadable: {path}: {err}"
+        )),
+    }
+}
+
+fn evaluate_guardrails_with_config(
+    arguments: &Map<String, Value>,
+    config: GuardrailRuntimeConfig,
+) -> Result<Value, String> {
+    validate_evaluate_arguments(arguments)?;
+
+    let policy_ref = optional_trimmed_string_for(EVALUATE_TOOL, arguments, "policy_ref")?
+        .unwrap_or("configured");
+    if policy_ref != "configured" {
+        return Err("evaluate_guardrails v0 accepts only policy_ref=configured".to_string());
+    }
+    let evaluation_mode = optional_trimmed_string_for(EVALUATE_TOOL, arguments, "evaluation_mode")?
+        .unwrap_or("deterministic");
+    if evaluation_mode != "deterministic" {
+        return Err(
+            "evaluate_guardrails v0 accepts only evaluation_mode=deterministic".to_string(),
+        );
+    }
+
+    let action_plan_value = arguments
+        .get("action_plan")
+        .ok_or_else(|| "evaluate_guardrails requires action_plan".to_string())?;
+    let action_plan_size = serde_json::to_vec(action_plan_value)
+        .map_err(|err| format!("evaluate_guardrails action_plan is invalid: {err}"))?
+        .len();
+    if action_plan_size > MAX_ACTION_PLAN_JSON_BYTES {
+        return Err(format!(
+            "evaluate_guardrails action_plan exceeds {MAX_ACTION_PLAN_JSON_BYTES} serialized bytes"
+        ));
+    }
+    let plan: ActionPlan = serde_json::from_value(action_plan_value.clone())
+        .map_err(|err| format!("evaluate_guardrails action_plan is invalid: {err}"))?;
+    if plan.actions.len() > MAX_ACTIONS_PER_PLAN {
+        return Err(format!(
+            "evaluate_guardrails action_plan exceeds {MAX_ACTIONS_PER_PLAN} actions"
+        ));
+    }
+    let expected_hash = required_trimmed_string_for(EVALUATE_TOOL, arguments, "action_plan_hash")?;
+    validate_hash(expected_hash, "action_plan_hash")?;
+    let action_plan_hash = canonical_action_plan_hash(&plan)?;
+    if !expected_hash.eq_ignore_ascii_case(&action_plan_hash) {
+        return Err(
+            "evaluate_guardrails action_plan_hash does not match the canonical ActionPlan"
+                .to_string(),
+        );
+    }
+
+    let allowlist_violations = if config.allowlist_enforced {
+        validate_enforced_plan(&plan, &config.allowlist)
+    } else {
+        validate_plan(&plan, &config.allowlist)
+    };
+    let (policy_warnings, mut policy_errors) =
+        soroban_deep::validate_contract_policies(&plan, &config.policies);
+    if config.policy_enforced && plan_needs_contract_policy(&plan) {
+        policy_errors.extend(config.policy_load_errors.iter().cloned());
+        if config.policies.is_empty() {
+            policy_errors.push(
+                "policy_unconfigured: contract_policy_enforce enabled but no contract policies loaded"
+                    .to_string(),
+            );
+        }
+    }
+    let intent_blocked = plan.actions.is_empty() || has_intent_blocking_issue(&plan);
+
+    let exit_code = if config.allowlist_enforced && !allowlist_violations.is_empty() {
+        3
+    } else if config.policy_enforced && !policy_errors.is_empty() {
+        4
+    } else if intent_blocked {
+        5
+    } else {
+        0
+    };
+    let blocked = exit_code != 0;
+    let requires_approval = config.requires_approval && !blocked;
+    let (decision, reason_code) = match exit_code {
+        3 => ("blocked", "allowlist"),
+        4 => ("blocked", "contract_policy"),
+        5 => ("blocked", "intent_safety"),
+        _ if requires_approval => ("requires_approval", "approval_threshold"),
+        _ => ("approved", "passed"),
+    };
+
+    let allowlist_status = guardrail_status(
+        config.allowlist_enforced,
+        !allowlist_violations.is_empty(),
+        false,
+        false,
+    );
+    let contract_policy_status = guardrail_status(
+        config.policy_enforced,
+        !policy_errors.is_empty(),
+        !policy_warnings.is_empty(),
+        requires_approval,
+    );
+    let intent_status = if intent_blocked { "blocked" } else { "passed" };
+    let next_recommended_tool = if decision == "approved" {
+        "prove_guardrail_decision"
+    } else {
+        "get_guardrail_status"
+    };
+
+    let response = json!({
+        "schema_version": 1,
+        "tool": EVALUATE_TOOL,
+        "mode": "read_only",
+        "runtime_source": "neurochain_guardrails",
+        "status": if blocked { "blocked" } else { "ok" },
+        "decision": decision,
+        "exit_code": exit_code,
+        "reason_code": reason_code,
+        "action_plan_hash": action_plan_hash,
+        "policy_ref": policy_ref,
+        "policy_commitment": null,
+        "policy_version": null,
+        "stellar_verification": "not_requested",
+        "attestation_submitted": false,
+        "verification_transaction_submitted": false,
+        "transaction_hash": null,
+        "nullifier_consumed": false,
+        "underlying_action_submit_allowed": false,
+        "guardrails": {
+            "allowlist": allowlist_status,
+            "contract_policy": contract_policy_status,
+            "intent_safety": intent_status
+        },
+        "observations": {
+            "allowlist_enforced": config.allowlist_enforced,
+            "allowlist_violation_count": allowlist_violations.len(),
+            "contract_policy_enforced": config.policy_enforced,
+            "contract_policy_count": config.policies.len(),
+            "contract_policy_warning_count": policy_warnings.len(),
+            "contract_policy_error_count": policy_errors.len()
+        },
+        "next_recommended_tool": next_recommended_tool,
+        "logs": [
+            "deterministic NeuroChain guardrails evaluated the canonical ActionPlan",
+            format!(
+                "guardrail summary: allowlist_violations={} policy_warnings={} policy_errors={} intent_blocked={intent_blocked}",
+                allowlist_violations.len(),
+                policy_warnings.len(),
+                policy_errors.len()
+            ),
+            "read only: no simulation, signing, broadcast, attestation, nullifier consume, or submit"
+        ]
+    });
+    validate_no_submit_value("evaluate_guardrails runtime", &response)?;
+    Ok(response)
+}
+
+fn guardrail_status(
+    enforced: bool,
+    has_blocking_findings: bool,
+    has_warnings: bool,
+    requires_approval: bool,
+) -> &'static str {
+    if requires_approval {
+        "requires_approval"
+    } else if enforced && has_blocking_findings {
+        "blocked"
+    } else if has_blocking_findings || has_warnings {
+        "warning_only"
+    } else {
+        "passed"
+    }
+}
+
+fn plan_needs_contract_policy(plan: &ActionPlan) -> bool {
+    plan.actions.iter().any(|action| {
+        matches!(
+            action,
+            Action::SorobanContractInvoke { .. } | Action::SorobanContractDeploy { .. }
+        )
+    })
+}
+
+fn env_bool(name: &str) -> bool {
+    matches!(
+        env::var(name)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn plan_stellar_action_with_classifier<F>(
@@ -164,7 +447,34 @@ fn validate_plan_arguments(arguments: &Map<String, Value>) -> Result<(), String>
     Ok(())
 }
 
+fn validate_evaluate_arguments(arguments: &Map<String, Value>) -> Result<(), String> {
+    let allowed = BTreeSet::from([
+        "action_plan",
+        "action_plan_hash",
+        "policy_ref",
+        "evaluation_mode",
+        "requires_approval",
+    ]);
+    if let Some(field) = arguments
+        .keys()
+        .find(|field| !allowed.contains(field.as_str()))
+    {
+        return Err(format!(
+            "evaluate_guardrails does not accept argument {field}"
+        ));
+    }
+    Ok(())
+}
+
 fn required_trimmed_string<'a>(
+    arguments: &'a Map<String, Value>,
+    field: &str,
+) -> Result<&'a str, String> {
+    required_trimmed_string_for(PLAN_TOOL, arguments, field)
+}
+
+fn required_trimmed_string_for<'a>(
+    tool: &str,
     arguments: &'a Map<String, Value>,
     field: &str,
 ) -> Result<&'a str, String> {
@@ -173,11 +483,19 @@ fn required_trimmed_string<'a>(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("plan_stellar_action requires non-empty {field}"))?;
+        .ok_or_else(|| format!("{tool} requires non-empty {field}"))?;
     Ok(value)
 }
 
 fn optional_trimmed_string<'a>(
+    arguments: &'a Map<String, Value>,
+    field: &str,
+) -> Result<Option<&'a str>, String> {
+    optional_trimmed_string_for(PLAN_TOOL, arguments, field)
+}
+
+fn optional_trimmed_string_for<'a>(
+    tool: &str,
     arguments: &'a Map<String, Value>,
     field: &str,
 ) -> Result<Option<&'a str>, String> {
@@ -186,14 +504,32 @@ fn optional_trimmed_string<'a>(
     };
     let value = value
         .as_str()
-        .ok_or_else(|| format!("plan_stellar_action argument {field} must be a string"))?
+        .ok_or_else(|| format!("{tool} argument {field} must be a string"))?
         .trim();
     if value.is_empty() {
-        return Err(format!(
-            "plan_stellar_action argument {field} must not be empty"
-        ));
+        return Err(format!("{tool} argument {field} must not be empty"));
     }
     Ok(Some(value))
+}
+
+fn optional_bool(arguments: &Map<String, Value>, field: &str) -> Result<Option<bool>, String> {
+    arguments
+        .get(field)
+        .map(|value| {
+            value
+                .as_bool()
+                .ok_or_else(|| format!("evaluate_guardrails argument {field} must be a boolean"))
+        })
+        .transpose()
+}
+
+fn validate_hash(value: &str, field: &str) -> Result<(), String> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!(
+            "{field} must be a 32-byte hexadecimal SHA-256 value"
+        ));
+    }
+    Ok(())
 }
 
 fn validate_source_hint(alias: &str) -> Result<(), String> {
@@ -226,6 +562,48 @@ mod tests {
             score: 0.99,
             threshold: 0.55,
             downgraded_to_unknown: false,
+        }
+    }
+
+    fn evaluate_arguments(plan: &ActionPlan) -> Map<String, Value> {
+        let hash = canonical_action_plan_hash(plan).expect("canonical plan hash");
+        json!({
+            "action_plan": plan,
+            "action_plan_hash": hash,
+            "policy_ref": "configured",
+            "evaluation_mode": "deterministic"
+        })
+        .as_object()
+        .expect("evaluation arguments")
+        .clone()
+    }
+
+    fn guardrail_config(
+        allowlist: Allowlist,
+        allowlist_enforced: bool,
+        policies: Vec<ContractPolicy>,
+        policy_enforced: bool,
+        requires_approval: bool,
+    ) -> GuardrailRuntimeConfig {
+        GuardrailRuntimeConfig {
+            allowlist,
+            allowlist_enforced,
+            policies,
+            policy_load_errors: Vec::new(),
+            policy_enforced,
+            requires_approval,
+        }
+    }
+
+    fn balance_plan() -> ActionPlan {
+        ActionPlan {
+            schema_version: 1,
+            actions: vec![Action::StellarAccountBalance {
+                account: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string(),
+                asset: None,
+            }],
+            warnings: Vec::new(),
+            source: Some("mcp-test".to_string()),
         }
     }
 
@@ -317,5 +695,263 @@ mod tests {
         assert_eq!(response["action_plan"]["actions"][0]["kind"], "unknown");
         assert_eq!(response["next_recommended_tool"], "evaluate_guardrails");
         assert_eq!(response["underlying_action_submit_allowed"], false);
+    }
+
+    #[test]
+    fn real_guardrail_adapter_approves_valid_plan_without_enforced_findings() {
+        let plan = balance_plan();
+        let arguments = evaluate_arguments(&plan);
+        let response = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), false, Vec::new(), false, false),
+        )
+        .expect("guardrail response");
+
+        assert_eq!(response["runtime_source"], "neurochain_guardrails");
+        assert_eq!(response["decision"], "approved");
+        assert_eq!(response["exit_code"], 0);
+        assert_eq!(response["reason_code"], "passed");
+        assert_eq!(response["guardrails"]["allowlist"], "passed");
+        assert_eq!(response["guardrails"]["contract_policy"], "passed");
+        assert_eq!(response["guardrails"]["intent_safety"], "passed");
+        assert_eq!(response["underlying_action_submit_allowed"], false);
+        assert_eq!(response["attestation_submitted"], false);
+        assert!(response["transaction_hash"].is_null());
+    }
+
+    #[test]
+    fn real_guardrail_adapter_preserves_exit_precedence() {
+        let plan = ActionPlan {
+            schema_version: 1,
+            actions: vec![Action::SorobanContractInvoke {
+                contract_id: CONTRACT_ID.to_string(),
+                function: "purchase_credits".to_string(),
+                args: json!({"amount": 100}),
+            }],
+            warnings: vec!["intent_warning: low confidence".to_string()],
+            source: Some("mcp-test".to_string()),
+        };
+        let arguments = evaluate_arguments(&plan);
+        let response = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), true, Vec::new(), true, false),
+        )
+        .expect("guardrail response");
+
+        assert_eq!(response["decision"], "blocked");
+        assert_eq!(response["exit_code"], 3);
+        assert_eq!(response["reason_code"], "allowlist");
+        assert_eq!(response["guardrails"]["allowlist"], "blocked");
+        assert_eq!(response["guardrails"]["contract_policy"], "blocked");
+        assert_eq!(response["guardrails"]["intent_safety"], "blocked");
+    }
+
+    #[test]
+    fn real_guardrail_adapter_uses_exit_four_for_unconfigured_enforced_policy() {
+        let plan = ActionPlan {
+            schema_version: 1,
+            actions: vec![Action::SorobanContractInvoke {
+                contract_id: CONTRACT_ID.to_string(),
+                function: "hello".to_string(),
+                args: json!({"to": "world"}),
+            }],
+            warnings: Vec::new(),
+            source: Some("mcp-test".to_string()),
+        };
+        let arguments = evaluate_arguments(&plan);
+        let response = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), false, Vec::new(), true, false),
+        )
+        .expect("guardrail response");
+
+        assert_eq!(response["decision"], "blocked");
+        assert_eq!(response["exit_code"], 4);
+        assert_eq!(response["reason_code"], "contract_policy");
+        assert_eq!(response["underlying_action_submit_allowed"], false);
+    }
+
+    #[test]
+    fn real_guardrail_adapter_uses_configured_contract_policy_validator() {
+        let plan = ActionPlan {
+            schema_version: 1,
+            actions: vec![Action::SorobanContractInvoke {
+                contract_id: CONTRACT_ID.to_string(),
+                function: "hello".to_string(),
+                args: json!({"to": "world"}),
+            }],
+            warnings: Vec::new(),
+            source: Some("mcp-test".to_string()),
+        };
+        let arguments = evaluate_arguments(&plan);
+        let policy = |allowed_function: &str| {
+            serde_json::from_value::<ContractPolicy>(json!({
+                "contract_id": CONTRACT_ID,
+                "allowed_functions": [allowed_function]
+            }))
+            .expect("contract policy")
+        };
+
+        let approved = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(
+                Allowlist::default(),
+                false,
+                vec![policy("hello")],
+                true,
+                false,
+            ),
+        )
+        .expect("approved policy response");
+        assert_eq!(approved["decision"], "approved");
+        assert_eq!(approved["exit_code"], 0);
+
+        let warning_only_policy = serde_json::from_value::<ContractPolicy>(json!({
+            "contract_id": CONTRACT_ID,
+            "allowed_functions": ["hello"],
+            "max_fee_stroops": 1000
+        }))
+        .expect("warning-only contract policy");
+        let warning_only = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(
+                Allowlist::default(),
+                false,
+                vec![warning_only_policy],
+                true,
+                false,
+            ),
+        )
+        .expect("warning-only policy response");
+        assert_eq!(warning_only["decision"], "approved");
+        assert_eq!(warning_only["exit_code"], 0);
+        assert_eq!(
+            warning_only["guardrails"]["contract_policy"],
+            "warning_only"
+        );
+
+        let blocked = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(
+                Allowlist::default(),
+                false,
+                vec![policy("transfer")],
+                true,
+                false,
+            ),
+        )
+        .expect("blocked policy response");
+        assert_eq!(blocked["decision"], "blocked");
+        assert_eq!(blocked["exit_code"], 4);
+        assert_eq!(blocked["reason_code"], "contract_policy");
+    }
+
+    #[test]
+    fn real_guardrail_adapter_uses_exit_five_for_unknown_or_empty_plan() {
+        for plan in [
+            ActionPlan {
+                schema_version: 1,
+                actions: vec![Action::Unknown {
+                    reason: "intent_warning: low confidence".to_string(),
+                }],
+                warnings: Vec::new(),
+                source: Some("mcp-test".to_string()),
+            },
+            ActionPlan::default(),
+        ] {
+            let arguments = evaluate_arguments(&plan);
+            let response = evaluate_guardrails_with_config(
+                &arguments,
+                guardrail_config(Allowlist::default(), false, Vec::new(), false, false),
+            )
+            .expect("guardrail response");
+
+            assert_eq!(response["decision"], "blocked");
+            assert_eq!(response["exit_code"], 5);
+            assert_eq!(response["reason_code"], "intent_safety");
+        }
+    }
+
+    #[test]
+    fn real_guardrail_adapter_keeps_requires_approval_terminal() {
+        let plan = balance_plan();
+        let arguments = evaluate_arguments(&plan);
+        let response = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), false, Vec::new(), false, true),
+        )
+        .expect("guardrail response");
+
+        assert_eq!(response["decision"], "requires_approval");
+        assert_eq!(response["exit_code"], 0);
+        assert_eq!(response["reason_code"], "approval_threshold");
+        assert_eq!(
+            response["guardrails"]["contract_policy"],
+            "requires_approval"
+        );
+        assert_eq!(response["next_recommended_tool"], "get_guardrail_status");
+        assert_eq!(response["underlying_action_submit_allowed"], false);
+    }
+
+    #[test]
+    fn real_guardrail_adapter_rejects_hash_mismatch_and_policy_overrides() {
+        let plan = balance_plan();
+        let mut arguments = evaluate_arguments(&plan);
+        arguments.insert(
+            "action_plan_hash".to_string(),
+            Value::String("0".repeat(64)),
+        );
+        let error = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), false, Vec::new(), false, false),
+        )
+        .expect_err("hash mismatch must fail closed");
+        assert!(error.contains("does not match"));
+
+        let mut arguments = evaluate_arguments(&plan);
+        arguments.insert("allowlist_enforce".to_string(), Value::Bool(false));
+        let error = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), true, Vec::new(), false, false),
+        )
+        .expect_err("client policy override must fail closed");
+        assert!(error.contains("does not accept argument allowlist_enforce"));
+    }
+
+    #[test]
+    fn real_guardrail_adapter_bounds_action_plan_input() {
+        let too_many_actions = ActionPlan {
+            schema_version: 1,
+            actions: (0..=MAX_ACTIONS_PER_PLAN)
+                .map(|_| Action::Unknown {
+                    reason: "bounded test".to_string(),
+                })
+                .collect(),
+            warnings: Vec::new(),
+            source: None,
+        };
+        let arguments = evaluate_arguments(&too_many_actions);
+        let error = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), false, Vec::new(), false, false),
+        )
+        .expect_err("action count must be bounded");
+        assert!(error.contains("exceeds 64 actions"));
+
+        let oversized_plan = ActionPlan {
+            schema_version: 1,
+            actions: vec![Action::Unknown {
+                reason: "x".repeat(MAX_ACTION_PLAN_JSON_BYTES),
+            }],
+            warnings: Vec::new(),
+            source: None,
+        };
+        let arguments = evaluate_arguments(&oversized_plan);
+        let error = evaluate_guardrails_with_config(
+            &arguments,
+            guardrail_config(Allowlist::default(), false, Vec::new(), false, false),
+        )
+        .expect_err("serialized plan size must be bounded");
+        assert!(error.contains("serialized bytes"));
     }
 }

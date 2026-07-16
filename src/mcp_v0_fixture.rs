@@ -184,6 +184,53 @@ fn tool_input_schema(tool: &str) -> Value {
         });
     }
 
+    if tool == "evaluate_guardrails" {
+        return json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "action_plan": {
+                    "type": "object",
+                    "description": "Canonical typed NeuroChain ActionPlan returned by plan_stellar_action; maximum 64 actions and 65536 serialized bytes"
+                },
+                "action_plan_hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-fA-F]{64}$",
+                    "description": "SHA-256 binding returned with the canonical ActionPlan"
+                },
+                "policy_ref": {
+                    "type": "string",
+                    "enum": ["configured"],
+                    "default": "configured",
+                    "description": "Use only server-configured allowlists and contract policies"
+                },
+                "evaluation_mode": {
+                    "type": "string",
+                    "enum": ["deterministic"],
+                    "default": "deterministic"
+                },
+                "requires_approval": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Optional stricter terminal approval boundary; never submit permission"
+                },
+                "scenario": {
+                    "type": "string",
+                    "description": "Explicit offline fixture scenario selector for conformance tests"
+                },
+                "fixture": {
+                    "type": "string",
+                    "description": "Explicit offline fixture name for conformance tests"
+                }
+            },
+            "anyOf": [
+                {"required": ["action_plan", "action_plan_hash"]},
+                {"required": ["scenario"]},
+                {"required": ["fixture"]}
+            ]
+        });
+    }
+
     json!({
         "type": "object",
         "additionalProperties": true,
@@ -382,7 +429,9 @@ fn tool_description(tool: &str) -> &'static str {
         "plan_stellar_action" => {
             "Classify a Stellar intent locally and preview the real typed ActionPlan without submit capability."
         }
-        "evaluate_guardrails" => "Evaluate guardrail decision fields without submitting.",
+        "evaluate_guardrails" => {
+            "Evaluate the canonical ActionPlan with configured NeuroChain guardrails without submitting."
+        }
         "prove_guardrail_decision" => "Return a fixture proof artifact reference.",
         "verify_zk_on_stellar" => "Return read-only Stellar verification status.",
         "get_guardrail_status" => "Return the final no-submit guardrail status view.",

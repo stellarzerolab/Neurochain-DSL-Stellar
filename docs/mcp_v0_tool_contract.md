@@ -1,10 +1,11 @@
 # NeuroChain MCP V0 Tool Contract
 
 This document defines the first no-submit MCP surface for NeuroChain DSL for
-Stellar. The stdio server now connects `plan_stellar_action` to the real local
-NeuroChain intent classifier and deterministic ActionPlan builder. The four
-later tools remain fixture-backed while their runtime adapters are implemented
-one at a time.
+Stellar. The stdio server connects `plan_stellar_action` to the real local
+NeuroChain intent classifier and deterministic ActionPlan builder, and
+`evaluate_guardrails` to the existing deterministic allowlist, contract-policy,
+and intent-safety validators. The three later tools remain fixture-backed while
+their runtime adapters are implemented one at a time.
 
 Machine-checkable response fixtures live in:
 
@@ -28,7 +29,7 @@ cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"eva
 ```
 
 There is also a JSON-RPC stdio server for checking the MCP-shaped boundary and
-calling the first real runtime-backed planning tool:
+calling the runtime-backed planning and guardrail tools:
 
 ```powershell
 @(
@@ -66,6 +67,14 @@ directory is not the repository root. Calls with an explicit `scenario` or
 `fixture` stay offline and deterministic for conformance testing. Calls without
 either `intent_text` or an explicit fixture selector fail closed. No MCP path
 calls simulation, flow execution, signing, broadcast, or submit.
+
+For `evaluate_guardrails`, a real call accepts the canonical `action_plan` and
+`action_plan_hash` returned by the planning tool. It rejects a changed plan or
+hash, loads allowlist and contract-policy settings from the same server-side
+environment used by the CLI and API, and preserves the current exit precedence
+`3` then `4` then `5`. Clients cannot pass policy paths, allowlists, or enforce
+flags. Explicit `scenario` and `fixture` calls continue to select offline
+conformance fixtures.
 
 A process-level client harness and MCP host configuration example live in:
 
@@ -215,8 +224,10 @@ Inputs:
 ```json
 {
   "action_plan": {},
-  "policy_ref": "local-policy-or-configured-service-policy",
-  "evaluation_mode": "deterministic"
+  "action_plan_hash": "64-character-hex-sha256",
+  "policy_ref": "configured",
+  "evaluation_mode": "deterministic",
+  "requires_approval": false
 }
 ```
 
@@ -239,6 +250,16 @@ Output additions:
 Safety rules:
 
 - Raw private policy, salts, audit nonces, and secrets must not be returned.
+- The ActionPlan hash must match the domain-separated canonical hash returned by
+  `plan_stellar_action`; mismatches fail closed before evaluation.
+- Runtime calls accept at most 64 actions and 65,536 serialized ActionPlan bytes.
+- `policy_ref` is limited to `configured`. Policy paths, allowlists, and enforce
+  flags remain server-controlled through the existing NeuroChain environment.
+- `requires_approval: true` can only add a stricter terminal boundary. It cannot
+  downgrade a blocked decision or enable submission.
+- The runtime evaluation returns `policy_commitment: null` and
+  `policy_version: null`; those cryptographic bindings belong to the later ZK
+  proof artifact, not the non-ZK guardrail configuration.
 - `requires_approval` is a terminal no-submit result for MCP v0.
 - Exit `3`, `4`, and `5` keep the existing NeuroChain meanings:
   - `3`: allowlist block

@@ -1,4 +1,6 @@
+use neurochain::actions::ActionPlan;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -6,6 +8,7 @@ use std::process::{Command, Output, Stdio};
 
 const FIXTURE_DIR: &str = "examples/mcp_v0_no_submit_contract";
 const STDIO_CLIENT_DIR: &str = "examples/mcp_v0_stdio_client";
+const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 
 const REQUIRED_FIELDS: &[&str] = &[
     "schema_version",
@@ -334,6 +337,34 @@ fn mcp_v0_stdio_advertises_real_plan_runtime_input() {
 }
 
 #[test]
+fn mcp_v0_stdio_advertises_real_guardrail_runtime_input() {
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let evaluate_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "evaluate_guardrails")
+        .expect("evaluate tool");
+    let schema = &evaluate_tool["inputSchema"];
+
+    assert_eq!(schema["additionalProperties"], false);
+    assert!(schema["properties"].get("action_plan").is_some());
+    assert_eq!(
+        schema["properties"]["policy_ref"]["enum"],
+        serde_json::json!(["configured"])
+    );
+    assert_eq!(
+        schema["properties"]["evaluation_mode"]["enum"],
+        serde_json::json!(["deterministic"])
+    );
+    assert_eq!(
+        schema["properties"]["action_plan_hash"]["pattern"],
+        "^[0-9a-fA-F]{64}$"
+    );
+    assert!(schema["properties"].get("allowlist_enforce").is_none());
+    assert!(schema["properties"].get("contract_policy").is_none());
+}
+
+#[test]
 fn mcp_v0_stdio_rejects_tools_before_session_is_ready() {
     let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#);
     assert!(
@@ -624,6 +655,76 @@ fn mcp_v0_stdio_keeps_explicit_plan_fixture_for_conformance() {
 }
 
 #[test]
+fn mcp_v0_stdio_evaluates_unknown_plan_with_real_guardrails() {
+    let action_plan = serde_json::json!({
+        "schema_version": 1,
+        "actions": [{
+            "kind": "unknown",
+            "reason": "intent_warning: low confidence"
+        }]
+    });
+    let action_plan_hash = canonical_action_plan_hash(&action_plan);
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "evaluate-runtime",
+        "method": "tools/call",
+        "params": {
+            "name": "evaluate_guardrails",
+            "arguments": {
+                "action_plan": action_plan,
+                "action_plan_hash": action_plan_hash,
+                "policy_ref": "configured",
+                "evaluation_mode": "deterministic"
+            }
+        }
+    });
+    let value = run_ready_mcp_stdio(&request.to_string());
+    let result = &value["result"]["structuredContent"];
+
+    assert_eq!(value["id"], "evaluate-runtime");
+    assert_eq!(result["runtime_source"], "neurochain_guardrails");
+    assert_eq!(result["decision"], "blocked");
+    assert_eq!(result["exit_code"], 5);
+    assert_eq!(result["reason_code"], "intent_safety");
+    assert_eq!(result["guardrails"]["intent_safety"], "blocked");
+    assert_eq!(result["underlying_action_submit_allowed"], false);
+    assert_eq!(result["attestation_submitted"], false);
+    assert_eq!(result["verification_transaction_submitted"], false);
+    assert_eq!(result["nullifier_consumed"], false);
+    assert!(result["transaction_hash"].is_null());
+}
+
+#[test]
+fn mcp_v0_stdio_rejects_action_plan_hash_mismatch() {
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "evaluate-hash-mismatch",
+        "method": "tools/call",
+        "params": {
+            "name": "evaluate_guardrails",
+            "arguments": {
+                "action_plan": {
+                    "schema_version": 1,
+                    "actions": [{
+                        "kind": "unknown",
+                        "reason": "intent_warning: low confidence"
+                    }]
+                },
+                "action_plan_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+        }
+    });
+    let value = run_ready_mcp_stdio(&request.to_string());
+
+    assert_eq!(value["id"], "evaluate-hash-mismatch");
+    assert_eq!(value["error"]["code"], -32602);
+    assert!(value["error"]["message"]
+        .as_str()
+        .expect("hash error message")
+        .contains("does not match"));
+}
+
+#[test]
 fn mcp_v0_stdio_rejects_submit_like_tools() {
     let value = run_ready_mcp_stdio(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"submit_underlying_action","arguments":{}}}"#,
@@ -780,6 +881,16 @@ fn read_json(path: impl AsRef<Path>) -> Value {
     serde_json::from_str(&raw).unwrap_or_else(|err| {
         panic!("parse {}: {err}", path.display());
     })
+}
+
+fn canonical_action_plan_hash(value: &Value) -> String {
+    let plan: ActionPlan =
+        serde_json::from_value(value.clone()).expect("canonical ActionPlan fixture");
+    let encoded = serde_json::to_vec(&plan).expect("serialize canonical ActionPlan");
+    let mut hasher = Sha256::new();
+    hasher.update(PLAN_HASH_DOMAIN);
+    hasher.update(encoded);
+    hex::encode(hasher.finalize())
 }
 
 fn assert_decision_exit_consistency(name: &str, value: &Value) {
