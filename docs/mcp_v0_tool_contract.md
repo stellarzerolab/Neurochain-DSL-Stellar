@@ -2,10 +2,12 @@
 
 This document defines the first no-submit MCP surface for NeuroChain DSL for
 Stellar. The stdio server connects `plan_stellar_action` to the real local
-NeuroChain intent classifier and deterministic ActionPlan builder, and
-`evaluate_guardrails` to the existing deterministic allowlist, contract-policy,
-and intent-safety validators. The three later tools remain fixture-backed while
-their runtime adapters are implemented one at a time.
+NeuroChain intent classifier and deterministic ActionPlan builder,
+`evaluate_guardrails` to the existing deterministic allowlist,
+contract-policy, and intent-safety validators, `prove_guardrail_decision` to
+the local ZK attestation-view validator, and `verify_zk_on_stellar` to the
+read-only Soroban verification path. `get_guardrail_status` remains
+fixture-backed while its runtime adapter is implemented.
 
 Machine-checkable response fixtures live in:
 
@@ -29,7 +31,8 @@ cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"eva
 ```
 
 There is also a JSON-RPC stdio server for checking the MCP-shaped boundary and
-calling the runtime-backed planning and guardrail tools:
+calling the runtime-backed planning, guardrail, proof-inspection, and read-only
+ZK verification tools:
 
 ```powershell
 @(
@@ -350,7 +353,24 @@ Inputs:
 
 ```json
 {
-  "proof_artifact_ref": "local-or-bundled-artifact-id",
+  "action_plan": {
+    "schema_version": 1,
+    "intent_label": "ContractInvoke",
+    "action_kind": "soroban_contract_invoke",
+    "contract_id": "C...",
+    "function": "purchase_credits",
+    "args": [
+      {"name": "amount", "type": "u64", "value": "500000000"}
+    ],
+    "intent_confidence_bps": 9800
+  },
+  "proof": {
+    "schema_version": 1,
+    "seal_hex": "hex-string",
+    "image_id_hex": "64-hex-characters",
+    "journal_hex": "hex-string",
+    "journal_digest_hex": "64-hex-characters"
+  },
   "contract_id": "C...",
   "network": "testnet",
   "verification_mode": "read_only"
@@ -375,6 +395,15 @@ Output additions:
 
 Safety rules:
 
+- The public proof and exact ZK typed ActionPlan are supplied inline again.
+  Client file paths and private policy fields are rejected.
+- The local ActionPlan/proof binding is checked before any Soroban read-only
+  verification is attempted.
+- The configured server source alias is used for simulation. The tool does not
+  accept a source alias, wallet secret, seed phrase, or signing material from
+  the client.
+- `contract_id` must match `NC_ZK_GUARDRAIL_CONTRACT` when the server operator
+  has pinned one.
 - Read-only verification must not consume a nullifier.
 - Read-only verification must not submit an attestation transaction.
 - Contract mismatch, unauthorized policy, invalid proof, or replay maps to a

@@ -304,6 +304,89 @@ fn tool_input_schema(tool: &str) -> Value {
         });
     }
 
+    if tool == "verify_zk_on_stellar" {
+        return json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "action_plan": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Exact public ZK typed ActionPlan bound into the supplied proof journal",
+                    "required": [
+                        "schema_version", "intent_label", "action_kind", "contract_id",
+                        "function", "args", "intent_confidence_bps"
+                    ],
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "intent_label": {"type": "string"},
+                        "action_kind": {"type": "string"},
+                        "contract_id": {"type": "string"},
+                        "function": {"type": "string"},
+                        "args": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": ["name", "type", "value"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "type": {"type": "string", "enum": ["address", "bytes", "symbol", "u64"]},
+                                    "value": {"type": "string"}
+                                }
+                            }
+                        },
+                        "intent_confidence_bps": {"type": "integer", "minimum": 0, "maximum": 10000}
+                    }
+                },
+                "proof": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Inline public Groth16 artifact; client file paths are not accepted",
+                    "required": [
+                        "schema_version", "seal_hex", "image_id_hex", "journal_hex",
+                        "journal_digest_hex"
+                    ],
+                    "properties": {
+                        "schema_version": {"const": 1},
+                        "seal_hex": {"type": "string", "pattern": "^[0-9a-fA-F]+$"},
+                        "image_id_hex": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+                        "journal_hex": {"type": "string", "pattern": "^[0-9a-fA-F]+$"},
+                        "journal_digest_hex": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+                    }
+                },
+                "contract_id": {
+                    "type": "string",
+                    "description": "Soroban verifier contract ID; must match NC_ZK_GUARDRAIL_CONTRACT when that variable is set"
+                },
+                "network": {
+                    "type": "string",
+                    "enum": ["testnet"],
+                    "default": "testnet"
+                },
+                "verification_mode": {
+                    "type": "string",
+                    "enum": ["read_only"],
+                    "default": "read_only"
+                },
+                "scenario": {
+                    "type": "string",
+                    "description": "Explicit offline fixture scenario selector for conformance tests"
+                },
+                "fixture": {
+                    "type": "string",
+                    "description": "Explicit offline fixture name for conformance tests"
+                }
+            },
+            "anyOf": [
+                {"required": ["action_plan", "proof", "contract_id"]},
+                {"required": ["action_plan", "proof"]},
+                {"required": ["scenario"]},
+                {"required": ["fixture"]}
+            ]
+        });
+    }
+
     json!({
         "type": "object",
         "additionalProperties": true,

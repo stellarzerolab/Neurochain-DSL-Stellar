@@ -3,8 +3,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use tempfile::TempDir;
 
 const FIXTURE_DIR: &str = "examples/mcp_v0_no_submit_contract";
 const STDIO_CLIENT_DIR: &str = "examples/mcp_v0_stdio_client";
@@ -389,6 +390,33 @@ fn mcp_v0_stdio_advertises_bounded_inline_proof_inspection() {
     assert!(schema["properties"]["proof"]["properties"]
         .get("policy")
         .is_none());
+}
+
+#[test]
+fn mcp_v0_stdio_advertises_read_only_stellar_verify_input() {
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let verify_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "verify_zk_on_stellar")
+        .expect("verify tool");
+    let schema = &verify_tool["inputSchema"];
+
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["properties"]["network"]["enum"],
+        serde_json::json!(["testnet"])
+    );
+    assert_eq!(
+        schema["properties"]["verification_mode"]["enum"],
+        serde_json::json!(["read_only"])
+    );
+    assert_eq!(schema["properties"]["proof"]["additionalProperties"], false);
+    assert!(schema["properties"].get("proof_artifact_ref").is_none());
+    assert!(schema["properties"].get("source").is_none());
+    assert!(schema["properties"].get("source_hint").is_none());
+    assert!(schema["properties"].get("secret_key").is_none());
+    assert!(schema["properties"].get("private_policy").is_none());
 }
 
 #[test]
@@ -806,6 +834,73 @@ fn mcp_v0_stdio_inspects_real_zk_artifact_without_submit() {
 }
 
 #[test]
+fn mcp_v0_stdio_verifies_zk_on_stellar_read_only_without_submit() {
+    let (_tmp_dir, fake_cli, log_path) = create_fake_zk_stellar_cli();
+    let action_plan = read_json(Path::new(
+        "hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json",
+    ));
+    let proof = read_json(Path::new(
+        "hackathons/stellar-real-world-zk/fixtures/groth16_approved.json",
+    ));
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "verify-runtime",
+        "method": "tools/call",
+        "params": {
+            "name": "verify_zk_on_stellar",
+            "arguments": {
+                "action_plan": action_plan,
+                "proof": proof,
+                "contract_id": "CTESTZKGUARDRAIL",
+                "network": "testnet",
+                "verification_mode": "read_only"
+            }
+        }
+    });
+    let output = run_mcp_stdio_session_with_env(
+        &[
+            MCP_INIT_REQUEST,
+            MCP_INITIALIZED_NOTIFICATION,
+            &request.to_string(),
+        ],
+        &[
+            ("NC_STELLAR_CLI", fake_cli.to_string_lossy().to_string()),
+            ("NC_SOROBAN_SOURCE", "demo-source".to_string()),
+            ("NC_ZK_GUARDRAIL_CONTRACT", "CTESTZKGUARDRAIL".to_string()),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "ready stdio session failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let responses = parse_mcp_stdio_responses(&output);
+    let result = &responses[1]["result"]["structuredContent"];
+
+    assert_eq!(responses[1]["id"], "verify-runtime");
+    assert_eq!(
+        result["runtime_source"],
+        "neurochain_soroban_read_only_verifier"
+    );
+    assert_eq!(result["stellar_verification"], "verified_on_stellar");
+    assert_eq!(result["verification_mode"], "read_only");
+    assert_eq!(result["cryptographically_verified"], true);
+    assert_eq!(result["underlying_action_submit_allowed"], false);
+    assert_eq!(result["attestation_submitted"], false);
+    assert_eq!(result["verification_transaction_submitted"], false);
+    assert_eq!(result["nullifier_consumed"], false);
+    assert!(result["transaction_hash"].is_null());
+    assert!(result.get("seal_hex").is_none());
+    assert!(result.get("journal_hex").is_none());
+
+    let args = fs::read_to_string(log_path).expect("read fake Stellar CLI args");
+    assert!(args.contains("--send no"));
+    assert!(args.contains("-- verify --seal"));
+    assert!(!args.contains("--send yes"));
+    assert!(!args.contains("verify_and_consume"));
+}
+
+#[test]
 fn mcp_v0_stdio_rejects_tampered_zk_action_plan_binding() {
     let mut action_plan = read_json(Path::new(
         "hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json",
@@ -925,6 +1020,42 @@ fn run_fixture_runner(args: &[&str]) -> Output {
     .expect("run fixture runner")
 }
 
+fn create_fake_zk_stellar_cli() -> (TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().expect("create temp dir for fake ZK Stellar CLI");
+    let log_path = dir.path().join("stellar-args.log");
+    #[cfg(windows)]
+    let cli_path = dir.path().join("stellar-zk.cmd");
+    #[cfg(not(windows))]
+    let cli_path = dir.path().join("stellar-zk");
+
+    let accepted = r#"{"action_plan_hash":"a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd","policy_commitment":"f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150","policy_version":7,"decision_status":0,"exit_code":0,"reason_code":0,"requires_approval":false,"audit_nullifier":"c62e6a97e27f67c0370a45b52ff84f27796b9d7f55df02ad35aff2e90b7328da","next_step":"EligibleForSeparateApprovalFlow"}"#;
+    #[cfg(windows)]
+    let script = format!(
+        "@echo off\r\necho %*>>\"{}\"\r\necho {}\r\nexit /b 0\r\n",
+        log_path.to_string_lossy(),
+        accepted
+    );
+    #[cfg(not(windows))]
+    let script = format!(
+        "#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> '{}'\necho '{}'\n",
+        log_path.to_string_lossy(),
+        accepted
+    );
+
+    fs::write(&cli_path, script).expect("write fake ZK Stellar CLI");
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&cli_path)
+            .expect("metadata for fake ZK Stellar CLI")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&cli_path, perms).expect("chmod fake ZK Stellar CLI");
+    }
+
+    (dir, cli_path, log_path)
+}
+
 const MCP_INIT_REQUEST: &str = r#"{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fixture-harness","version":"0.1.0"}}}"#;
 const MCP_INITIALIZED_NOTIFICATION: &str =
     r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
@@ -950,7 +1081,15 @@ fn run_mcp_stdio(request: &str) -> Output {
 }
 
 fn run_mcp_stdio_session(requests: &[&str]) -> Output {
-    let mut child = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-mcp-v0-stdio"))
+    run_mcp_stdio_session_with_env(requests, &[])
+}
+
+fn run_mcp_stdio_session_with_env(requests: &[&str], envs: &[(&str, String)]) -> Output {
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin!("neurochain-mcp-v0-stdio"));
+    for (name, value) in envs {
+        command.env(name, value);
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

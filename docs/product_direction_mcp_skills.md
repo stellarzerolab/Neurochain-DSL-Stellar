@@ -185,7 +185,10 @@ permission to submit the underlying ActionPlan.
    `prove_guardrail_decision` now uses the existing ZK attestation-view
    validator to inspect inline public Groth16 artifacts, journals, evaluator
    image IDs, and exact ZK typed ActionPlan bindings. It deliberately reports
-   `cryptographically_verified=false`; `verify_zk_on_stellar` is next.
+   `cryptographically_verified=false`. `verify_zk_on_stellar` now re-checks the
+   same inline public artifact locally, calls the configured Soroban verifier
+   with `--send no`, and only reports `verified_on_stellar` after the contract
+   response matches the locally bound journal. `get_guardrail_status` is next.
    Explicit fixtures remain available only for conformance tests.
 7. Keep `submit_testnet_attestation` separate and opt-in.
 8. Finish x402 as optional paid ingress behind the existing fail-closed

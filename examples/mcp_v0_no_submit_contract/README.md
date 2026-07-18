@@ -2,7 +2,7 @@
 
 These fixtures keep the MCP v0 response contract machine-checkable alongside
 the read-only stdio server. Explicit fixture/scenario calls remain available
-for conformance tests; normal calls to the first three tools use NeuroChain
+for conformance tests; normal calls to the first four tools use NeuroChain
 runtime adapters.
 
 The default MCP v0 surface is read-only and no-submit:
@@ -94,12 +94,13 @@ without running a live MCP server:
 ) | cargo run --bin neurochain-mcp-v0-stdio
 ```
 
-The shim serves real local runtime calls for `plan_stellar_action` and
-`evaluate_guardrails`; explicit `scenario` or `fixture` arguments retain the
-embedded conformance path. It does not connect to Stellar, sign, broadcast,
-submit, consume nullifiers, or accept secret-like fields. `initialize`
-advertises the safe tool capability and an explicit experimental
-`neurochainNoSubmit` boundary. The process accepts newline-delimited messages
-until stdin closes, requires the initialized notification before tool calls,
-and writes one compact JSON response line per request. The notification itself
-correctly produces no response.
+The shim serves real local runtime calls for `plan_stellar_action`,
+`evaluate_guardrails`, `prove_guardrail_decision`, and `verify_zk_on_stellar`;
+explicit `scenario` or `fixture` arguments retain the embedded conformance
+path. The Stellar verification tool may call the configured Stellar CLI only
+with `--send no`. It does not sign, broadcast, submit, consume nullifiers, or
+accept secret-like fields. `initialize` advertises the safe tool capability and
+an explicit experimental `neurochainNoSubmit` boundary. The process accepts
+newline-delimited messages until stdin closes, requires the initialized
+notification before tool calls, and writes one compact JSON response line per
+request. The notification itself correctly produces no response.

@@ -234,7 +234,7 @@ fn initialize_result(request: &Value) -> Result<Value, String> {
             "title": "NeuroChain MCP V0 Read-Only Runtime",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Read-only no-submit runtime. plan_stellar_action uses the local NeuroChain intent model; later tools remain explicit conformance fixtures. All responses never grant signing, broadcast, nullifier-consume, attestation, or underlying ActionPlan submit authority."
+        "instructions": "Read-only no-submit runtime. plan_stellar_action, evaluate_guardrails, prove_guardrail_decision, and verify_zk_on_stellar use local NeuroChain runtime paths; explicit fixtures remain for conformance. All responses never grant signing, broadcast, nullifier-consume, attestation, or underlying ActionPlan submit authority."
     }))
 }
 

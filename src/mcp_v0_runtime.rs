@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, env, fs};
+use std::{collections::BTreeSet, env, fs, process::Command};
 
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -19,6 +19,7 @@ use crate::zk_attestation::{
 const PLAN_TOOL: &str = "plan_stellar_action";
 const EVALUATE_TOOL: &str = "evaluate_guardrails";
 const PROVE_TOOL: &str = "prove_guardrail_decision";
+const VERIFY_TOOL: &str = "verify_zk_on_stellar";
 const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 const MAX_INTENT_TEXT_BYTES: usize = 4096;
 const MAX_SOURCE_HINT_BYTES: usize = 64;
@@ -41,7 +42,7 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     if EXCLUDED_TOOLS.contains(&tool) {
         return Err(format!("tool {tool} is excluded from default MCP v0"));
     }
-    if !matches!(tool, PLAN_TOOL | EVALUATE_TOOL | PROVE_TOOL) {
+    if !matches!(tool, PLAN_TOOL | EVALUATE_TOOL | PROVE_TOOL | VERIFY_TOOL) {
         return mcp_v0_fixture::fixture_value_by_call_value(value);
     }
 
@@ -59,6 +60,7 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
         PLAN_TOOL => plan_stellar_action_value(arguments),
         EVALUATE_TOOL => evaluate_guardrails_value(arguments),
         PROVE_TOOL => prove_guardrail_decision_value(arguments),
+        VERIFY_TOOL => verify_zk_on_stellar_value(arguments),
         _ => unreachable!("tool dispatch checked above"),
     }
 }
@@ -168,6 +170,196 @@ pub fn prove_guardrail_decision_value(arguments: &Map<String, Value>) -> Result<
         ]
     });
     validate_no_submit_value("prove_guardrail_decision runtime", &response)?;
+    Ok(response)
+}
+
+pub fn verify_zk_on_stellar_value(arguments: &Map<String, Value>) -> Result<Value, String> {
+    validate_verify_arguments(arguments)?;
+    let config = ZkStellarVerifyConfig::from_env(arguments)?;
+    verify_zk_on_stellar_with_runner(arguments, config, run_zk_stellar_read_only_cli)
+}
+
+#[derive(Debug, Clone)]
+struct ZkStellarVerifyConfig {
+    contract_id: String,
+    network: String,
+    source: String,
+    stellar_cli: String,
+    instruction_leeway: u32,
+}
+
+impl ZkStellarVerifyConfig {
+    fn from_env(arguments: &Map<String, Value>) -> Result<Self, String> {
+        let network = optional_trimmed_string_for(VERIFY_TOOL, arguments, "network")?
+            .map(str::to_string)
+            .or_else(|| {
+                env::var("NC_STELLAR_NETWORK")
+                    .or_else(|_| env::var("NC_SOROBAN_NETWORK"))
+                    .ok()
+            })
+            .unwrap_or_else(|| "testnet".to_string());
+        if network != "testnet" {
+            return Err("verify_zk_on_stellar v0 accepts only network=testnet".to_string());
+        }
+
+        let contract_argument = optional_trimmed_string_for(VERIFY_TOOL, arguments, "contract_id")?;
+        let configured_contract = env::var("NC_ZK_GUARDRAIL_CONTRACT")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        if let (Some(argument), Some(configured)) =
+            (contract_argument, configured_contract.as_ref())
+        {
+            if !argument.eq_ignore_ascii_case(configured.trim()) {
+                return Err(
+                    "verify_zk_on_stellar contract_id does not match configured verifier"
+                        .to_string(),
+                );
+            }
+        }
+        let contract_id = contract_argument
+            .map(str::to_string)
+            .or_else(|| configured_contract.map(|value| value.trim().to_string()))
+            .ok_or_else(|| {
+                "verify_zk_on_stellar requires contract_id or NC_ZK_GUARDRAIL_CONTRACT".to_string()
+            })?;
+
+        let source = env::var("NC_SOROBAN_SOURCE")
+            .or_else(|_| env::var("NC_STELLAR_SOURCE"))
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                "verify_zk_on_stellar requires server-configured NC_SOROBAN_SOURCE/NC_STELLAR_SOURCE"
+                    .to_string()
+            })?;
+        let stellar_cli = env::var("NC_STELLAR_CLI").unwrap_or_else(|_| "stellar".to_string());
+        let instruction_leeway = env::var("NC_ZK_INSTRUCTION_LEEWAY")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(10_000_000);
+
+        Ok(Self {
+            contract_id,
+            network,
+            source,
+            stellar_cli,
+            instruction_leeway,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ZkStellarAccepted {
+    action_plan_hash: String,
+    policy_commitment: String,
+    policy_version: u32,
+    decision_status: u32,
+    exit_code: u32,
+    reason_code: u32,
+    requires_approval: bool,
+    audit_nullifier: String,
+    next_step: String,
+}
+
+fn verify_zk_on_stellar_with_runner<F>(
+    arguments: &Map<String, Value>,
+    config: ZkStellarVerifyConfig,
+    runner: F,
+) -> Result<Value, String>
+where
+    F: FnOnce(&ZkStellarVerifyConfig, &ZkProofArtifact) -> Result<String, String>,
+{
+    validate_verify_arguments(arguments)?;
+
+    let verification_mode =
+        optional_trimmed_string_for(VERIFY_TOOL, arguments, "verification_mode")?
+            .unwrap_or("read_only");
+    if verification_mode != "read_only" {
+        return Err("verify_zk_on_stellar v0 accepts only verification_mode=read_only".to_string());
+    }
+
+    let serialized_size = serde_json::to_vec(arguments)
+        .map_err(|err| format!("verify_zk_on_stellar arguments are invalid: {err}"))?
+        .len();
+    if serialized_size > MAX_ZK_REQUEST_JSON_BYTES {
+        return Err(format!(
+            "verify_zk_on_stellar arguments exceed {MAX_ZK_REQUEST_JSON_BYTES} serialized bytes"
+        ));
+    }
+
+    let action_plan: ZkTypedActionPlan = serde_json::from_value(
+        arguments
+            .get("action_plan")
+            .cloned()
+            .ok_or_else(|| "verify_zk_on_stellar requires action_plan".to_string())?,
+    )
+    .map_err(|err| format!("verify_zk_on_stellar action_plan is invalid: {err}"))?;
+    let proof: ZkProofArtifact = serde_json::from_value(
+        arguments
+            .get("proof")
+            .cloned()
+            .ok_or_else(|| "verify_zk_on_stellar requires proof".to_string())?,
+    )
+    .map_err(|err| format!("verify_zk_on_stellar proof is invalid: {err}"))?;
+    let journal_digest = proof.journal_digest_hex.to_ascii_lowercase();
+
+    let inspected = inspect_zk_attestation(ZkAttestationViewRequest {
+        action_plan,
+        proof: proof.clone(),
+    })
+    .map_err(|err| {
+        format!(
+            "verify_zk_on_stellar rejected public artifact before Stellar verification: {}",
+            err.code()
+        )
+    })?;
+    let attestation = inspected
+        .zk_attestation
+        .ok_or_else(|| "verify_zk_on_stellar inspection returned no attestation".to_string())?;
+
+    let output = runner(&config, &proof)?;
+    let accepted = parse_zk_stellar_accepted(&output)?;
+    validate_zk_stellar_accepted(&attestation, &accepted)?;
+    let decision = attestation.attested_decision;
+
+    let response = json!({
+        "schema_version": 1,
+        "tool": VERIFY_TOOL,
+        "mode": "read_only",
+        "runtime_source": "neurochain_soroban_read_only_verifier",
+        "status": if decision.status == "blocked" { "blocked" } else { "ok" },
+        "decision": decision.status,
+        "exit_code": decision.exit_code,
+        "reason_code": decision.reason,
+        "action_plan_hash": accepted.action_plan_hash,
+        "policy_commitment": accepted.policy_commitment,
+        "policy_version": accepted.policy_version,
+        "stellar_verification": "verified_on_stellar",
+        "verification_mode": "read_only",
+        "cryptographically_verified": true,
+        "stellar_verification_required": false,
+        "attestation_submitted": false,
+        "verification_transaction_submitted": false,
+        "transaction_hash": null,
+        "nullifier_consumed": false,
+        "underlying_action_submit_allowed": false,
+        "proof_artifact_ref": format!("inline:{journal_digest}"),
+        "proof_kind": attestation.proof_kind,
+        "proof_binding": attestation.verification_state,
+        "contract_id": config.contract_id,
+        "network": config.network,
+        "evaluator_image_id": attestation.evaluator_image_id,
+        "verifier_selector": attestation.verifier_selector,
+        "journal_digest": journal_digest,
+        "audit_nullifier": accepted.audit_nullifier,
+        "requires_approval": accepted.requires_approval,
+        "next_recommended_tool": "get_guardrail_status",
+        "logs": [
+            "public ZK journal and canonical typed ActionPlan bindings validated locally",
+            "Soroban verifier accepted the Groth16 proof in read-only mode",
+            "read only: --send no; no signing, broadcast, attestation, nullifier consume, or ActionPlan submit"
+        ]
+    });
+    validate_no_submit_value("verify_zk_on_stellar runtime", &response)?;
     Ok(response)
 }
 
@@ -575,6 +767,178 @@ fn validate_prove_arguments(arguments: &Map<String, Value>) -> Result<(), String
     Ok(())
 }
 
+fn validate_verify_arguments(arguments: &Map<String, Value>) -> Result<(), String> {
+    let allowed = BTreeSet::from([
+        "action_plan",
+        "proof",
+        "contract_id",
+        "network",
+        "verification_mode",
+    ]);
+    if let Some(field) = arguments
+        .keys()
+        .find(|field| !allowed.contains(field.as_str()))
+    {
+        return Err(format!(
+            "verify_zk_on_stellar does not accept argument {field}"
+        ));
+    }
+    Ok(())
+}
+
+fn run_zk_stellar_read_only_cli(
+    config: &ZkStellarVerifyConfig,
+    proof: &ZkProofArtifact,
+) -> Result<String, String> {
+    let instruction_leeway = config.instruction_leeway.to_string();
+    let output = Command::new(&config.stellar_cli)
+        .args([
+            "contract",
+            "invoke",
+            "--id",
+            &config.contract_id,
+            "--source",
+            &config.source,
+            "--network",
+            &config.network,
+            "--send",
+            "no",
+            "--instruction-leeway",
+            &instruction_leeway,
+            "--",
+            "verify",
+            "--seal",
+            &proof.seal_hex,
+            "--journal_bytes",
+            &proof.journal_hex,
+        ])
+        .output()
+        .map_err(|err| format!("failed to run Stellar CLI for read-only ZK verification: {err}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Stellar read-only ZK verification failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        Ok(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    } else {
+        Ok(stdout)
+    }
+}
+
+fn parse_zk_stellar_accepted(output: &str) -> Result<ZkStellarAccepted, String> {
+    let value = serde_json::from_str::<Value>(output.trim()).or_else(|_| {
+        output
+            .lines()
+            .rev()
+            .find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+            .ok_or_else(|| "Stellar ZK response did not contain a JSON contract result".to_string())
+    })?;
+
+    Ok(ZkStellarAccepted {
+        action_plan_hash: json_string_field(&value, "action_plan_hash")?,
+        policy_commitment: json_string_field(&value, "policy_commitment")?,
+        policy_version: json_u32_field(&value, "policy_version")?,
+        decision_status: json_u32_field(&value, "decision_status")?,
+        exit_code: json_u32_field(&value, "exit_code")?,
+        reason_code: json_u32_field(&value, "reason_code")?,
+        requires_approval: value
+            .get("requires_approval")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| {
+                "Stellar ZK response is missing boolean field `requires_approval`".to_string()
+            })?,
+        audit_nullifier: json_string_field(&value, "audit_nullifier")?,
+        next_step: json_string_field(&value, "next_step")?,
+    })
+}
+
+fn json_string_field(value: &Value, field: &str) -> Result<String, String> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("Stellar ZK response is missing string field `{field}`"))
+}
+
+fn json_u32_field(value: &Value, field: &str) -> Result<u32, String> {
+    let number = value
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("Stellar ZK response is missing integer field `{field}`"))?;
+    u32::try_from(number).map_err(|_| format!("Stellar ZK field `{field}` exceeds u32"))
+}
+
+fn validate_zk_stellar_accepted(
+    local: &crate::zk_attestation::ZkAttestationView,
+    accepted: &ZkStellarAccepted,
+) -> Result<(), String> {
+    let expected_next_step = match local.attested_decision.status.as_str() {
+        "approved" => "eligible_for_separate_approval_flow",
+        "requires_approval" => "requires_approval",
+        "blocked" => "blocked",
+        status => return Err(format!("unknown local ZK decision status `{status}`")),
+    };
+    let bindings_match = accepted
+        .action_plan_hash
+        .eq_ignore_ascii_case(&local.action_plan_hash)
+        && accepted
+            .policy_commitment
+            .eq_ignore_ascii_case(&local.policy_commitment)
+        && accepted.policy_version == local.policy_version
+        && accepted
+            .audit_nullifier
+            .eq_ignore_ascii_case(&local.audit_nullifier);
+    let decision_matches = accepted.decision_status
+        == expected_zk_decision_status(&local.attested_decision.status)?
+        && accepted.exit_code == u32::from(local.attested_decision.exit_code)
+        && accepted.reason_code == expected_zk_reason_code(&local.attested_decision.reason)?
+        && accepted.requires_approval == local.attested_decision.requires_approval
+        && normalized_zk_next_step(&accepted.next_step)
+            == normalized_zk_next_step(expected_next_step);
+    if !bindings_match || !decision_matches {
+        return Err(
+            "Stellar ZK result does not match the locally bound ActionPlan and journal (exit 4)"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn expected_zk_decision_status(status: &str) -> Result<u32, String> {
+    match status {
+        "approved" => Ok(0),
+        "blocked" => Ok(1),
+        "requires_approval" => Ok(2),
+        _ => Err(format!("unknown local ZK decision status `{status}`")),
+    }
+}
+
+fn expected_zk_reason_code(reason: &str) -> Result<u32, String> {
+    match reason {
+        "passed" => Ok(0),
+        "allowlist" => Ok(1),
+        "contract_policy" => Ok(2),
+        "intent_safety" => Ok(3),
+        "approval_threshold" => Ok(4),
+        "invalid_attestation" => Ok(5),
+        "replay" => Ok(6),
+        _ => Err(format!("unknown local ZK reason code `{reason}`")),
+    }
+}
+
+fn normalized_zk_next_step(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 fn required_trimmed_string<'a>(
     arguments: &'a Map<String, Value>,
     field: &str,
@@ -728,6 +1092,47 @@ mod tests {
         .as_object()
         .expect("proof arguments")
         .clone()
+    }
+
+    fn verify_arguments(proof_json: &str) -> Map<String, Value> {
+        json!({
+            "action_plan": serde_json::from_str::<Value>(include_str!(
+                "../hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json"
+            ))
+            .expect("ZK typed ActionPlan fixture"),
+            "proof": serde_json::from_str::<Value>(proof_json).expect("ZK proof fixture"),
+            "contract_id": "CTESTZKGUARDRAIL",
+            "network": "testnet",
+            "verification_mode": "read_only"
+        })
+        .as_object()
+        .expect("verify arguments")
+        .clone()
+    }
+
+    fn verify_config() -> ZkStellarVerifyConfig {
+        ZkStellarVerifyConfig {
+            contract_id: "CTESTZKGUARDRAIL".to_string(),
+            network: "testnet".to_string(),
+            source: "demo-source".to_string(),
+            stellar_cli: "stellar".to_string(),
+            instruction_leeway: 10_000_000,
+        }
+    }
+
+    fn accepted_contract_output(action_plan_hash: &str) -> String {
+        json!({
+            "action_plan_hash": action_plan_hash,
+            "policy_commitment": "f208fb657dcf4a6b4f339e6402da536dd1f86a3e353282426d622c1bb5e21150",
+            "policy_version": 7,
+            "decision_status": 0,
+            "exit_code": 0,
+            "reason_code": 0,
+            "requires_approval": false,
+            "audit_nullifier": "c62e6a97e27f67c0370a45b52ff84f27796b9d7f55df02ad35aff2e90b7328da",
+            "next_step": "EligibleForSeparateApprovalFlow"
+        })
+        .to_string()
     }
 
     #[test]
@@ -1157,5 +1562,86 @@ mod tests {
         let error = prove_guardrail_decision_value(&arguments)
             .expect_err("oversized public artifact must fail closed");
         assert!(error.contains("serialized bytes"));
+    }
+
+    #[test]
+    fn real_stellar_verify_adapter_uses_read_only_runner_and_preserves_no_submit() {
+        let arguments = verify_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        let response =
+            verify_zk_on_stellar_with_runner(&arguments, verify_config(), |config, proof| {
+                assert_eq!(config.contract_id, "CTESTZKGUARDRAIL");
+                assert_eq!(config.network, "testnet");
+                assert_eq!(config.source, "demo-source");
+                assert_eq!(config.instruction_leeway, 10_000_000);
+                assert!(proof.seal_hex.len() > 4);
+                Ok(accepted_contract_output(
+                    "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+                ))
+            })
+            .expect("read-only Stellar verification response");
+
+        assert_eq!(
+            response["runtime_source"],
+            "neurochain_soroban_read_only_verifier"
+        );
+        assert_eq!(response["stellar_verification"], "verified_on_stellar");
+        assert_eq!(response["verification_mode"], "read_only");
+        assert_eq!(response["cryptographically_verified"], true);
+        assert_eq!(response["stellar_verification_required"], false);
+        assert_eq!(response["underlying_action_submit_allowed"], false);
+        assert_eq!(response["attestation_submitted"], false);
+        assert_eq!(response["verification_transaction_submitted"], false);
+        assert_eq!(response["nullifier_consumed"], false);
+        assert!(response["transaction_hash"].is_null());
+    }
+
+    #[test]
+    fn real_stellar_verify_adapter_rejects_mismatched_contract_result() {
+        let arguments = verify_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        let error =
+            verify_zk_on_stellar_with_runner(&arguments, verify_config(), |_config, _proof| {
+                Ok(accepted_contract_output(
+                    "0000000000000000000000000000000000000000000000000000000000000000",
+                ))
+            })
+            .expect_err("Stellar result mismatch must fail closed");
+
+        assert!(error
+            .contains("Stellar ZK result does not match the locally bound ActionPlan and journal"));
+    }
+
+    #[test]
+    fn real_stellar_verify_adapter_rejects_paths_and_non_read_only_mode() {
+        let mut arguments = verify_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        arguments.insert(
+            "proof_artifact_ref".to_string(),
+            Value::String("inline:abc".to_string()),
+        );
+        let error =
+            verify_zk_on_stellar_with_runner(&arguments, verify_config(), |_config, _proof| {
+                unreachable!("path argument must fail before runner")
+            })
+            .expect_err("artifact refs must fail closed in runtime calls");
+        assert!(error.contains("does not accept argument proof_artifact_ref"));
+
+        let mut arguments = verify_arguments(include_str!(
+            "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+        ));
+        arguments.insert(
+            "verification_mode".to_string(),
+            Value::String("submit".to_string()),
+        );
+        let error =
+            verify_zk_on_stellar_with_runner(&arguments, verify_config(), |_config, _proof| {
+                unreachable!("non-read-only mode must fail before runner")
+            })
+            .expect_err("non-read-only mode must fail closed");
+        assert!(error.contains("only verification_mode=read_only"));
     }
 }
