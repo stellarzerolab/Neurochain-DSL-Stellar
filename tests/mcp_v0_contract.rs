@@ -9,6 +9,7 @@ use tempfile::TempDir;
 
 const FIXTURE_DIR: &str = "examples/mcp_v0_no_submit_contract";
 const STDIO_CLIENT_DIR: &str = "examples/mcp_v0_stdio_client";
+const GUARDRAILS_SKILL_DIR: &str = "skills/neurochain-stellar-guardrails";
 const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 
 const REQUIRED_FIELDS: &[&str] = &[
@@ -548,6 +549,66 @@ fn mcp_v0_stdio_client_conformance_session_covers_fail_closed_cases() {
     assert!(messages[6]["params"]["arguments"].get("api_key").is_some());
     assert_eq!(messages[7]["method"], "resources/list");
     assert!(messages[8].get("params").is_none());
+}
+
+#[test]
+fn neurochain_guardrails_skill_documents_runtime_mcp_sequence() {
+    let skill_path = Path::new(GUARDRAILS_SKILL_DIR).join("SKILL.md");
+    let skill = fs::read_to_string(&skill_path).unwrap_or_else(|err| {
+        panic!("read {}: {err}", skill_path.display());
+    });
+
+    let expected_order = [
+        "plan_stellar_action",
+        "evaluate_guardrails",
+        "prove_guardrail_decision",
+        "verify_zk_on_stellar",
+        "get_guardrail_status",
+    ];
+    let table_start = skill
+        .find("## MCP V0 Tools")
+        .expect("skill should document MCP v0 tools section");
+    let tool_table = &skill[table_start..];
+    let mut last_index = 0;
+    for tool in expected_order {
+        let index = tool_table
+            .find(tool)
+            .unwrap_or_else(|| panic!("skill must document {tool}"));
+        assert!(
+            index >= last_index,
+            "skill should document MCP tools in Plan -> Evaluate -> Prove -> Verify -> Status order"
+        );
+        last_index = index;
+    }
+
+    for required in [
+        "latest_result",
+        "structuredContent",
+        "read_only",
+        "underlying_action_submit_allowed: false",
+        "Do not invent missing ZK evidence",
+    ] {
+        assert!(
+            skill.contains(required),
+            "skill must document host/runtime boundary: {required}"
+        );
+    }
+
+    for excluded in EXCLUDED_TOOLS {
+        assert!(
+            skill.contains(excluded),
+            "skill must name excluded submit/stateful tool {excluded}"
+        );
+    }
+
+    let openai_path = Path::new(GUARDRAILS_SKILL_DIR)
+        .join("agents")
+        .join("openai.yaml");
+    let openai = fs::read_to_string(&openai_path).unwrap_or_else(|err| {
+        panic!("read {}: {err}", openai_path.display());
+    });
+    assert!(openai.contains("NeuroChain Stellar Guardrails"));
+    assert!(openai.contains("without granting submit permission"));
 }
 
 #[test]

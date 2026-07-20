@@ -1,9 +1,10 @@
 # MCP V0 Stdio Client Example
 
 This directory shows how an MCP host can launch the read-only NeuroChain MCP v0
-stdio server and complete one no-submit session. `plan_stellar_action` uses the
-real local intent model and deterministic ActionPlan builder. The later tools
-remain explicit fixtures while their runtime adapters are added one at a time.
+stdio server and complete one no-submit session. The default MCP tools are now
+runtime-backed for planning, guardrail evaluation, public proof-artifact
+inspection, read-only Stellar verification, and status reporting. Explicit
+fixtures remain available only for conformance and integration tests.
 
 The example has no network, wallet, signing, broadcast, attestation, nullifier
 consume, or underlying ActionPlan execution capability.
@@ -30,8 +31,11 @@ notifications stay silent and that excluded tools, secret-like arguments,
 unsupported methods, and invalid parameters fail with standard protocol error
 codes.
 
-`session.jsonl` remains the smallest readable happy-path example for host
-integrators.
+`session.jsonl` remains the smallest readable conformance example for host
+integrators. Production host flows should call the tools in order:
+`plan_stellar_action -> evaluate_guardrails -> prove_guardrail_decision ->
+verify_zk_on_stellar -> get_guardrail_status`, skipping proof or verification
+only when the required artifact or read-only verifier configuration is missing.
 
 To verify a separately built server, pass its absolute path:
 
@@ -77,8 +81,16 @@ local runtime configuration, not a credential. An MCP host should:
 4. Discover the five read-only tools with `tools/list`.
 5. Call `plan_stellar_action` with `intent_text`, or use an explicit fixture for
    conformance testing.
-6. Preserve `underlying_action_submit_allowed=false`.
-7. Close the transport when the session ends.
+6. Pass the returned `action_plan` and `action_plan_hash` to
+   `evaluate_guardrails`.
+7. Stop on `blocked` or `requires_approval`, then call `get_guardrail_status`
+   with the latest MCP `structuredContent` as `latest_result`.
+8. If an inline public proof artifact is available, inspect it with
+   `prove_guardrail_decision`.
+9. If the read-only testnet verifier is configured, call
+   `verify_zk_on_stellar` with `verification_mode=read_only`.
+10. Preserve `underlying_action_submit_allowed=false`.
+11. Close the transport when the session ends.
 
 Do not add wallet secrets, API keys, seed phrases, transaction signing, or
 submit tools to this default configuration. `submit_testnet_attestation` stays

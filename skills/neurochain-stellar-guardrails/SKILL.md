@@ -28,15 +28,25 @@ separate, explicit, out-of-scope human approval and execution path exists.
 
 Follow this sequence:
 
-1. Plan: request or construct a typed Stellar ActionPlan.
-2. Evaluate: run NeuroChain guardrails.
-3. Stop on `blocked` or `requires_approval`.
-4. Prove: produce or inspect ZK guardrail evidence only when needed.
-5. Verify: use Stellar/Soroban read-only verification when needed.
-6. Report: return the decision, exit code, reason, ActionPlan hash, policy
+1. Plan: call `plan_stellar_action` with `intent_text`, `network: "testnet"`,
+   and `plan_mode: "preview_only"`.
+2. Evaluate: pass the returned `action_plan` and `action_plan_hash` into
+   `evaluate_guardrails` with `policy_ref: "configured"` and
+   `evaluation_mode: "deterministic"`.
+3. Stop on `blocked` or `requires_approval`; then call `get_guardrail_status`
+   with that latest `structuredContent` as `latest_result`.
+4. Prove: inspect an inline public ZK artifact with
+   `prove_guardrail_decision` only when the host has one for the exact
+   ActionPlan.
+5. Verify: use `verify_zk_on_stellar` only in `read_only` `testnet` mode.
+6. Status: call `get_guardrail_status` with the latest MCP
+   `structuredContent` as `latest_result`.
+7. Report: return the decision, exit code, reason, ActionPlan hash, policy
    commitment, verification status, nullifier status, and submit boundary.
 
 Do not skip from planning to signing. Do not turn a proof into a transaction.
+Do not invent missing ZK evidence; if no proof artifact is present, report the
+local guardrail decision and the missing verification.
 
 ## MCP V0 Tools
 
@@ -48,7 +58,7 @@ Use the MCP v0 tools as a read-only sequence:
 | 2 | `evaluate_guardrails` | Return `approved`, `requires_approval`, or `blocked` with exit/reason. |
 | 3 | `prove_guardrail_decision` | Inspect the inline public artifact against its exact ZK typed ActionPlan. Report local binding validation as non-cryptographic and do not reveal private policy. |
 | 4 | `verify_zk_on_stellar` | Verify in read-only mode. Do not consume nullifiers or submit attestations. |
-| 5 | `get_guardrail_status` | Report state only. Do not trigger new verification or submit work. |
+| 5 | `get_guardrail_status` | Report state from host-provided `latest_result` only. Do not trigger new verification or submit work. |
 
 Every MCP v0 response must preserve:
 
@@ -81,6 +91,28 @@ Keep NeuroChain exit semantics stable:
 
 If input is malformed or underspecified, prefer exit `5` and a safe no-submit
 result over guessing.
+
+## Host Integration Notes
+
+The MCP stdio server is intentionally stateless in v0. The host is responsible
+for keeping the most recent MCP `structuredContent` and passing it back to
+`get_guardrail_status` as `latest_result`.
+
+Use `next_recommended_tool` as guidance, not as permission. If the next step
+requires an inline proof artifact or a configured read-only verifier and that
+input is missing, stop and report the missing precondition.
+
+The default skill flow must never call or synthesize these out-of-scope tools:
+
+- `submit_testnet_attestation`
+- `consume_nullifier`
+- `submit_underlying_action`
+- `sign_transaction`
+- `configure_server`
+
+`submit_testnet_attestation` can exist as a separate testnet-only product action
+with explicit user confirmation, but it is outside this skill's default MCP v0
+path and still must not execute the underlying ActionPlan.
 
 ## ZK Boundary
 
