@@ -188,7 +188,10 @@ permission to submit the underlying ActionPlan.
    `cryptographically_verified=false`. `verify_zk_on_stellar` now re-checks the
    same inline public artifact locally, calls the configured Soroban verifier
    with `--send no`, and only reports `verified_on_stellar` after the contract
-   response matches the locally bound journal. `get_guardrail_status` is next.
+   response matches the locally bound journal. `get_guardrail_status` now turns
+   the latest MCP structured result into an observational status view and
+   returns `state_unavailable` instead of guessing when the host has no latest
+   result.
    Explicit fixtures remain available only for conformance tests.
 7. Keep `submit_testnet_attestation` separate and opt-in.
 8. Finish x402 as optional paid ingress behind the existing fail-closed

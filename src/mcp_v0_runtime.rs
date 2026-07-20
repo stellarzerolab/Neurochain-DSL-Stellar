@@ -20,6 +20,7 @@ const PLAN_TOOL: &str = "plan_stellar_action";
 const EVALUATE_TOOL: &str = "evaluate_guardrails";
 const PROVE_TOOL: &str = "prove_guardrail_decision";
 const VERIFY_TOOL: &str = "verify_zk_on_stellar";
+const STATUS_TOOL: &str = "get_guardrail_status";
 const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 const MAX_INTENT_TEXT_BYTES: usize = 4096;
 const MAX_SOURCE_HINT_BYTES: usize = 64;
@@ -42,7 +43,10 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
     if EXCLUDED_TOOLS.contains(&tool) {
         return Err(format!("tool {tool} is excluded from default MCP v0"));
     }
-    if !matches!(tool, PLAN_TOOL | EVALUATE_TOOL | PROVE_TOOL | VERIFY_TOOL) {
+    if !matches!(
+        tool,
+        PLAN_TOOL | EVALUATE_TOOL | PROVE_TOOL | VERIFY_TOOL | STATUS_TOOL
+    ) {
         return mcp_v0_fixture::fixture_value_by_call_value(value);
     }
 
@@ -61,6 +65,7 @@ pub fn tool_value_by_call_value(value: &Value) -> Result<Value, String> {
         EVALUATE_TOOL => evaluate_guardrails_value(arguments),
         PROVE_TOOL => prove_guardrail_decision_value(arguments),
         VERIFY_TOOL => verify_zk_on_stellar_value(arguments),
+        STATUS_TOOL => get_guardrail_status_value(arguments),
         _ => unreachable!("tool dispatch checked above"),
     }
 }
@@ -177,6 +182,122 @@ pub fn verify_zk_on_stellar_value(arguments: &Map<String, Value>) -> Result<Valu
     validate_verify_arguments(arguments)?;
     let config = ZkStellarVerifyConfig::from_env(arguments)?;
     verify_zk_on_stellar_with_runner(arguments, config, run_zk_stellar_read_only_cli)
+}
+
+pub fn get_guardrail_status_value(arguments: &Map<String, Value>) -> Result<Value, String> {
+    validate_status_arguments(arguments)?;
+
+    let Some(latest_result) = arguments.get("latest_result") else {
+        let response = json!({
+            "schema_version": 1,
+            "tool": STATUS_TOOL,
+            "mode": "read_only",
+            "runtime_source": "neurochain_mcp_status_view",
+            "status": "state_unavailable",
+            "decision": "not_evaluated",
+            "exit_code": null,
+            "reason_code": "status_unavailable",
+            "action_plan_hash": null,
+            "policy_commitment": null,
+            "policy_version": null,
+            "stellar_verification": "not_requested",
+            "attestation_submitted": false,
+            "verification_transaction_submitted": false,
+            "transaction_hash": null,
+            "nullifier_consumed": false,
+            "underlying_action_submit_allowed": false,
+            "local_binding": null,
+            "verification_mode": "read_only",
+            "status_source": "no_latest_result",
+            "session_id": arguments.get("session_id").cloned().unwrap_or(Value::Null),
+            "proof_artifact_ref": arguments
+                .get("proof_artifact_ref")
+                .cloned()
+                .unwrap_or(Value::Null),
+            "logs": [
+                "no latest_result supplied; status lookup is unavailable in the stateless MCP v0 adapter",
+                "status is observational and did not trigger verification, attestation, nullifier consume, or submit"
+            ]
+        });
+        validate_no_submit_value("get_guardrail_status runtime", &response)?;
+        return Ok(response);
+    };
+
+    let latest_result = latest_result
+        .as_object()
+        .ok_or_else(|| "get_guardrail_status latest_result must be an object".to_string())?;
+    let latest_value = Value::Object(latest_result.clone());
+    validate_no_submit_value("get_guardrail_status latest_result", &latest_value)?;
+
+    let latest_tool = required_status_string(latest_result, "tool")?;
+    if latest_tool == STATUS_TOOL {
+        return Err(
+            "get_guardrail_status latest_result must come from a prior non-status tool".to_string(),
+        );
+    }
+    if !matches!(
+        latest_tool,
+        PLAN_TOOL | EVALUATE_TOOL | PROVE_TOOL | VERIFY_TOOL
+    ) {
+        return Err(format!(
+            "get_guardrail_status latest_result uses unsupported tool {latest_tool}"
+        ));
+    }
+
+    let decision = status_string_or(latest_result, "decision", "not_evaluated")?;
+    validate_status_decision(decision)?;
+    let status = status_string_or(latest_result, "status", "ok")?;
+    validate_status_value_name(status)?;
+    let exit_code = optional_status_exit_code(latest_result)?;
+    let reason_code = status_string_or(latest_result, "reason_code", "status")?;
+    let stellar_verification =
+        status_string_or(latest_result, "stellar_verification", "not_requested")?;
+    validate_stellar_verification(stellar_verification)?;
+
+    let response = json!({
+        "schema_version": 1,
+        "tool": STATUS_TOOL,
+        "mode": "read_only",
+        "runtime_source": "neurochain_mcp_status_view",
+        "status": status,
+        "decision": decision,
+        "exit_code": exit_code,
+        "reason_code": reason_code,
+        "action_plan_hash": optional_status_string_value(latest_result, "action_plan_hash")?,
+        "policy_commitment": optional_status_string_value(latest_result, "policy_commitment")?,
+        "policy_version": optional_status_u64_value(latest_result, "policy_version")?,
+        "stellar_verification": stellar_verification,
+        "attestation_submitted": false,
+        "verification_transaction_submitted": false,
+        "transaction_hash": null,
+        "nullifier_consumed": false,
+        "underlying_action_submit_allowed": false,
+        "local_binding": status_local_binding(latest_tool, latest_result, stellar_verification),
+        "verification_mode": status_string_value(latest_result, "verification_mode")
+            .unwrap_or_else(|| Value::String("read_only".to_string())),
+        "status_source": "latest_result",
+        "last_tool": latest_tool,
+        "cryptographically_verified": latest_result
+            .get("cryptographically_verified")
+            .cloned()
+            .unwrap_or(Value::Bool(stellar_verification == "verified_on_stellar")),
+        "stellar_verification_required": latest_result
+            .get("stellar_verification_required")
+            .cloned()
+            .unwrap_or(Value::Bool(stellar_verification == "required_on_stellar")),
+        "requires_approval": latest_result
+            .get("requires_approval")
+            .cloned()
+            .unwrap_or(Value::Bool(decision == "requires_approval")),
+        "audit_nullifier": optional_status_string_value(latest_result, "audit_nullifier")?,
+        "logs": [
+            "latest MCP read-only result normalized into a guardrail status view",
+            "status is observational and did not trigger verification, attestation, nullifier consume, or submit",
+            "proof, payment, verification, or status is not underlying ActionPlan submit permission"
+        ]
+    });
+    validate_no_submit_value("get_guardrail_status runtime", &response)?;
+    Ok(response)
 }
 
 #[derive(Debug, Clone)]
@@ -784,6 +905,152 @@ fn validate_verify_arguments(arguments: &Map<String, Value>) -> Result<(), Strin
         ));
     }
     Ok(())
+}
+
+fn validate_status_arguments(arguments: &Map<String, Value>) -> Result<(), String> {
+    let allowed = BTreeSet::from(["latest_result", "session_id", "proof_artifact_ref"]);
+    if let Some(field) = arguments
+        .keys()
+        .find(|field| !allowed.contains(field.as_str()))
+    {
+        return Err(format!(
+            "get_guardrail_status does not accept argument {field}"
+        ));
+    }
+    for field in ["session_id", "proof_artifact_ref"] {
+        if let Some(value) = arguments.get(field) {
+            let value = value
+                .as_str()
+                .ok_or_else(|| format!("get_guardrail_status argument {field} must be a string"))?;
+            if value.trim().is_empty() {
+                return Err(format!(
+                    "get_guardrail_status argument {field} must not be empty"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn required_status_string<'a>(
+    result: &'a Map<String, Value>,
+    field: &str,
+) -> Result<&'a str, String> {
+    result
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("get_guardrail_status latest_result missing string field {field}"))
+}
+
+fn status_string_or<'a>(
+    result: &'a Map<String, Value>,
+    field: &str,
+    default: &'a str,
+) -> Result<&'a str, String> {
+    match result.get(field) {
+        Some(value) => value.as_str().ok_or_else(|| {
+            format!("get_guardrail_status latest_result field {field} must be a string")
+        }),
+        None => Ok(default),
+    }
+}
+
+fn status_string_value(result: &Map<String, Value>, field: &str) -> Option<Value> {
+    result
+        .get(field)
+        .and_then(Value::as_str)
+        .map(|value| Value::String(value.to_string()))
+}
+
+fn optional_status_string_value(result: &Map<String, Value>, field: &str) -> Result<Value, String> {
+    match result.get(field) {
+        Some(Value::Null) | None => Ok(Value::Null),
+        Some(Value::String(value)) => Ok(Value::String(value.clone())),
+        Some(_) => Err(format!(
+            "get_guardrail_status latest_result field {field} must be a string or null"
+        )),
+    }
+}
+
+fn optional_status_u64_value(result: &Map<String, Value>, field: &str) -> Result<Value, String> {
+    match result.get(field) {
+        Some(Value::Null) | None => Ok(Value::Null),
+        Some(Value::Number(number)) if number.as_u64().is_some() => {
+            Ok(Value::Number(number.clone()))
+        }
+        Some(_) => Err(format!(
+            "get_guardrail_status latest_result field {field} must be an integer or null"
+        )),
+    }
+}
+
+fn status_local_binding(
+    latest_tool: &str,
+    result: &Map<String, Value>,
+    stellar_verification: &str,
+) -> Value {
+    result
+        .get("local_binding")
+        .or_else(|| result.get("proof_binding"))
+        .cloned()
+        .unwrap_or_else(|| {
+            if matches!(latest_tool, PROVE_TOOL | VERIFY_TOOL)
+                && matches!(
+                    stellar_verification,
+                    "required_on_stellar" | "verified_on_stellar"
+                )
+            {
+                Value::String("binding_validated".to_string())
+            } else {
+                Value::Null
+            }
+        })
+}
+
+fn optional_status_exit_code(result: &Map<String, Value>) -> Result<Value, String> {
+    let value = optional_status_u64_value(result, "exit_code")?;
+    match value.as_u64() {
+        Some(0 | 3 | 4 | 5) | None => Ok(value),
+        Some(other) => Err(format!(
+            "get_guardrail_status latest_result exit_code {other} is outside MCP v0"
+        )),
+    }
+}
+
+fn validate_status_decision(value: &str) -> Result<(), String> {
+    if matches!(
+        value,
+        "not_evaluated" | "approved" | "requires_approval" | "blocked"
+    ) {
+        Ok(())
+    } else {
+        Err(format!(
+            "get_guardrail_status latest_result decision {value} is outside MCP v0"
+        ))
+    }
+}
+
+fn validate_status_value_name(value: &str) -> Result<(), String> {
+    if matches!(value, "ok" | "blocked" | "state_unavailable") {
+        Ok(())
+    } else {
+        Err(format!(
+            "get_guardrail_status latest_result status {value} is outside MCP v0"
+        ))
+    }
+}
+
+fn validate_stellar_verification(value: &str) -> Result<(), String> {
+    if matches!(
+        value,
+        "not_requested" | "required_on_stellar" | "verified_on_stellar" | "failed_on_stellar"
+    ) {
+        Ok(())
+    } else {
+        Err(format!(
+            "get_guardrail_status latest_result stellar_verification {value} is outside MCP v0"
+        ))
+    }
 }
 
 fn run_zk_stellar_read_only_cli(
@@ -1643,5 +1910,82 @@ mod tests {
             })
             .expect_err("non-read-only mode must fail closed");
         assert!(error.contains("only verification_mode=read_only"));
+    }
+
+    #[test]
+    fn real_status_adapter_reports_latest_result_without_submit() {
+        let latest_result = verify_zk_on_stellar_with_runner(
+            &verify_arguments(include_str!(
+                "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+            )),
+            verify_config(),
+            |_config, _proof| {
+                Ok(accepted_contract_output(
+                    "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+                ))
+            },
+        )
+        .expect("read-only verified result");
+        let arguments = json!({
+            "latest_result": latest_result,
+            "session_id": "session-1"
+        });
+        let response =
+            get_guardrail_status_value(arguments.as_object().expect("status arguments object"))
+                .expect("status response");
+
+        assert_eq!(response["runtime_source"], "neurochain_mcp_status_view");
+        assert_eq!(response["status_source"], "latest_result");
+        assert_eq!(response["last_tool"], "verify_zk_on_stellar");
+        assert_eq!(response["decision"], "approved");
+        assert_eq!(response["stellar_verification"], "verified_on_stellar");
+        assert_eq!(response["local_binding"], "binding_validated");
+        assert_eq!(response["cryptographically_verified"], true);
+        assert_eq!(response["underlying_action_submit_allowed"], false);
+        assert_eq!(response["attestation_submitted"], false);
+        assert_eq!(response["verification_transaction_submitted"], false);
+        assert_eq!(response["nullifier_consumed"], false);
+        assert!(response["transaction_hash"].is_null());
+    }
+
+    #[test]
+    fn real_status_adapter_reports_state_unavailable_without_latest_result() {
+        let arguments = json!({"session_id": "session-1"});
+        let response =
+            get_guardrail_status_value(arguments.as_object().expect("status arguments object"))
+                .expect("state unavailable status response");
+
+        assert_eq!(response["status"], "state_unavailable");
+        assert_eq!(response["decision"], "not_evaluated");
+        assert_eq!(response["stellar_verification"], "not_requested");
+        assert_eq!(response["status_source"], "no_latest_result");
+        assert_eq!(response["underlying_action_submit_allowed"], false);
+        assert_eq!(response["attestation_submitted"], false);
+        assert_eq!(response["verification_transaction_submitted"], false);
+        assert_eq!(response["nullifier_consumed"], false);
+        assert!(response["transaction_hash"].is_null());
+    }
+
+    #[test]
+    fn real_status_adapter_rejects_submit_authority_in_latest_result() {
+        let mut latest_result = verify_zk_on_stellar_with_runner(
+            &verify_arguments(include_str!(
+                "../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json"
+            )),
+            verify_config(),
+            |_config, _proof| {
+                Ok(accepted_contract_output(
+                    "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+                ))
+            },
+        )
+        .expect("read-only verified result");
+        latest_result["underlying_action_submit_allowed"] = Value::Bool(true);
+        let arguments = json!({"latest_result": latest_result});
+        let error =
+            get_guardrail_status_value(arguments.as_object().expect("status arguments object"))
+                .expect_err("status must reject submit authority");
+
+        assert!(error.contains("underlying_action_submit_allowed"));
     }
 }

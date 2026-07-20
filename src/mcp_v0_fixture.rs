@@ -387,6 +387,43 @@ fn tool_input_schema(tool: &str) -> Value {
         });
     }
 
+    if tool == "get_guardrail_status" {
+        return json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "latest_result": {
+                    "type": "object",
+                    "description": "The latest structuredContent returned by plan_stellar_action, evaluate_guardrails, prove_guardrail_decision, or verify_zk_on_stellar"
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional host session identifier for display only; the v0 adapter is stateless"
+                },
+                "proof_artifact_ref": {
+                    "type": "string",
+                    "description": "Optional public artifact reference for display only; the tool does not read client paths"
+                },
+                "scenario": {
+                    "type": "string",
+                    "description": "Explicit offline fixture scenario selector for conformance tests"
+                },
+                "fixture": {
+                    "type": "string",
+                    "description": "Explicit offline fixture name for conformance tests"
+                }
+            },
+            "anyOf": [
+                {"required": ["latest_result"]},
+                {"required": ["session_id"]},
+                {"required": ["proof_artifact_ref"]},
+                {"required": ["scenario"]},
+                {"required": ["fixture"]},
+                {"maxProperties": 0}
+            ]
+        });
+    }
+
     json!({
         "type": "object",
         "additionalProperties": true,

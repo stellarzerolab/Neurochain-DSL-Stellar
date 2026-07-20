@@ -5,9 +5,9 @@ Stellar. The stdio server connects `plan_stellar_action` to the real local
 NeuroChain intent classifier and deterministic ActionPlan builder,
 `evaluate_guardrails` to the existing deterministic allowlist,
 contract-policy, and intent-safety validators, `prove_guardrail_decision` to
-the local ZK attestation-view validator, and `verify_zk_on_stellar` to the
-read-only Soroban verification path. `get_guardrail_status` remains
-fixture-backed while its runtime adapter is implemented.
+the local ZK attestation-view validator, `verify_zk_on_stellar` to the
+read-only Soroban verification path, and `get_guardrail_status` to an
+observational status view over the latest MCP structured result.
 
 Machine-checkable response fixtures live in:
 
@@ -31,8 +31,8 @@ cargo run --bin neurochain-mcp-v0-fixture-runner -- --call-json "{\"name\":\"eva
 ```
 
 There is also a JSON-RPC stdio server for checking the MCP-shaped boundary and
-calling the runtime-backed planning, guardrail, proof-inspection, and read-only
-ZK verification tools:
+calling the runtime-backed planning, guardrail, proof-inspection, read-only ZK
+verification, and status tools:
 
 ```powershell
 @(
@@ -411,13 +411,21 @@ Safety rules:
 
 ## Tool 5: get_guardrail_status
 
-Purpose: return the latest local and Stellar verification state for the current
-MCP session or artifact.
+Purpose: return the latest local and Stellar verification state without
+triggering a new verification or submit. The v0 stdio adapter is stateless, so a
+host should pass the previous tool call's `structuredContent` as
+`latest_result`. If no latest result is available, the tool returns
+`state_unavailable` rather than guessing.
 
 Inputs:
 
 ```json
 {
+  "latest_result": {
+    "tool": "verify_zk_on_stellar",
+    "decision": "approved",
+    "stellar_verification": "verified_on_stellar"
+  },
   "session_id": "optional-session-id",
   "proof_artifact_ref": "optional-artifact-id"
 }
@@ -441,6 +449,10 @@ Safety rules:
 
 - Status is observational.
 - Status must not trigger a new verification, attestation, consume, or submit.
+- Status must preserve every no-submit field as false/null even if the supplied
+  latest result is verified.
+- Status rejects latest results that grant submit authority, consume a
+  nullifier, contain a transaction hash, or come from a non-v0 tool.
 - If no Stellar verification exists yet, report `not_requested` or
   `required_on_stellar` rather than guessing.
 

@@ -420,6 +420,26 @@ fn mcp_v0_stdio_advertises_read_only_stellar_verify_input() {
 }
 
 #[test]
+fn mcp_v0_stdio_advertises_observational_status_input() {
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let status_tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "get_guardrail_status")
+        .expect("status tool");
+    let schema = &status_tool["inputSchema"];
+
+    assert_eq!(schema["additionalProperties"], false);
+    assert!(schema["properties"].get("latest_result").is_some());
+    assert!(schema["properties"].get("session_id").is_some());
+    assert!(schema["properties"].get("proof_artifact_ref").is_some());
+    assert!(schema["properties"].get("source").is_none());
+    assert!(schema["properties"].get("source_hint").is_none());
+    assert!(schema["properties"].get("secret_key").is_none());
+    assert!(schema["properties"].get("private_policy").is_none());
+}
+
+#[test]
 fn mcp_v0_stdio_rejects_tools_before_session_is_ready() {
     let output = run_mcp_stdio(r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#);
     assert!(
@@ -898,6 +918,41 @@ fn mcp_v0_stdio_verifies_zk_on_stellar_read_only_without_submit() {
     assert!(args.contains("-- verify --seal"));
     assert!(!args.contains("--send yes"));
     assert!(!args.contains("verify_and_consume"));
+}
+
+#[test]
+fn mcp_v0_stdio_returns_status_from_latest_structured_result_without_submit() {
+    let latest_result = read_json(Path::new(
+        "examples/mcp_v0_no_submit_contract/verify_zk_on_stellar_read_only.json",
+    ));
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "status-runtime",
+        "method": "tools/call",
+        "params": {
+            "name": "get_guardrail_status",
+            "arguments": {
+                "latest_result": latest_result,
+                "session_id": "demo-session"
+            }
+        }
+    });
+    let value = run_ready_mcp_stdio(&request.to_string());
+    let result = &value["result"]["structuredContent"];
+
+    assert_eq!(value["id"], "status-runtime");
+    assert_eq!(result["runtime_source"], "neurochain_mcp_status_view");
+    assert_eq!(result["status_source"], "latest_result");
+    assert_eq!(result["last_tool"], "verify_zk_on_stellar");
+    assert_eq!(result["decision"], "approved");
+    assert_eq!(result["stellar_verification"], "verified_on_stellar");
+    assert_eq!(result["local_binding"], "binding_validated");
+    assert_eq!(result["cryptographically_verified"], true);
+    assert_eq!(result["underlying_action_submit_allowed"], false);
+    assert_eq!(result["attestation_submitted"], false);
+    assert_eq!(result["verification_transaction_submitted"], false);
+    assert_eq!(result["nullifier_consumed"], false);
+    assert!(result["transaction_hash"].is_null());
 }
 
 #[test]
