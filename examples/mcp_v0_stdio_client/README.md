@@ -67,10 +67,10 @@ not connect to Stellar or require wallet credentials.
 
 ## MCP Host Configuration
 
-Copy `mcp_servers.json.example` into the configuration shape expected by the
-host. Replace `command` with the absolute path to the built stdio executable and
-set `NC_INTENT_STELLAR_MODEL` to the absolute local ONNX model path. On Windows,
-use the `.exe` path.
+Copy `mcp_servers.json.example` or `mcp_servers.windows.json.example` into the
+configuration shape expected by the host. Replace `command` with the absolute
+path to the built stdio executable and set `NC_INTENT_STELLAR_MODEL` to the
+absolute local ONNX model path. On Windows, use the `.exe` path.
 
 The server needs no arguments and no environment secrets. The model path is
 local runtime configuration, not a credential. An MCP host should:

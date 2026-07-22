@@ -490,23 +490,18 @@ fn mcp_v0_stdio_runs_persistent_initialized_session() {
 #[test]
 fn mcp_v0_stdio_client_examples_preserve_safe_host_configuration() {
     let config_path = Path::new(STDIO_CLIENT_DIR).join("mcp_servers.json.example");
-    let config: Value = serde_json::from_str(
-        &fs::read_to_string(config_path).expect("read MCP host config example"),
-    )
-    .expect("parse MCP host config example");
-    let server = &config["mcpServers"]["neurochain-stellar-guardrails"];
+    assert_safe_host_config(
+        &config_path,
+        "neurochain-mcp-v0-stdio",
+        "models/intent_stellar/model.onnx",
+    );
 
-    assert!(server["command"]
-        .as_str()
-        .expect("stdio command")
-        .ends_with("neurochain-mcp-v0-stdio"));
-    assert_eq!(server["args"], serde_json::json!([]));
-    assert!(server["env"]["NC_INTENT_STELLAR_MODEL"]
-        .as_str()
-        .expect("model path string")
-        .ends_with("models/intent_stellar/model.onnx"));
-    assert!(server["env"].get("NC_STELLAR_SOURCE").is_none());
-    assert!(server["env"].get("NC_API_KEY").is_none());
+    let windows_config_path = Path::new(STDIO_CLIENT_DIR).join("mcp_servers.windows.json.example");
+    assert_safe_host_config(
+        &windows_config_path,
+        "neurochain-mcp-v0-stdio.exe",
+        "models\\intent_stellar\\model.onnx",
+    );
 
     let session_path = Path::new(STDIO_CLIENT_DIR).join("session.jsonl");
     let session = fs::read_to_string(session_path).expect("read MCP session example");
@@ -1238,6 +1233,53 @@ fn fixture_paths() -> Vec<std::path::PathBuf> {
         .collect();
     paths.sort();
     paths
+}
+
+fn assert_safe_host_config(
+    path: impl AsRef<Path>,
+    expected_command_suffix: &str,
+    expected_model_suffix: &str,
+) {
+    let path = path.as_ref();
+    let config = read_json(path);
+    let server = &config["mcpServers"]["neurochain-stellar-guardrails"];
+    let name = path.display().to_string();
+
+    let command = server["command"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{name} command must be a string"));
+    assert!(
+        command.ends_with(expected_command_suffix),
+        "{name} command should point to {expected_command_suffix}"
+    );
+    assert_eq!(server["args"], serde_json::json!([]), "{name} args");
+
+    let env = server["env"].as_object().expect("host env object");
+    assert_eq!(
+        env.len(),
+        1,
+        "{name} should expose only non-secret local model configuration"
+    );
+    let model_path = env["NC_INTENT_STELLAR_MODEL"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{name} model path must be a string"));
+    assert!(
+        model_path.ends_with(expected_model_suffix),
+        "{name} model path should point to {expected_model_suffix}"
+    );
+
+    for forbidden in [
+        "NC_STELLAR_SOURCE",
+        "NC_API_KEY",
+        "NC_WALLET_SECRET",
+        "NC_PRIVATE_KEY",
+        "NC_SEED_PHRASE",
+    ] {
+        assert!(
+            env.get(forbidden).is_none(),
+            "{name} must not set {forbidden}"
+        );
+    }
 }
 
 fn read_json(path: impl AsRef<Path>) -> Value {

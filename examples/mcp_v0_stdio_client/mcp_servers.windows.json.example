@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "neurochain-stellar-guardrails": {
+      "command": "C:\\absolute\\path\\to\\neurochain-mcp-v0-stdio.exe",
+      "args": [],
+      "env": {
+        "NC_INTENT_STELLAR_MODEL": "C:\\absolute\\path\\to\\models\\intent_stellar\\model.onnx"
+      }
+    }
+  }
+}
