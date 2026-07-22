@@ -1,5 +1,6 @@
 param(
-    [string]$Cargo = "cargo"
+    [string]$Cargo = "cargo",
+    [string]$HostConfigOut = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,6 +8,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TargetRoot = Join-Path $RepoRoot "target\release"
 $ServerPath = Join-Path $TargetRoot "neurochain-mcp-v0-stdio.exe"
 $ClientPath = Join-Path $TargetRoot "neurochain-mcp-v0-client-smoke.exe"
+$ModelPath = Join-Path $RepoRoot "models\intent_stellar\model.onnx"
 
 function Fail([string]$Message) {
     throw "MCP v0 release verification failed: $Message"
@@ -24,6 +26,9 @@ try {
 
     if (!(Test-Path -LiteralPath $ServerPath) -or !(Test-Path -LiteralPath $ClientPath)) {
         Fail "expected release binaries were not created"
+    }
+    if (!(Test-Path -LiteralPath $ModelPath)) {
+        Fail "expected local intent model was not found at $ModelPath"
     }
 
     $SmokeJson = (& $ClientPath --server $ServerPath | Out-String).Trim()
@@ -60,6 +65,39 @@ try {
         }
     }
 
+    $HostConfig = $null
+    if ($HostConfigOut.Trim().Length -gt 0) {
+        $ResolvedHostConfigOut = $HostConfigOut
+        if (![System.IO.Path]::IsPathRooted($ResolvedHostConfigOut)) {
+            $ResolvedHostConfigOut = Join-Path $RepoRoot $ResolvedHostConfigOut
+        }
+        $ResolvedHostConfigOut = [System.IO.Path]::GetFullPath($ResolvedHostConfigOut)
+        $HostConfigDir = Split-Path -Parent $ResolvedHostConfigOut
+        if ($HostConfigDir -and !(Test-Path -LiteralPath $HostConfigDir)) {
+            New-Item -ItemType Directory -Path $HostConfigDir | Out-Null
+        }
+
+        [ordered]@{
+            mcpServers = [ordered]@{
+                "neurochain-stellar-guardrails" = [ordered]@{
+                    command = $ServerPath
+                    args = @()
+                    env = [ordered]@{
+                        NC_INTENT_STELLAR_MODEL = $ModelPath
+                    }
+                }
+            }
+        } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ResolvedHostConfigOut -Encoding UTF8
+
+        $HostConfig = [ordered]@{
+            path = $ResolvedHostConfigOut
+            command = $ServerPath
+            model = $ModelPath
+            secrets_included = $false
+            submit_tools_included = $false
+        }
+    }
+
     [ordered]@{
         status = "passed"
         mode = "read_only_no_submit"
@@ -72,6 +110,7 @@ try {
             verification_transaction_submitted = $false
             nullifier_consumed = $false
         }
+        host_config = $HostConfig
         artifacts = @($Artifacts)
     } | ConvertTo-Json -Depth 6
 }

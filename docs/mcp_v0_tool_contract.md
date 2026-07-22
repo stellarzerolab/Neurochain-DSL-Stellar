@@ -100,6 +100,18 @@ artifact SHA-256 hashes:
 powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1
 ```
 
+To write a host-ready Windows configuration with absolute release paths after
+the gate passes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1 `
+  -HostConfigOut .\target\release\neurochain-mcp-v0-host.json
+```
+
+The generated config contains only the stdio executable path and the local
+`NC_INTENT_STELLAR_MODEL` path. It does not add wallet sources, API keys,
+signing material, submit tools, attestation tools, or nullifier-consume tools.
+
 The harness starts the stdio server as a child process, performs the MCP
 lifecycle, discovers the five default tools, calls the `requires_approval`
 fixture, and validates that submit, attestation, transaction, and nullifier

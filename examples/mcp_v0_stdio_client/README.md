@@ -65,6 +65,18 @@ The command exits non-zero unless all seven conformance cases pass and every
 submit, attestation, transaction, and nullifier state remains disabled. It does
 not connect to Stellar or require wallet credentials.
 
+To also write a host-ready Windows MCP configuration with absolute paths to the
+release server and local ONNX model, pass `-HostConfigOut`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1 `
+  -HostConfigOut .\target\release\neurochain-mcp-v0-host.json
+```
+
+The generated file contains only the stdio executable path and
+`NC_INTENT_STELLAR_MODEL`. It does not include wallet sources, API keys,
+signing material, submit tools, attestation tools, or nullifier-consume tools.
+
 ## MCP Host Configuration
 
 Copy `mcp_servers.json.example` or `mcp_servers.windows.json.example` into the
