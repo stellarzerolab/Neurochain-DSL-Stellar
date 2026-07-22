@@ -50,10 +50,20 @@ Start with the public package:
 - [`hackathons/stellar-real-world-zk/SUBMISSION.md`](hackathons/stellar-real-world-zk/SUBMISSION.md)
 - [`hackathons/stellar-real-world-zk/ARCHITECTURE.md`](hackathons/stellar-real-world-zk/ARCHITECTURE.md)
 
+Build note for fresh clones: the repository root is the main NeuroChain CLI
+crate. To reproduce the ZK/Soroban evidence directly, run the ZK package
+commands with `--manifest-path` instead of starting with a root `cargo build`.
+
 Run the repository evidence gate:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/check_submission_package.ps1 -RunTests
+```
+
+Run the genuine Groth16/Soroban regression matrix directly:
+
+```powershell
+cargo test --release --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
 ```
 
 Run the complete local recording rehearsal without verifier fetches, Cargo

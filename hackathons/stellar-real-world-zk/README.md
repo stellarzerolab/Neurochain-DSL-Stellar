@@ -293,6 +293,11 @@ the public seal, image ID, journal and digest and can be inspected with
 
 ## Local checks
 
+Fresh clone note: run the ZK/Soroban checks through the manifests below. The
+repository root is the main NeuroChain CLI crate, not a ZK-only Cargo
+workspace, so a root `cargo build` is not the shortest proof path for this
+package.
+
 The preflight script only inspects local commands and Rust targets. It never
 installs tools, changes configuration or accesses a network. RISC Zero may be
 native or in WSL2; the default WSL distribution is `Ubuntu`. Groth16 proving
@@ -370,7 +375,7 @@ cargo fmt --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --chec
 cargo test --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/e2e/Cargo.toml --all-targets -- -D warnings
 cargo test --test zk_guardrail_contract
-cargo test --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
+cargo test --release --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
 cargo clippy --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --all-targets -- -D warnings
 stellar contract build --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
 ```

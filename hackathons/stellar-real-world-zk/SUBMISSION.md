@@ -109,10 +109,14 @@ Payment or proof verification is never direct submit permission.
 
 ## Reproduce locally
 
+Fresh clone note: run the ZK/Soroban checks through the package manifest. The
+repository root is the main NeuroChain CLI crate, not a ZK-only Cargo
+workspace, so root `cargo build` is not the intended first evidence command.
+
 Run the genuine Groth16/Soroban regression matrix:
 
 ```powershell
-cargo test --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --test groth16_proof
+cargo test --release --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml --test groth16_proof
 ```
 
 Run a full standalone Protocol 26 localnet scenario:
