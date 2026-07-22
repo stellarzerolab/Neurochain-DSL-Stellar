@@ -194,10 +194,14 @@ permission to submit the underlying ActionPlan.
    result.
    Explicit fixtures remain available only for conformance tests.
 7. Keep `submit_testnet_attestation` separate and opt-in.
-8. Finish x402 as optional paid ingress behind the existing fail-closed
-   facilitator boundary.
-9. Finish ZK status and artifact polish without weakening
-   `underlying_action_submit_allowed=false`.
+8. Finish MCP v0 product packaging as a separate last-mile phase. The working
+   document is [`docs/mcp_v0_product_finish.md`](mcp_v0_product_finish.md).
+9. Package the skill for possible publication only after the MCP host path is
+   stable.
+10. Finish x402 as optional paid ingress behind the existing fail-closed
+    facilitator boundary.
+11. Finish ZK status and artifact polish without weakening
+    `underlying_action_submit_allowed=false`.
 
 ## Acceptance Checklist
 

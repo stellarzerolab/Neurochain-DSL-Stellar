@@ -87,6 +87,8 @@ Raven and Stellar Skills are useful development-time guidance and packaging
 models, but NeuroChain must not depend on them at runtime.
 
 See [`docs/product_direction_mcp_skills.md`](docs/product_direction_mcp_skills.md).
+The current last-mile packaging phase is
+[`docs/mcp_v0_product_finish.md`](docs/mcp_v0_product_finish.md).
 For the public walkthrough, start with
 [`docs/public_demo_flow.md`](docs/public_demo_flow.md).
 
