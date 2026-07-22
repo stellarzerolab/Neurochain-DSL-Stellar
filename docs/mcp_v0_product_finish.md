@@ -52,6 +52,12 @@ Phase 2 should include:
 - examples for approved, requires approval, blocked, and unavailable states
 - a publishing checklist
 
+The working checklist lives in:
+
+```text
+skills/neurochain-stellar-guardrails/PACKAGING.md
+```
+
 The skill remains an instruction and distribution layer. It must not become a
 runtime dependency or a path around MCP v0.
 

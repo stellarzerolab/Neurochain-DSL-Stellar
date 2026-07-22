@@ -629,6 +629,44 @@ fn neurochain_guardrails_skill_documents_runtime_mcp_sequence() {
 }
 
 #[test]
+fn neurochain_guardrails_skill_packaging_stays_separate_from_runtime() {
+    let packaging_path = Path::new(GUARDRAILS_SKILL_DIR).join("PACKAGING.md");
+    let packaging = fs::read_to_string(&packaging_path).unwrap_or_else(|err| {
+        panic!("read {}: {err}", packaging_path.display());
+    });
+
+    for required in [
+        "Packaging is Phase 2 work",
+        "Do not use this checklist to claim",
+        "not:",
+        "a NeuroChain runtime dependency",
+        "MCP v0 release gate passes with `validated_by_launch=true`",
+        "The skill lists only the five default read-only MCP v0 tools",
+        "Every example preserves `underlying_action_submit_allowed=false`",
+        "Raven is mentioned only as development-time context",
+        "No wallet secret, seed phrase, API key, private key",
+    ] {
+        assert!(
+            packaging.contains(required),
+            "skill packaging checklist must preserve boundary: {required}"
+        );
+    }
+
+    for tool in DEFAULT_TOOLS {
+        assert!(
+            packaging.contains(tool),
+            "skill packaging checklist must name default tool {tool}"
+        );
+    }
+    for excluded in EXCLUDED_TOOLS {
+        assert!(
+            packaging.contains(excluded),
+            "skill packaging checklist must exclude submit/stateful tool {excluded}"
+        );
+    }
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"
