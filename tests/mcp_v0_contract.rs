@@ -800,6 +800,69 @@ fn neurochain_guardrails_skill_install_note_matches_host_boundary() {
 }
 
 #[test]
+fn neurochain_guardrails_skill_release_candidate_manifest_is_bounded() {
+    let manifest_path = Path::new(GUARDRAILS_SKILL_DIR).join("RELEASE_CANDIDATE.md");
+    let manifest = fs::read_to_string(&manifest_path).unwrap_or_else(|err| {
+        panic!("read {}: {err}", manifest_path.display());
+    });
+
+    for required in [
+        "internal_release_candidate = true",
+        "published = false",
+        "runtime_dependency = false",
+        "submit_surface = false",
+        "validated_by_launch=true",
+        "mode = read_only_no_submit",
+        "secrets_included = false",
+        "submit_tools_included = false",
+        "Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit",
+        "ZK is beyond a lite demo",
+        "x402 is beyond a lite UI idea",
+        "x402 is not production until real facilitator verify/settle transport",
+        "never imply underlying ActionPlan submit permission",
+    ] {
+        assert!(
+            manifest.contains(required),
+            "release candidate manifest must preserve bounded claim: {required}"
+        );
+    }
+
+    for package_file in [
+        "SKILL.md",
+        "PACKAGING.md",
+        "INSTALL.md",
+        "RELEASE_CANDIDATE.md",
+        "agents/openai.yaml",
+        "examples/approved.md",
+        "examples/requires_approval.md",
+        "examples/blocked.md",
+        "examples/state_unavailable.md",
+    ] {
+        assert!(
+            manifest.contains(package_file),
+            "release candidate manifest must list package file {package_file}"
+        );
+    }
+
+    for tool in DEFAULT_TOOLS {
+        assert!(
+            manifest.contains(tool),
+            "release candidate manifest must name default tool {tool}"
+        );
+    }
+    for excluded in EXCLUDED_TOOLS {
+        assert!(
+            manifest.contains(excluded),
+            "release candidate manifest must exclude submit/stateful tool {excluded}"
+        );
+    }
+
+    let packaging = fs::read_to_string(Path::new(GUARDRAILS_SKILL_DIR).join("PACKAGING.md"))
+        .expect("read packaging");
+    assert!(packaging.contains("`RELEASE_CANDIDATE.md`"));
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"

@@ -29,6 +29,7 @@ Before publication, the package should include:
 - `agents/openai.yaml`
 - this `PACKAGING.md`
 - `INSTALL.md`
+- `RELEASE_CANDIDATE.md`
 - short examples in `examples/` for:
   - `approved`
   - `requires_approval`
