@@ -50,6 +50,21 @@ secrets_included = false
 submit_tools_included = false
 ```
 
+Then run the skill package check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_guardrails_skill_package.ps1
+```
+
+Required summary fields:
+
+```text
+status = passed
+runtime_dependency = false
+submit_surface = false
+secrets_included = false
+```
+
 ## Included Runtime Surface
 
 The skill may describe only the default MCP v0 read-only tools:

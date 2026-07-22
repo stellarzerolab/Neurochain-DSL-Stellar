@@ -815,6 +815,7 @@ fn neurochain_guardrails_skill_release_candidate_manifest_is_bounded() {
         "mode = read_only_no_submit",
         "secrets_included = false",
         "submit_tools_included = false",
+        "verify_guardrails_skill_package.ps1",
         "Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit",
         "ZK is beyond a lite demo",
         "x402 is beyond a lite UI idea",
@@ -860,6 +861,52 @@ fn neurochain_guardrails_skill_release_candidate_manifest_is_bounded() {
     let packaging = fs::read_to_string(Path::new(GUARDRAILS_SKILL_DIR).join("PACKAGING.md"))
         .expect("read packaging");
     assert!(packaging.contains("`RELEASE_CANDIDATE.md`"));
+}
+
+#[test]
+fn neurochain_guardrails_skill_package_check_is_bounded() {
+    let script_path = Path::new("scripts").join("verify_guardrails_skill_package.ps1");
+    let script = fs::read_to_string(&script_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", script_path.display()));
+
+    for required in [
+        "requiredFiles",
+        "defaultTools",
+        "excludedTools",
+        "requiredPhrases",
+        "forbiddenPatterns",
+        "runtime_dependency",
+        "submit_surface",
+        "secrets_included",
+        "ConvertTo-Json",
+    ] {
+        assert!(
+            script.contains(required),
+            "skill package check must preserve bounded publish gate: {required}"
+        );
+    }
+
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().expect("script path"),
+        ])
+        .output()
+        .expect("run skill package check");
+    assert!(
+        output.status.success(),
+        "skill package check failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).expect("skill check JSON");
+    assert_eq!(value["status"], "passed");
+    assert_eq!(value["runtime_dependency"], false);
+    assert_eq!(value["submit_surface"], false);
+    assert_eq!(value["secrets_included"], false);
 }
 
 #[test]
