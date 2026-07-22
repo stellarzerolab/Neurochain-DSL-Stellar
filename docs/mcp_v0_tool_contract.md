@@ -150,6 +150,31 @@ Any future submit-like operation must be a separate, explicitly named,
 testnet-only tool with its own confirmation field. It must still not submit the
 underlying ActionPlan.
 
+## ZK And Status Vocabulary
+
+Use these status meanings exactly. They are intentionally separate so a host,
+agent, or demo cannot turn proof evidence into execution permission.
+
+| Field or term | Means | Does not mean | MCP v0 boundary |
+| --- | --- | --- | --- |
+| `proof_binding: "binding_validated"` | The inline public ZK artifact matches the exact typed ActionPlan, journal digest, evaluator image ID, and policy commitment fields expected by NeuroChain. | The Groth16 seal has been cryptographically verified on Stellar. | Local inspection only. No transaction hash, attestation submit, nullifier consume, or underlying ActionPlan submit. |
+| `cryptographically_verified: false` | The local artifact inspection has not reached the Soroban verifier. | The artifact is necessarily invalid. | The next safe step is `verify_zk_on_stellar` when a configured read-only verifier is available. |
+| `stellar_verification: "verified_on_stellar"` | The configured Soroban verifier accepted the proof in read-only mode. | A transaction was submitted or the underlying action is approved for execution. | `verification_transaction_submitted`, `attestation_submitted`, `nullifier_consumed`, and `underlying_action_submit_allowed` stay false. |
+| `attestation_submitted: true` | A separate explicit testnet attestation transaction was sent outside the default MCP v0 path. | Nullifier consume or underlying ActionPlan execution. | Not advertised by the default MCP v0 tool list. Requires a separately named and confirmed path. |
+| `nullifier_consumed: true` | A stateful owner-authenticated replay boundary was consumed outside MCP v0. | Proof generation, proof verification, or underlying ActionPlan execution. | Excluded from MCP v0 because it changes state. |
+| `underlying_action_submit_allowed: false` | The MCP result does not authorize submitting the Stellar ActionPlan. | A failure by itself. | Required on every default MCP v0 response. |
+| `x402 payment finalized` | Service access was paid or a payment challenge was finalized. | Guardrail approval, ZK proof, Stellar verification, or submit authority. | Payment remains outside the submit boundary. |
+
+Short version:
+
+```text
+binding_validated != verified_on_stellar
+verified_on_stellar != submit allowed
+attestation_submitted != nullifier_consumed
+nullifier_consumed != underlying action submitted
+x402 finalized != guardrail approval
+```
+
 ## Common Response Envelope
 
 Every MCP v0 tool should return a small envelope with stable safety fields:

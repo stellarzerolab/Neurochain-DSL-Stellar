@@ -114,6 +114,32 @@ The default skill flow must never call or synthesize these out-of-scope tools:
 with explicit user confirmation, but it is outside this skill's default MCP v0
 path and still must not execute the underlying ActionPlan.
 
+## Status Vocabulary
+
+Use these meanings exactly when reporting ZK, Stellar, payment, and submit
+state:
+
+- `proof_binding: "binding_validated"` means local public artifact binding
+  passed for the exact ZK typed ActionPlan. It is not cryptographic Stellar
+  verification.
+- `cryptographically_verified: false` means the artifact has not been accepted
+  by the Soroban verifier yet. It is not automatic failure.
+- `stellar_verification: "verified_on_stellar"` means read-only Soroban
+  verification accepted the proof. It is not a transaction submit and not
+  permission to execute the underlying ActionPlan.
+- `attestation_submitted: true` means a separate explicit testnet attestation
+  transaction happened outside default MCP v0. It is not nullifier consume and
+  not underlying action execution.
+- `nullifier_consumed: true` means a stateful replay boundary was consumed
+  outside MCP v0. It is not proof generation or underlying action execution.
+- `underlying_action_submit_allowed: false` is mandatory for every default MCP
+  v0 result.
+- A finalized x402 payment means paid service access only. It is not guardrail
+  approval, proof verification, or submit authority.
+
+Never summarize a result as approved for execution unless a separate
+out-of-scope approval and execution path explicitly says so.
+
 ## ZK Boundary
 
 ZK proves that a known NeuroChain evaluator checked a typed ActionPlan against

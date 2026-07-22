@@ -51,6 +51,26 @@ The default MCP v0 tool list must not include:
 Those operations can only exist later as separately named, explicitly
 confirmed, security-reviewed paths outside the default MCP v0 surface.
 
+## Status Vocabulary
+
+The ZK and Stellar fields intentionally describe different boundaries:
+
+| Field or state | Meaning in these fixtures |
+| --- | --- |
+| `proof_binding: "binding_validated"` | Local public artifact binding passed; the proof has not been cryptographically verified yet. |
+| `cryptographically_verified: false` | Expected after `prove_guardrail_decision`; call `verify_zk_on_stellar` for read-only Soroban verification. |
+| `stellar_verification: "verified_on_stellar"` | Read-only Soroban verification accepted the proof without submitting a transaction. |
+| `attestation_submitted: false` | No explicit testnet attestation transaction was sent by the default MCP v0 path. |
+| `nullifier_consumed: false` | No stateful replay boundary was consumed. |
+| `underlying_action_submit_allowed: false` | The underlying Stellar ActionPlan still has no submit permission. |
+| x402 payment fields | Payment can grant service access only; it is not proof, verification, or submit authority. |
+
+Keep the sequence clear:
+
+```text
+Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit
+```
+
 ## Validation
 
 The fixture package is checked by:
