@@ -31,9 +31,29 @@ The release candidate includes:
 - `examples/blocked.md`
 - `examples/state_unavailable.md`
 
+## Required Release Candidate Evidence
+
+Run the combined release candidate gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_guardrails_skill_release_candidate.ps1
+```
+
+Required top-level summary fields:
+
+```text
+status = passed
+published = false
+release_candidate = true
+runtime_dependency = false
+submit_surface = false
+```
+
+The combined gate runs both checks below.
+
 ## Required MCP Host Evidence
 
-Before using this as a release candidate, run:
+MCP host evidence command:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1 `
@@ -50,7 +70,7 @@ secrets_included = false
 submit_tools_included = false
 ```
 
-Then run the skill package check:
+Skill package evidence command:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify_guardrails_skill_package.ps1

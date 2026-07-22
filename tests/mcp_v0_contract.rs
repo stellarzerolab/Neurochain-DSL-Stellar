@@ -815,7 +815,9 @@ fn neurochain_guardrails_skill_release_candidate_manifest_is_bounded() {
         "mode = read_only_no_submit",
         "secrets_included = false",
         "submit_tools_included = false",
+        "verify_guardrails_skill_release_candidate.ps1",
         "verify_guardrails_skill_package.ps1",
+        "release_candidate = true",
         "Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit",
         "ZK is beyond a lite demo",
         "x402 is beyond a lite UI idea",
@@ -907,6 +909,44 @@ fn neurochain_guardrails_skill_package_check_is_bounded() {
     assert_eq!(value["runtime_dependency"], false);
     assert_eq!(value["submit_surface"], false);
     assert_eq!(value["secrets_included"], false);
+}
+
+#[test]
+fn neurochain_guardrails_skill_release_candidate_gate_orchestrates_release_and_package_checks() {
+    let script_path = Path::new("scripts").join("verify_guardrails_skill_release_candidate.ps1");
+    let script = fs::read_to_string(&script_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", script_path.display()));
+
+    for required in [
+        "verify_mcp_v0_release.ps1",
+        "verify_guardrails_skill_package.ps1",
+        "validated_by_launch",
+        "read_only_no_submit",
+        "release_candidate",
+        "published",
+        "runtime_dependency",
+        "submit_surface",
+        "secrets_included",
+        "submit_tools_included",
+        "ConvertTo-Json",
+    ] {
+        assert!(
+            script.contains(required),
+            "combined skill release candidate gate must preserve evidence field: {required}"
+        );
+    }
+
+    for forbidden in [
+        "submit_underlying_action",
+        "sign_transaction",
+        "consume_nullifier",
+        "submit_testnet_attestation",
+    ] {
+        assert!(
+            !script.contains(forbidden),
+            "combined release candidate gate must not call submit/stateful surface: {forbidden}"
+        );
+    }
 }
 
 #[test]
