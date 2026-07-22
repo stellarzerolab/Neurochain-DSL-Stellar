@@ -93,6 +93,44 @@ The current last-mile packaging phase is
 For the public walkthrough, start with
 [`docs/public_demo_flow.md`](docs/public_demo_flow.md).
 
+## MCP And Skill Release Status
+
+The MCP v0 path is a runtime-backed read-only guardrail surface:
+
+```text
+Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit
+```
+
+The default MCP tools are `plan_stellar_action`, `evaluate_guardrails`,
+`prove_guardrail_decision`, `verify_zk_on_stellar`, and
+`get_guardrail_status`. They do not sign, broadcast, submit an attestation,
+consume a nullifier, or submit the underlying ActionPlan.
+
+The `neurochain-stellar-guardrails` skill is an internal release candidate,
+not a published package. It is an instruction and distribution layer for MCP
+hosts, not a NeuroChain runtime dependency or submit surface.
+
+Run the combined release candidate gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_guardrails_skill_release_candidate.ps1
+```
+
+The gate must report `status=passed`, `release_candidate=true`,
+`published=false`, `runtime_dependency=false`, `submit_surface=false`,
+MCP `mode=read_only_no_submit`, and `validated_by_launch=true`.
+
+Current boundary status:
+
+- ZK is beyond a lite demo: the core includes a real RISC Zero guest, genuine
+  Groth16 fixture proofs, Soroban verifier/router integration, tamper
+  rejection, replay rejection, and hosted CLI proof evidence.
+- x402 is beyond a lite UI idea: the paid ingress envelope, response contract,
+  schema/types, viewer, audit/replay boundaries, production mock fence, and
+  fail-closed facilitator boundary exist.
+- x402 is not production until real facilitator verify/settle transport is
+  attached behind `src/x402_facilitator.rs`.
+
 ## What It Does
 
 `neurochain-stellar` supports one unified workflow across `.nc` scripts, an interactive REPL, and the server API:
@@ -350,9 +388,10 @@ For policy-controlled Soroban invokes, see:
 - `contracts/CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ/policy.json`
 - `docs/stellar_actions_guide.md`
 
-## x402-lite
+## x402 Paid Ingress
 
-This repo includes an x402-lite workflow for controlled payment-required flows in REPL and `.nc` scripts.
+This repo includes controlled x402 payment-required flows in REPL and `.nc`
+scripts, plus a server-side paid ingress envelope for Stellar intent planning.
 
 REPL sketch:
 
@@ -363,9 +402,14 @@ x402.finalize challenge_id="last"
 x402.finalize challenge_id="last"
 ```
 
-The second finalize for the same challenge is blocked as replay. This gives AI-assisted payment flows an explicit challenge/finalize boundary instead of allowing repeated blind submits.
+The second finalize for the same challenge is blocked as replay. This gives
+AI-assisted payment flows an explicit challenge/finalize boundary instead of
+allowing repeated blind submits.
 
-The current implementation is x402-lite, not a full x402/MPP stack. It is designed as a deterministic guardrail layer around Stellar payment actions.
+x402 is paid service access only. Payment is not guardrail approval, proof
+verification, attestation, nullifier consume, or submit permission. The current
+product boundary is documented in
+[`docs/x402_facilitator_phase3.md`](docs/x402_facilitator_phase3.md).
 
 ## Server API
 

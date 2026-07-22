@@ -1020,6 +1020,43 @@ fn x402_phase3_contract_preserves_paid_ingress_boundary() {
 }
 
 #[test]
+fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
+    let readme = fs::read_to_string("README.md").expect("read root README");
+
+    for required in [
+        "## MCP And Skill Release Status",
+        "verify_guardrails_skill_release_candidate.ps1",
+        "release_candidate=true",
+        "published=false",
+        "runtime_dependency=false",
+        "submit_surface=false",
+        "mode=read_only_no_submit",
+        "validated_by_launch=true",
+        "ZK is beyond a lite demo",
+        "x402 is beyond a lite UI idea",
+        "x402 is not production until real facilitator verify/settle transport",
+        "Payment is not guardrail approval",
+        "docs/x402_facilitator_phase3.md",
+    ] {
+        assert!(
+            readme.contains(required),
+            "root README must summarize current release boundary: {required}"
+        );
+    }
+
+    for forbidden in [
+        "The current implementation is x402-lite, not a full x402/MPP stack",
+        "Payment is submit permission",
+        "proof is submit permission",
+    ] {
+        assert!(
+            !readme.contains(forbidden),
+            "root README must not keep stale or unsafe wording: {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"
