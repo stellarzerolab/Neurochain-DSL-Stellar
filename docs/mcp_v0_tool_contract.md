@@ -100,15 +100,17 @@ artifact SHA-256 hashes:
 powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1
 ```
 
-To write a host-ready Windows configuration with absolute release paths after
-the gate passes:
+To write and validate a host-ready Windows configuration with absolute release
+paths after the gate passes:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify_mcp_v0_release.ps1 `
   -HostConfigOut .\target\release\neurochain-mcp-v0-host.json
 ```
 
-The generated config contains only the stdio executable path and the local
+The gate reads the generated config back, rejects submit/source/secret-like
+values, and launches the smoke harness through the configured command. The
+generated config contains only the stdio executable path and the local
 `NC_INTENT_STELLAR_MODEL` path. It does not add wallet sources, API keys,
 signing material, submit tools, attestation tools, or nullifier-consume tools.
 

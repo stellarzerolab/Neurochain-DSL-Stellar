@@ -525,6 +525,28 @@ fn mcp_v0_stdio_client_examples_preserve_safe_host_configuration() {
 }
 
 #[test]
+fn mcp_v0_release_gate_validates_generated_host_config_launch() {
+    let script_path = Path::new("scripts").join("verify_mcp_v0_release.ps1");
+    let script = fs::read_to_string(&script_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", script_path.display()));
+
+    for required in [
+        "HostConfigOut",
+        "validated_by_launch = $true",
+        "Get-Content -LiteralPath $ResolvedHostConfigOut -Raw",
+        "$ParsedHostConfig.mcpServers.\"neurochain-stellar-guardrails\"",
+        "$ClientPath --server $ServerConfig.command",
+        "submit_testnet_attestation|consume_nullifier|submit_underlying_action|sign_transaction",
+        "NC_STELLAR_SOURCE|NC_SOROBAN_SOURCE|SECRET|SEED|PRIVATE|API_KEY|TOKEN",
+    ] {
+        assert!(
+            script.contains(required),
+            "release gate must validate generated host config launch: {required}"
+        );
+    }
+}
+
+#[test]
 fn mcp_v0_stdio_client_conformance_session_covers_fail_closed_cases() {
     let session_path = Path::new(STDIO_CLIENT_DIR).join("conformance_session.jsonl");
     let session = fs::read_to_string(session_path).expect("read MCP conformance session");

@@ -14,6 +14,26 @@ function Fail([string]$Message) {
     throw "MCP v0 release verification failed: $Message"
 }
 
+function Assert-Smoke([object]$Smoke) {
+    if ($Smoke.status -ne "passed") {
+        Fail "client smoke status was not passed"
+    }
+    if ($Smoke.transport -ne "stdio" -or [int]$Smoke.conformance_cases -ne 7) {
+        Fail "unexpected transport or conformance case count"
+    }
+
+    foreach ($Field in @(
+        "underlying_action_submit_allowed",
+        "attestation_submitted",
+        "verification_transaction_submitted",
+        "nullifier_consumed"
+    )) {
+        if ([bool]$Smoke.$Field) {
+            Fail "$Field must remain false"
+        }
+    }
+}
+
 Push-Location $RepoRoot
 try {
     $env:CARGO_INCREMENTAL = "0"
@@ -36,24 +56,7 @@ try {
         Fail "client smoke exited with $LASTEXITCODE"
     }
     $Smoke = $SmokeJson | ConvertFrom-Json
-
-    if ($Smoke.status -ne "passed") {
-        Fail "client smoke status was not passed"
-    }
-    if ($Smoke.transport -ne "stdio" -or [int]$Smoke.conformance_cases -ne 7) {
-        Fail "unexpected transport or conformance case count"
-    }
-
-    foreach ($Field in @(
-        "underlying_action_submit_allowed",
-        "attestation_submitted",
-        "verification_transaction_submitted",
-        "nullifier_consumed"
-    )) {
-        if ([bool]$Smoke.$Field) {
-            Fail "$Field must remain false"
-        }
-    }
+    Assert-Smoke $Smoke
 
     $Artifacts = foreach ($Path in @($ServerPath, $ClientPath)) {
         $File = Get-Item -LiteralPath $Path
@@ -89,10 +92,45 @@ try {
             }
         } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ResolvedHostConfigOut -Encoding UTF8
 
+        $HostConfigJson = Get-Content -LiteralPath $ResolvedHostConfigOut -Raw
+        if ($HostConfigJson -match "submit_testnet_attestation|consume_nullifier|submit_underlying_action|sign_transaction|NC_STELLAR_SOURCE|NC_SOROBAN_SOURCE|SECRET|SEED|PRIVATE|API_KEY|TOKEN") {
+            Fail "generated host config contains a forbidden submit, source, or secret-like value"
+        }
+
+        $ParsedHostConfig = $HostConfigJson | ConvertFrom-Json
+        $ServerConfig = $ParsedHostConfig.mcpServers."neurochain-stellar-guardrails"
+        if ($null -eq $ServerConfig) {
+            Fail "generated host config is missing neurochain-stellar-guardrails"
+        }
+        if ($ServerConfig.command -ne $ServerPath) {
+            Fail "generated host config command does not match release server path"
+        }
+        if ($ServerConfig.args.Count -ne 0) {
+            Fail "generated host config must not add server args"
+        }
+        if ($ServerConfig.env.NC_INTENT_STELLAR_MODEL -ne $ModelPath) {
+            Fail "generated host config model path does not match local release model path"
+        }
+
+        $PreviousModelEnv = $env:NC_INTENT_STELLAR_MODEL
+        try {
+            $env:NC_INTENT_STELLAR_MODEL = $ServerConfig.env.NC_INTENT_STELLAR_MODEL
+            $HostConfigSmokeJson = (& $ClientPath --server $ServerConfig.command | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) {
+                Fail "host config smoke exited with $LASTEXITCODE"
+            }
+            $HostConfigSmoke = $HostConfigSmokeJson | ConvertFrom-Json
+            Assert-Smoke $HostConfigSmoke
+        }
+        finally {
+            $env:NC_INTENT_STELLAR_MODEL = $PreviousModelEnv
+        }
+
         $HostConfig = [ordered]@{
             path = $ResolvedHostConfigOut
             command = $ServerPath
             model = $ModelPath
+            validated_by_launch = $true
             secrets_included = $false
             submit_tools_included = $false
         }
