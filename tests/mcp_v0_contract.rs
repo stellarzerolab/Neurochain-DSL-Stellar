@@ -886,6 +886,53 @@ fn zk_package_docs_explain_fresh_clone_manifest_path_build() {
 }
 
 #[test]
+fn x402_phase3_contract_preserves_paid_ingress_boundary() {
+    let phase3_path = Path::new("docs").join("x402_facilitator_phase3.md");
+    let phase3 = fs::read_to_string(&phase3_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", phase3_path.display()));
+
+    for required in [
+        "x402 is already beyond a lite UI idea",
+        "This is not production x402 yet",
+        "Real facilitator verify/settle transport behind `src/x402_facilitator.rs`",
+        "`payment finalized` is not guardrail approval",
+        "`payment finalized` is not a ZK proof",
+        "`payment finalized` is not `underlying_action_submit_allowed`",
+        "payment is not submit permission",
+        "`NC_X402_STELLAR_VERIFIER=mock` fails closed in production runtimes",
+        "`NC_X402_STELLAR_VERIFIER=facilitator` fails closed until real verify/settle",
+        "underlying_action_submit_allowed=false",
+        "requires_approval",
+        "blocked",
+        "invalid_payment",
+    ] {
+        assert!(
+            phase3.contains(required),
+            "x402 Phase 3 contract must preserve boundary: {required}"
+        );
+    }
+
+    for forbidden in [
+        "payment finalized is guardrail approval",
+        "payment finalized is a ZK proof",
+        "payment finalized is `underlying_action_submit_allowed`",
+        "payment is submit permission",
+    ] {
+        assert!(
+            !phase3.contains(forbidden),
+            "x402 Phase 3 contract must not imply unsafe shortcut: {forbidden}"
+        );
+    }
+
+    let product_finish =
+        fs::read_to_string("docs/mcp_v0_product_finish.md").expect("read MCP product finish doc");
+    assert!(
+        product_finish.contains("docs/x402_facilitator_phase3.md"),
+        "MCP product finish doc should link the detailed x402 Phase 3 contract"
+    );
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"

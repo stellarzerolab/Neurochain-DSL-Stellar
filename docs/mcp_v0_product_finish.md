@@ -70,6 +70,9 @@ fail-closed facilitator boundary already exist.
 It is still not production x402 until real facilitator verify/settle transport
 is attached behind `src/x402_facilitator.rs`.
 
+The detailed contract lives in
+[`docs/x402_facilitator_phase3.md`](x402_facilitator_phase3.md).
+
 Phase 3 should add, in a separate review:
 
 - real facilitator verify/settle transport
