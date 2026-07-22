@@ -667,6 +667,83 @@ fn neurochain_guardrails_skill_packaging_stays_separate_from_runtime() {
 }
 
 #[test]
+fn neurochain_guardrails_skill_examples_cover_terminal_states() {
+    let examples_dir = Path::new(GUARDRAILS_SKILL_DIR).join("examples");
+    let examples = [
+        ("approved.md", "decision: `approved`"),
+        ("requires_approval.md", "decision: `requires_approval`"),
+        ("blocked.md", "decision: `blocked`"),
+        ("state_unavailable.md", "status: `state_unavailable`"),
+    ];
+
+    for (file_name, marker) in examples {
+        let path = examples_dir.join(file_name);
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+        assert!(
+            content.contains(marker),
+            "{} must document its state marker {marker}",
+            path.display()
+        );
+        for required in [
+            "underlying action submit allowed: `false`",
+            "nullifier consumed: `false`",
+        ] {
+            assert!(
+                content.contains(required),
+                "{} must preserve no-submit state: {required}",
+                path.display()
+            );
+        }
+    }
+
+    let readme_path = examples_dir.join("README.md");
+    let readme = fs::read_to_string(&readme_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", readme_path.display()));
+    for required in [
+        "underlying_action_submit_allowed",
+        "attestation_submitted",
+        "verification_transaction_submitted",
+        "nullifier_consumed",
+        "Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit",
+    ] {
+        assert!(
+            readme.contains(required),
+            "skill examples README must preserve shared boundary: {required}"
+        );
+    }
+
+    let blocked =
+        fs::read_to_string(examples_dir.join("blocked.md")).expect("read blocked example");
+    for exit_code in [
+        "`3`: allowlist block",
+        "`4`: contract policy",
+        "`5`: missing input",
+    ] {
+        assert!(
+            blocked.contains(exit_code),
+            "blocked example must preserve exit semantics: {exit_code}"
+        );
+    }
+
+    let state_unavailable =
+        fs::read_to_string(examples_dir.join("state_unavailable.md")).expect("read unavailable");
+    for forbidden in [
+        "wallet",
+        "secrets",
+        "signing",
+        "submit",
+        "attestation",
+        "nullifier-consume",
+    ] {
+        assert!(
+            state_unavailable.contains(forbidden),
+            "state_unavailable example must reject unsafe recovery path: {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"

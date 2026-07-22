@@ -29,7 +29,7 @@ Before publication, the package should include:
 - `agents/openai.yaml`
 - this `PACKAGING.md`
 - a README or install note that points to the MCP host configuration examples
-- short examples for:
+- short examples in `examples/` for:
   - `approved`
   - `requires_approval`
   - `blocked`
