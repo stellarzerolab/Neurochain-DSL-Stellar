@@ -1037,6 +1037,7 @@ fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
         "x402 is not production until real facilitator verify/settle transport",
         "Payment is not guardrail approval",
         "docs/x402_facilitator_phase3.md",
+        "docs/mcp_skill_completion_audit.md",
     ] {
         assert!(
             readme.contains(required),
@@ -1052,6 +1053,55 @@ fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
         assert!(
             !readme.contains(forbidden),
             "root README must not keep stale or unsafe wording: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn mcp_skill_completion_audit_covers_requested_last_mile_scope() {
+    let audit_path = Path::new("docs").join("mcp_skill_completion_audit.md");
+    let audit = fs::read_to_string(&audit_path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", audit_path.display()));
+
+    for required in [
+        "finish the remaining MCP/Skills packaging work",
+        "keep publishable skill work in",
+        "clearly state whether x402 and ZK are beyond lite",
+        "MCP v0 is a real product package",
+        "Default MCP remains no-submit",
+        "Skill publication/packaging is separate from runtime",
+        "Skill has release-candidate evidence",
+        "Skill is not falsely claimed as published",
+        "ZK status is clear",
+        "x402 status is clear",
+        "Payment/proof cannot become submit permission",
+        "status = passed",
+        "published = false",
+        "release_candidate = true",
+        "runtime_dependency = false",
+        "submit_surface = false",
+        "mode = read_only_no_submit",
+        "validated_by_launch = true",
+        "conformance_cases = 7",
+        "publishing the skill to a specific external registry",
+        "real x402 facilitator verify/settle transport",
+        "external MCP host or MCP Inspector validation",
+    ] {
+        assert!(
+            audit.contains(required),
+            "completion audit must cover last-mile requirement or boundary: {required}"
+        );
+    }
+
+    for forbidden in [
+        "Complete enough maybe",
+        "payment is submit permission",
+        "proof is submit permission",
+        "published = true",
+    ] {
+        assert!(
+            !audit.contains(forbidden),
+            "completion audit must not overclaim or weaken boundary: {forbidden}"
         );
     }
 }
