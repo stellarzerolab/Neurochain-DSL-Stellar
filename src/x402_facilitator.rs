@@ -151,8 +151,15 @@ pub fn build_x402_payment_verifier() -> Box<dyn X402PaymentVerifier + Send + Syn
         .trim()
         .to_ascii_lowercase();
 
-    match mode.as_str() {
-        "mock" if x402_runtime_is_production() => Box::new(UnavailableX402PaymentVerifier {
+    select_x402_payment_verifier(&mode, x402_runtime_is_production())
+}
+
+fn select_x402_payment_verifier(
+    mode: &str,
+    production_runtime: bool,
+) -> Box<dyn X402PaymentVerifier + Send + Sync> {
+    match mode {
+        "mock" if production_runtime => Box::new(UnavailableX402PaymentVerifier {
             reason:
                 "mock x402 verifier is disabled in production; configure the facilitator verifier"
                     .to_string(),
@@ -187,4 +194,121 @@ fn x402_runtime_is_production() -> bool {
             .map(|value| value.trim().eq_ignore_ascii_case("production"))
             .unwrap_or(false)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Default)]
+    struct TestChallengeStore {
+        created: bool,
+        finalized: bool,
+    }
+
+    impl X402ChallengeStore for TestChallengeStore {
+        fn store_kind(&self) -> &'static str {
+            "test"
+        }
+
+        fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
+            self.created = true;
+            Ok(X402ChallengeRecord {
+                challenge_id: "x402s0001".to_string(),
+                challenge: X402StellarChallenge {
+                    created_at: 1,
+                    expires_at: 300,
+                    finalized: false,
+                    finalized_at: None,
+                    payment_state: "payment_required".to_string(),
+                },
+            })
+        }
+
+        fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
+            self.finalized = true;
+            if challenge_id == "x402s0001" {
+                Ok(X402FinalizeOutcome::Finalized(X402StellarChallenge {
+                    created_at: 1,
+                    expires_at: 300,
+                    finalized: true,
+                    finalized_at: Some(2),
+                    payment_state: "finalized".to_string(),
+                }))
+            } else {
+                Ok(X402FinalizeOutcome::UnknownChallenge)
+            }
+        }
+    }
+
+    #[test]
+    fn selects_mock_verifier_only_for_non_production_runtime() {
+        let verifier = select_x402_payment_verifier("mock", false);
+        assert_eq!(verifier.verifier_kind(), "mock");
+        assert_eq!(verifier.boundary_kind(), "mock_header_store");
+
+        let mut store = TestChallengeStore::default();
+        let challenge = verifier.create_challenge(&mut store).unwrap();
+        assert_eq!(challenge.challenge_id, "x402s0001");
+        assert!(store.created);
+
+        let verification = verifier
+            .verify_and_finalize("paid:x402s0001", &mut store)
+            .unwrap();
+        assert!(matches!(
+            verification,
+            X402PaymentVerification::Finalized { .. }
+        ));
+        assert!(store.finalized);
+    }
+
+    #[test]
+    fn disables_mock_verifier_for_production_runtime() {
+        let verifier = select_x402_payment_verifier("mock", true);
+        assert_eq!(verifier.verifier_kind(), "unavailable");
+        assert_eq!(verifier.boundary_kind(), "facilitator_required");
+
+        let mut store = TestChallengeStore::default();
+        let err = verifier.create_challenge(&mut store).unwrap_err();
+        assert!(err.contains("mock x402 verifier is disabled in production"));
+        assert!(!store.created);
+
+        let err = verifier
+            .verify_and_finalize("paid:x402s0001", &mut store)
+            .unwrap_err();
+        assert!(err.contains("configure the facilitator verifier"));
+        assert!(!store.finalized);
+    }
+
+    #[test]
+    fn selects_facilitator_as_explicit_fail_closed_boundary() {
+        let verifier = select_x402_payment_verifier("facilitator", false);
+        assert_eq!(verifier.verifier_kind(), "facilitator");
+        assert_eq!(verifier.boundary_kind(), "facilitator_verify_settle");
+
+        let mut store = TestChallengeStore::default();
+        let err = verifier.create_challenge(&mut store).unwrap_err();
+        assert!(err.contains("verify/settle transport is not implemented"));
+        assert!(!store.created);
+
+        let err = verifier
+            .verify_and_finalize("paid:x402s0001", &mut store)
+            .unwrap_err();
+        assert!(err.contains("facilitator x402 verifier is selected"));
+        assert!(!store.finalized);
+    }
+
+    #[test]
+    fn unsupported_verifier_mode_is_unavailable() {
+        let verifier = select_x402_payment_verifier("wallet", false);
+        assert_eq!(verifier.verifier_kind(), "unavailable");
+        assert_eq!(verifier.boundary_kind(), "facilitator_required");
+
+        let mut store = TestChallengeStore::default();
+        let err = verifier.create_challenge(&mut store).unwrap_err();
+        assert!(err.contains("unsupported x402 verifier mode"));
+        assert!(err.contains("mock"));
+        assert!(err.contains("facilitator"));
+        assert!(!store.created);
+    }
 }
