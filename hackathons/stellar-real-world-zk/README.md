@@ -4,6 +4,19 @@ This hackathon package proves that a known deterministic NeuroChain evaluator
 checked a typed Stellar ActionPlan against a private owner policy. The proof
 reveals the decision and its commitments, not the policy rules.
 
+## Fresh clone build note
+
+The repository root is the main NeuroChain CLI crate. To reproduce the
+ZK/Soroban evidence without pulling the whole CLI build path first, run the ZK
+package commands with an explicit manifest path:
+
+```powershell
+cargo test --release --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml
+```
+
+The same command is the shortest way to rebuild the Soroban test artifact and
+run the real Groth16 fixture verification matrix from a fresh clone.
+
 ## Product flow
 
 ```text

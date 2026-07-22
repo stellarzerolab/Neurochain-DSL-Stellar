@@ -863,6 +863,29 @@ fn neurochain_guardrails_skill_release_candidate_manifest_is_bounded() {
 }
 
 #[test]
+fn zk_package_docs_explain_fresh_clone_manifest_path_build() {
+    let root_readme = fs::read_to_string("README.md").expect("read root README");
+    let zk_readme =
+        fs::read_to_string("hackathons/stellar-real-world-zk/README.md").expect("read ZK README");
+
+    for (name, content) in [
+        ("root README", root_readme.as_str()),
+        ("ZK README", zk_readme.as_str()),
+    ] {
+        assert!(
+            content.contains("repository root is the main NeuroChain CLI crate"),
+            "{name} must explain why a fresh clone should not start ZK evidence with root cargo build"
+        );
+        assert!(
+            content.contains(
+                "cargo test --release --manifest-path hackathons/stellar-real-world-zk/soroban/Cargo.toml"
+            ),
+            "{name} must provide the direct Soroban manifest-path command"
+        );
+    }
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"

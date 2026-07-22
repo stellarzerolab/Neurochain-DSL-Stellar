@@ -50,9 +50,10 @@ Start with the public package:
 - [`hackathons/stellar-real-world-zk/SUBMISSION.md`](hackathons/stellar-real-world-zk/SUBMISSION.md)
 - [`hackathons/stellar-real-world-zk/ARCHITECTURE.md`](hackathons/stellar-real-world-zk/ARCHITECTURE.md)
 
-Build note for fresh clones: the repository root is the main NeuroChain CLI
-crate. To reproduce the ZK/Soroban evidence directly, run the ZK package
-commands with `--manifest-path` instead of starting with a root `cargo build`.
+Fresh clone build note: the repository root is the main NeuroChain CLI crate.
+To reproduce the ZK/Soroban evidence directly without pulling the whole CLI
+build path first, run the ZK package commands with `--manifest-path` instead of
+starting with a root `cargo build`.
 
 Run the repository evidence gate:
 
