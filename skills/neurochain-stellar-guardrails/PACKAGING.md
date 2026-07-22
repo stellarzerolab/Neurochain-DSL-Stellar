@@ -28,7 +28,7 @@ Before publication, the package should include:
 - `SKILL.md`
 - `agents/openai.yaml`
 - this `PACKAGING.md`
-- a README or install note that points to the MCP host configuration examples
+- `INSTALL.md`
 - short examples in `examples/` for:
   - `approved`
   - `requires_approval`

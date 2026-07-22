@@ -744,6 +744,62 @@ fn neurochain_guardrails_skill_examples_cover_terminal_states() {
 }
 
 #[test]
+fn neurochain_guardrails_skill_install_note_matches_host_boundary() {
+    let install_path = Path::new(GUARDRAILS_SKILL_DIR).join("INSTALL.md");
+    let install = fs::read_to_string(&install_path).unwrap_or_else(|err| {
+        panic!("read {}: {err}", install_path.display());
+    });
+
+    for required in [
+        "verify_mcp_v0_release.ps1",
+        "-HostConfigOut",
+        "validated_by_launch = true",
+        "secrets_included = false",
+        "submit_tools_included = false",
+        "examples/mcp_v0_stdio_client/mcp_servers.json.example",
+        "examples/mcp_v0_stdio_client/mcp_servers.windows.json.example",
+        "NC_INTENT_STELLAR_MODEL",
+        "Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit",
+        "`latest_result`",
+        "Those remain separate product surfaces",
+    ] {
+        assert!(
+            install.contains(required),
+            "skill install note must document host/no-submit boundary: {required}"
+        );
+    }
+
+    for tool in DEFAULT_TOOLS {
+        assert!(
+            install.contains(tool),
+            "skill install note must name default tool {tool}"
+        );
+    }
+    for excluded in EXCLUDED_TOOLS {
+        assert!(
+            install.contains(excluded),
+            "skill install note must exclude submit/stateful tool {excluded}"
+        );
+    }
+    for forbidden_guidance in [
+        "NC_STELLAR_SOURCE=",
+        "NC_SOROBAN_SOURCE=",
+        "--flow",
+        "--yes",
+        "submit permission",
+    ] {
+        assert!(
+            !install.contains(forbidden_guidance),
+            "skill install note must not suggest unsafe default guidance: {forbidden_guidance}"
+        );
+    }
+
+    let packaging = fs::read_to_string(Path::new(GUARDRAILS_SKILL_DIR).join("PACKAGING.md"))
+        .expect("read packaging");
+    assert!(packaging.contains("`INSTALL.md`"));
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"
