@@ -1,0 +1,6 @@
+{
+  "title": "NeuroChain Stellar Guardrails",
+  "description": "Route Stellar ActionPlans through deterministic guardrails, private-policy ZK evidence, and read-only Soroban verification without granting transaction submit permission.",
+  "pathLabel": "stellarzerolab/Neurochain-DSL-Stellar",
+  "copyValue": "https://github.com/stellarzerolab/Neurochain-DSL-Stellar/blob/main/skills/neurochain-stellar-guardrails/SKILL.md"
+}

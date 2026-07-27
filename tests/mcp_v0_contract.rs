@@ -1176,6 +1176,72 @@ fn external_mcp_host_readiness_reports_the_exact_unvalidated_port() {
 }
 
 #[test]
+fn stellar_skills_community_card_is_publish_ready_but_unpublished() {
+    let card_path = Path::new("distribution").join("stellar-skills-community-card.json");
+    let review_path = Path::new("docs").join("stellar_skills_publish_review.md");
+    let packaging_path = Path::new(GUARDRAILS_SKILL_DIR).join("PACKAGING.md");
+
+    let card = read_json(&card_path);
+    let review = fs::read_to_string(&review_path).expect("read Stellar Skills review");
+    let packaging = fs::read_to_string(&packaging_path).expect("read skill packaging");
+
+    assert_eq!(card["title"], "NeuroChain Stellar Guardrails");
+    assert_eq!(card["pathLabel"], "stellarzerolab/Neurochain-DSL-Stellar");
+    assert_eq!(
+        card["copyValue"],
+        "https://github.com/stellarzerolab/Neurochain-DSL-Stellar/blob/main/skills/neurochain-stellar-guardrails/SKILL.md"
+    );
+
+    let description = card["description"]
+        .as_str()
+        .expect("community card description");
+    assert!(
+        description.starts_with("Route "),
+        "community card description must be verb-led"
+    );
+    for required in [
+        "Stellar ActionPlans",
+        "deterministic guardrails",
+        "private-policy ZK evidence",
+        "read-only Soroban verification",
+        "without granting transaction submit permission",
+    ] {
+        assert!(
+            description.contains(required),
+            "community card description must preserve bounded claim: {required}"
+        );
+    }
+
+    for required in [
+        "distribution_channel = skills.stellar.org community skills",
+        "publish_candidate = true",
+        "published = false",
+        "external_pull_request_created = false",
+        "runtime_dependency = false",
+        "submit_surface = false",
+        "ECOSYSTEM_CARDS",
+        "separate explicit publication decision",
+    ] {
+        assert!(
+            review.contains(required),
+            "publish review must preserve channel boundary: {required}"
+        );
+    }
+
+    for required in [
+        "docs/stellar_skills_publish_review.md",
+        "distribution/stellar-skills-community-card.json",
+        "published=false",
+        "explicit external-publication approval",
+    ] {
+        assert!(
+            packaging.contains(required),
+            "skill packaging must link channel review boundary: {required}"
+        );
+    }
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"

@@ -76,3 +76,17 @@ ActionPlan execution.
 
 Those can be documented later as separate product surfaces with their own
 approval and security review.
+
+## Stellar Skills Community Directory
+
+The channel-specific publish review and proposed community-directory card live
+outside the installed skill package:
+
+- `docs/stellar_skills_publish_review.md`
+- `distribution/stellar-skills-community-card.json`
+
+This keeps directory metadata and publication procedure out of the skill's
+runtime instructions. The card remains `published=false` evidence until the
+skill branch is merged, its direct `SKILL.md` URL is verified, and an
+explicit external-publication approval is given. Opening the external directory
+pull request remains a separate explicit publication decision.
