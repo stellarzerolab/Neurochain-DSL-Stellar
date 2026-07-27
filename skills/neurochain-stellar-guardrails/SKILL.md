@@ -119,9 +119,11 @@ path and still must not execute the underlying ActionPlan.
 Use these meanings exactly when reporting ZK, Stellar, payment, and submit
 state:
 
-- `proof_binding: "binding_validated"` means local public artifact binding
+- `local_binding: "binding_validated"` means local public artifact binding
   passed for the exact ZK typed ActionPlan. It is not cryptographic Stellar
   verification.
+- `proof_binding: "binding_validated"` is a deprecated compatibility alias on
+  proof-producing responses. Prefer `local_binding`.
 - `cryptographically_verified: false` means the artifact has not been accepted
   by the Soroban verifier yet. It is not automatic failure.
 - `stellar_verification: "verified_on_stellar"` means read-only Soroban

@@ -116,6 +116,34 @@
     "underlying_action_submit_allowed": {
       "const": false
     },
+    "local_binding": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "binding_validated",
+        null
+      ],
+      "description": "Canonical local public-artifact binding state. This does not mean the proof was cryptographically verified."
+    },
+    "proof_binding": {
+      "type": "string",
+      "enum": [
+        "binding_validated"
+      ],
+      "description": "Deprecated compatibility alias for local_binding on proof-producing responses."
+    },
+    "cryptographically_verified": {
+      "type": "boolean",
+      "description": "True only after the configured read-only Soroban verifier accepts the proof."
+    },
+    "verification_mode": {
+      "type": "string",
+      "enum": [
+        "read_only"
+      ]
+    },
     "logs": {
       "type": "array",
       "items": {

@@ -57,7 +57,8 @@ The ZK and Stellar fields intentionally describe different boundaries:
 
 | Field or state | Meaning in these fixtures |
 | --- | --- |
-| `proof_binding: "binding_validated"` | Local public artifact binding passed; the proof has not been cryptographically verified yet. |
+| `local_binding: "binding_validated"` | Canonical local public artifact binding passed; the proof has not been cryptographically verified yet. |
+| `proof_binding: "binding_validated"` | Deprecated compatibility alias for `local_binding` on proof-producing responses. |
 | `cryptographically_verified: false` | Expected after `prove_guardrail_decision`; call `verify_zk_on_stellar` for read-only Soroban verification. |
 | `stellar_verification: "verified_on_stellar"` | Read-only Soroban verification accepted the proof without submitting a transaction. |
 | `attestation_submitted: false` | No explicit testnet attestation transaction was sent by the default MCP v0 path. |

@@ -1519,6 +1519,7 @@ fn mcp_v0_stdio_inspects_real_zk_artifact_without_submit() {
     assert_eq!(result["decision"], "approved");
     assert_eq!(result["exit_code"], 0);
     assert_eq!(result["reason_code"], "passed");
+    assert_eq!(result["local_binding"], "binding_validated");
     assert_eq!(result["proof_binding"], "binding_validated");
     assert_eq!(result["cryptographically_verified"], false);
     assert_eq!(result["stellar_verification_required"], true);
@@ -1595,6 +1596,7 @@ fn mcp_v0_stdio_verifies_zk_on_stellar_read_only_without_submit() {
     );
     assert_eq!(result["stellar_verification"], "verified_on_stellar");
     assert_eq!(result["verification_mode"], "read_only");
+    assert_eq!(result["local_binding"], "binding_validated");
     assert_eq!(result["cryptographically_verified"], true);
     assert_eq!(result["underlying_action_submit_allowed"], false);
     assert_eq!(result["attestation_submitted"], false);

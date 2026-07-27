@@ -18,6 +18,7 @@
   "underlying_action_submit_allowed": false,
   "proof_artifact_ref": "inline:55d9f3e4223db1687f060a00f0caa64c081f441347e0f00c2d285e539b5ee13c",
   "proof_kind": "groth16",
+  "local_binding": "binding_validated",
   "proof_binding": "binding_validated",
   "cryptographically_verified": false,
   "stellar_verification_required": true,

@@ -159,7 +159,8 @@ agent, or demo cannot turn proof evidence into execution permission.
 
 | Field or term | Means | Does not mean | MCP v0 boundary |
 | --- | --- | --- | --- |
-| `proof_binding: "binding_validated"` | The inline public ZK artifact matches the exact typed ActionPlan, journal digest, evaluator image ID, and policy commitment fields expected by NeuroChain. | The Groth16 seal has been cryptographically verified on Stellar. | Local inspection only. No transaction hash, attestation submit, nullifier consume, or underlying ActionPlan submit. |
+| `local_binding: "binding_validated"` | The inline public ZK artifact matches the exact typed ActionPlan, journal digest, evaluator image ID, and policy commitment fields expected by NeuroChain. | The Groth16 seal has been cryptographically verified on Stellar. | Canonical local inspection field. No transaction hash, attestation submit, nullifier consume, or underlying ActionPlan submit. |
+| `proof_binding: "binding_validated"` | Compatibility alias for `local_binding` on proof-producing responses. | A second verification step or stronger authorization. | Deprecated; consumers should read `local_binding`. |
 | `cryptographically_verified: false` | The local artifact inspection has not reached the Soroban verifier. | The artifact is necessarily invalid. | The next safe step is `verify_zk_on_stellar` when a configured read-only verifier is available. |
 | `stellar_verification: "verified_on_stellar"` | The configured Soroban verifier accepted the proof in read-only mode. | A transaction was submitted or the underlying action is approved for execution. | `verification_transaction_submitted`, `attestation_submitted`, `nullifier_consumed`, and `underlying_action_submit_allowed` stay false. |
 | `attestation_submitted: true` | A separate explicit testnet attestation transaction was sent outside the default MCP v0 path. | Nullifier consume or underlying ActionPlan execution. | Not advertised by the default MCP v0 tool list. Requires a separately named and confirmed path. |
@@ -176,6 +177,10 @@ attestation_submitted != nullifier_consumed
 nullifier_consumed != underlying action submitted
 x402 finalized != guardrail approval
 ```
+
+`local_binding` is the canonical binding field across prove, verify, and status
+responses. `proof_binding` remains temporarily available on proof-producing
+responses for compatibility.
 
 ## Common Response Envelope
 
