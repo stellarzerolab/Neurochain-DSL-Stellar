@@ -1107,6 +1107,75 @@ fn mcp_skill_completion_audit_covers_requested_last_mile_scope() {
 }
 
 #[test]
+fn external_mcp_host_readiness_reports_the_exact_unvalidated_port() {
+    let script_path = Path::new("scripts").join("check_mcp_external_host_readiness.ps1");
+    let docs_path = Path::new("docs").join("mcp_external_host_validation.md");
+    let script = fs::read_to_string(&script_path).expect("read external host readiness script");
+    let docs = fs::read_to_string(&docs_path).expect("read external host validation docs");
+
+    for required in [
+        "external_host_available",
+        "external_mcp_host_or_inspector_executable",
+        "installation_attempted",
+        "runtime_dependency_added",
+        "submit_surface_added",
+        "verify_mcp_v0_release.ps1",
+    ] {
+        assert!(
+            script.contains(required),
+            "host readiness script must preserve field or boundary: {required}"
+        );
+        assert!(
+            docs.contains(required),
+            "host validation docs must preserve field or boundary: {required}"
+        );
+    }
+
+    for forbidden in [
+        "npm install",
+        "npx -y",
+        "submit_testnet_attestation",
+        "consume_nullifier",
+        "submit_underlying_action",
+        "sign_transaction",
+    ] {
+        assert!(
+            !script.contains(forbidden),
+            "host readiness script must not install or expose stateful surface: {forbidden}"
+        );
+    }
+
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script_path.to_str().expect("script path"),
+            "-InspectorCommand",
+            "__neurochain_missing_mcp_inspector__",
+        ])
+        .output()
+        .expect("run external host readiness script");
+    assert!(
+        output.status.success(),
+        "host readiness script should report unavailable host without failing: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let result: Value = serde_json::from_slice(&output.stdout).expect("parse host readiness JSON");
+    assert_eq!(result["status"], "host_unavailable");
+    assert_eq!(result["external_host_available"], false);
+    assert_eq!(
+        result["missing_port"],
+        "external_mcp_host_or_inspector_executable"
+    );
+    assert_eq!(result["installation_attempted"], false);
+    assert_eq!(result["runtime_dependency_added"], false);
+    assert_eq!(result["submit_surface_added"], false);
+}
+
+#[test]
 fn mcp_v0_client_smoke_validates_real_stdio_process() {
     let output = Command::new(assert_cmd::cargo::cargo_bin!(
         "neurochain-mcp-v0-client-smoke"

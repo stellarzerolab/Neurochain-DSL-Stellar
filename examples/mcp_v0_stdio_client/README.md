@@ -78,6 +78,16 @@ executable path and `NC_INTENT_STELLAR_MODEL`, and launches the smoke harness
 through that configured command. It does not include wallet sources, API keys,
 signing material, submit tools, attestation tools, or nullifier-consume tools.
 
+To distinguish this internal launch evidence from a third-party host or
+Inspector run, use the dependency-free readiness check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check_mcp_external_host_readiness.ps1
+```
+
+See `docs/mcp_external_host_validation.md` for the external acceptance criteria
+and the exact missing host port when no Inspector is installed.
+
 ## MCP Host Configuration
 
 Copy `mcp_servers.json.example` or `mcp_servers.windows.json.example` into the
