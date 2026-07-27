@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "operation": "verify",
+  "payment_payload": {
+    "x402_version": 2,
+    "payload_ref": "fixture:payment-payload"
+  },
+  "payment_requirements": {
+    "scheme": "exact",
+    "network": "stellar:testnet",
+    "asset": "USDC",
+    "amount": "10000",
+    "pay_to": "fixture:receiver"
+  },
+  "idempotency_key": "fixture-request-0001",
+  "network": "stellar:testnet",
+  "verification": {
+    "is_valid": true,
+    "invalid_reason": null
+  },
+  "underlying_action_submit_allowed": false
+}

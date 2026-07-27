@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neurochain.local/schemas/x402-facilitator-adapter.schema.json",
+  "title": "NeuroChain x402 Facilitator Adapter Contract",
+  "description": "Protocol-neutral contract for a future real x402 verify/settle transport. This is not an endpoint implementation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation",
+    "payment_payload",
+    "payment_requirements",
+    "idempotency_key",
+    "network",
+    "underlying_action_submit_allowed"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "verify",
+        "settle"
+      ]
+    },
+    "payment_payload": {
+      "type": "object",
+      "description": "Opaque x402 PaymentPayload passed to the future transport.",
+      "minProperties": 1
+    },
+    "payment_requirements": {
+      "type": "object",
+      "description": "Opaque x402 PaymentRequirements selected by the resource server.",
+      "minProperties": 1
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "network": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_valid"
+      ],
+      "properties": {
+        "is_valid": {
+          "type": "boolean"
+        },
+        "invalid_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "success",
+        "transaction_hash"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "transaction_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "underlying_action_submit_allowed": {
+      "const": false,
+      "description": "Payment verification or settlement never authorizes the underlying Stellar ActionPlan."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "verify"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "verification"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "settle"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "verification",
+          "settlement"
+        ],
+        "properties": {
+          "verification": {
+            "properties": {
+              "is_valid": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

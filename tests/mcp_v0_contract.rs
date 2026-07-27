@@ -1020,6 +1020,58 @@ fn x402_phase3_contract_preserves_paid_ingress_boundary() {
 }
 
 #[test]
+fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
+    let root = Path::new("examples").join("x402_facilitator_adapter");
+    let schema: Value = serde_json::from_str(
+        &fs::read_to_string(root.join("schema.json")).expect("read facilitator adapter schema"),
+    )
+    .expect("parse facilitator adapter schema");
+
+    assert_eq!(
+        schema["properties"]["operation"]["enum"],
+        serde_json::json!(["verify", "settle"])
+    );
+    assert_eq!(
+        schema["properties"]["underlying_action_submit_allowed"]["const"],
+        false
+    );
+    assert!(schema["required"]
+        .as_array()
+        .expect("required array")
+        .contains(&Value::String("idempotency_key".to_string())));
+
+    for fixture in ["verify_valid.json", "settle_success.json"] {
+        let value: Value = serde_json::from_str(
+            &fs::read_to_string(root.join(fixture))
+                .unwrap_or_else(|err| panic!("read {fixture}: {err}")),
+        )
+        .unwrap_or_else(|err| panic!("parse {fixture}: {err}"));
+
+        assert_eq!(value["underlying_action_submit_allowed"], false);
+        assert!(!value["idempotency_key"].as_str().unwrap_or("").is_empty());
+        assert!(value["payment_payload"].is_object());
+        assert!(value["payment_requirements"].is_object());
+    }
+
+    let verify: Value =
+        serde_json::from_str(&fs::read_to_string(root.join("verify_valid.json")).unwrap()).unwrap();
+    assert_eq!(verify["operation"], "verify");
+    assert_eq!(verify["verification"]["is_valid"], true);
+    assert!(verify.get("settlement").is_none());
+
+    let settle: Value =
+        serde_json::from_str(&fs::read_to_string(root.join("settle_success.json")).unwrap())
+            .unwrap();
+    assert_eq!(settle["operation"], "settle");
+    assert_eq!(settle["verification"]["is_valid"], true);
+    assert_eq!(settle["settlement"]["success"], true);
+
+    let phase3 = fs::read_to_string("docs/x402_facilitator_phase3.md")
+        .expect("read x402 facilitator phase 3 doc");
+    assert!(phase3.contains("examples/x402_facilitator_adapter/schema.json"));
+}
+
+#[test]
 fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
     let readme = fs::read_to_string("README.md").expect("read root README");
 

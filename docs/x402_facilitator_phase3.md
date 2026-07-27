@@ -40,6 +40,11 @@ Phase 3 must add these pieces as a separate reviewed change:
 5. Tests proving that payment state never bypasses guardrails, ZK
    verification, approval, or submit boundaries
 
+The protocol-neutral adapter contract is defined in
+`examples/x402_facilitator_adapter/schema.json`. It locks the verify/settle
+split, idempotency input, and no-submit invariant before any network transport
+is selected.
+
 ## Non Goals
 
 Phase 3 must not add any of these to the default MCP or x402 path:
