@@ -18,6 +18,9 @@ settlement:
 The payload and requirements objects are intentionally opaque. A future
 transport adapter must map the pinned x402 protocol version into these objects
 without changing NeuroChain guardrail, ZK, approval, or submit semantics.
+The Rust mapping functions in `src/x402_facilitator.rs` round-trip the verify
+and settle fixtures through an offline transport and reject operation, version,
+idempotency, or network mismatches before transport execution.
 
 `state_transitions.json` locks the idempotency and replay behavior expected from
 that transport:

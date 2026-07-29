@@ -51,6 +51,128 @@ pub trait X402FacilitatorTransport {
     ) -> Result<X402FacilitatorSettleResponse, X402FacilitatorTransportError>;
 }
 
+pub fn facilitator_request_from_adapter(
+    envelope: &Value,
+    expected_operation: &str,
+) -> Result<X402FacilitatorRequest, X402FacilitatorTransportError> {
+    let operation = required_adapter_string(envelope, "operation")?;
+    if operation != expected_operation {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            format!("expected adapter operation {expected_operation:?}, got {operation:?}"),
+        ));
+    }
+
+    let payment_payload = envelope
+        .get("payment_payload")
+        .filter(|value| value.is_object())
+        .cloned()
+        .ok_or_else(|| {
+            X402FacilitatorTransportError::InvalidConfiguration(
+                "payment_payload object is required".to_string(),
+            )
+        })?;
+    let payment_requirements = envelope
+        .get("payment_requirements")
+        .filter(|value| value.is_object())
+        .cloned()
+        .ok_or_else(|| {
+            X402FacilitatorTransportError::InvalidConfiguration(
+                "payment_requirements object is required".to_string(),
+            )
+        })?;
+    let x402_version = payment_payload
+        .get("x402_version")
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .ok_or_else(|| {
+            X402FacilitatorTransportError::InvalidConfiguration(
+                "payment_payload.x402_version must be an unsigned byte".to_string(),
+            )
+        })?;
+    if x402_version != X402_FACILITATOR_PROTOCOL_VERSION {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            format!("unsupported x402 version {x402_version}; expected 2"),
+        ));
+    }
+
+    let idempotency_key = required_adapter_string(envelope, "idempotency_key")?.to_string();
+    let network = required_adapter_string(envelope, "network")?.to_string();
+    if payment_requirements.get("network").and_then(Value::as_str) != Some(network.as_str()) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "adapter network must match payment_requirements.network".to_string(),
+        ));
+    }
+
+    Ok(X402FacilitatorRequest {
+        x402_version,
+        payment_payload,
+        payment_requirements,
+        idempotency_key,
+        network,
+    })
+}
+
+pub fn verify_response_to_adapter(
+    request: &X402FacilitatorRequest,
+    response: &X402FacilitatorVerifyResponse,
+) -> Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "operation": "verify",
+        "outcome": if response.is_valid { "verified" } else { "rejected" },
+        "payment_payload": request.payment_payload,
+        "payment_requirements": request.payment_requirements,
+        "idempotency_key": request.idempotency_key,
+        "network": request.network,
+        "verification": {
+            "is_valid": response.is_valid,
+            "invalid_reason": response.invalid_reason,
+        },
+        "underlying_action_submit_allowed": false,
+    })
+}
+
+pub fn settle_response_to_adapter(
+    request: &X402FacilitatorRequest,
+    response: &X402FacilitatorSettleResponse,
+) -> Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "operation": "settle",
+        "outcome": if response.success { "settled" } else { "rejected" },
+        "payment_payload": request.payment_payload,
+        "payment_requirements": request.payment_requirements,
+        "idempotency_key": request.idempotency_key,
+        "network": request.network,
+        "verification": {
+            "is_valid": true,
+            "invalid_reason": null,
+        },
+        "settlement": {
+            "success": response.success,
+            "transaction_hash": response.transaction_hash,
+            "error_reason": response.error_reason,
+        },
+        "underlying_action_submit_allowed": false,
+    })
+}
+
+fn required_adapter_string<'a>(
+    envelope: &'a Value,
+    field: &str,
+) -> Result<&'a str, X402FacilitatorTransportError> {
+    envelope
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            X402FacilitatorTransportError::InvalidConfiguration(format!(
+                "{field} must be a non-empty string"
+            ))
+        })
+}
+
 #[derive(Debug, Clone)]
 pub enum X402PaymentVerification {
     Finalized {
@@ -463,6 +585,55 @@ mod tests {
         request.idempotency_key.clear();
         assert!(matches!(
             transport.settle(&request),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
+    fn adapter_fixtures_round_trip_through_offline_transport() {
+        let transport = FakeFacilitatorTransport::new();
+        let verify_fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        let verify_request = facilitator_request_from_adapter(&verify_fixture, "verify").unwrap();
+        let verify_response = transport.verify(&verify_request).unwrap();
+        assert_eq!(
+            verify_response_to_adapter(&verify_request, &verify_response),
+            verify_fixture
+        );
+
+        let settle_fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/settle_success.json"
+        ))
+        .unwrap();
+        let settle_request = facilitator_request_from_adapter(&settle_fixture, "settle").unwrap();
+        let settle_response = transport.settle(&settle_request).unwrap();
+        assert_eq!(
+            settle_response_to_adapter(&settle_request, &settle_response),
+            settle_fixture
+        );
+        assert_eq!(
+            transport.calls.lock().unwrap().as_slice(),
+            ["verify", "settle"]
+        );
+    }
+
+    #[test]
+    fn adapter_mapping_rejects_operation_and_network_mismatch() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        assert!(matches!(
+            facilitator_request_from_adapter(&fixture, "settle"),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+
+        let mut mismatched = fixture;
+        mismatched["network"] = Value::String("stellar:pubnet".to_string());
+        assert!(matches!(
+            facilitator_request_from_adapter(&mismatched, "verify"),
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
     }
