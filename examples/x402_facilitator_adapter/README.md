@@ -36,6 +36,10 @@ fixture. A facilitator config must match x402 v2, exact/exact-v2, the configured
 Stellar network, and the configured SEP-41 asset before verify or settle can be
 enabled.
 
+The Rust offline orchestrator requires this handshake before verify and
+preserves unavailable and timeout errors as fail-closed outcomes. No verify
+call occurs when capability discovery or validation fails.
+
 This package does not provide an HTTP endpoint, facilitator URL, credentials,
 network call, signing operation, or transaction submission implementation.
 

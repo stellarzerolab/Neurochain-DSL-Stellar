@@ -172,6 +172,22 @@ pub trait X402FacilitatorTransport {
     ) -> Result<X402FacilitatorSettleResponse, X402FacilitatorTransportError>;
 }
 
+pub fn verify_with_capability_handshake<T: X402FacilitatorTransport>(
+    config: &X402FacilitatorConfig,
+    transport: &T,
+    request: &X402FacilitatorRequest,
+) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
+    if request.network != config.network {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator request network must match configured network".to_string(),
+        ));
+    }
+
+    let supported = transport.supported()?;
+    config.validate_supported(&supported)?;
+    transport.verify(request)
+}
+
 pub fn facilitator_request_from_adapter(
     envelope: &Value,
     expected_operation: &str,
@@ -505,12 +521,21 @@ mod tests {
     #[derive(Debug)]
     struct FakeFacilitatorTransport {
         calls: Mutex<Vec<&'static str>>,
+        supported_error: Option<X402FacilitatorTransportError>,
     }
 
     impl FakeFacilitatorTransport {
         fn new() -> Self {
             Self {
                 calls: Mutex::new(Vec::new()),
+                supported_error: None,
+            }
+        }
+
+        fn failing_supported(error: X402FacilitatorTransportError) -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                supported_error: Some(error),
             }
         }
     }
@@ -524,6 +549,9 @@ mod tests {
             &self,
         ) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
             self.calls.lock().unwrap().push("supported");
+            if let Some(error) = &self.supported_error {
+                return Err(error.clone());
+            }
             Ok(serde_json::from_str(include_str!(
                 "../examples/x402_facilitator_adapter/supported_stellar_exact_v2.json"
             ))
@@ -927,5 +955,71 @@ mod tests {
             config.validate_supported(&unsupported_version),
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
+    }
+
+    #[test]
+    fn facilitator_verify_requires_successful_capability_handshake() {
+        let transport = FakeFacilitatorTransport::new();
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        let request = facilitator_request_from_adapter(&fixture, "verify").unwrap();
+
+        let response = verify_with_capability_handshake(&config, &transport, &request).unwrap();
+
+        assert!(response.is_valid);
+        assert_eq!(
+            transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify"]
+        );
+    }
+
+    #[test]
+    fn facilitator_verify_fails_closed_before_verify_on_handshake_errors() {
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        let request = facilitator_request_from_adapter(&fixture, "verify").unwrap();
+
+        for error in [
+            X402FacilitatorTransportError::Unavailable(
+                "offline facilitator unavailable".to_string(),
+            ),
+            X402FacilitatorTransportError::Timeout,
+        ] {
+            let transport = FakeFacilitatorTransport::failing_supported(error.clone());
+            assert_eq!(
+                verify_with_capability_handshake(&config, &transport, &request),
+                Err(error)
+            );
+            assert_eq!(transport.calls.lock().unwrap().as_slice(), ["supported"]);
+        }
+
+        let mut mismatched_request = request;
+        mismatched_request.network = "stellar:pubnet".to_string();
+        let transport = FakeFacilitatorTransport::new();
+        assert!(matches!(
+            verify_with_capability_handshake(&config, &transport, &mismatched_request),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+        assert!(transport.calls.lock().unwrap().is_empty());
     }
 }

@@ -53,6 +53,11 @@ v2, exact/exact-v2, the configured Stellar network, and the configured SEP-41
 asset. Missing or mismatched capability data fails closed before verify or
 settle.
 
+The offline verify orchestrator enforces the order `supported -> verify`.
+Network mismatch, unavailable capability discovery, timeout, or unsupported
+capability data stops before the verify call. It does not perform HTTP traffic,
+settlement, signing, or ActionPlan submission.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:
