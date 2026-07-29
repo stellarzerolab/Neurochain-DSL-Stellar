@@ -8,6 +8,90 @@ use crate::x402_store::{
 };
 
 pub const X402_FACILITATOR_PROTOCOL_VERSION: u8 = 2;
+const MIN_FACILITATOR_TIMEOUT_MS: u64 = 100;
+const MAX_FACILITATOR_TIMEOUT_MS: u64 = 30_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct X402FacilitatorConfig {
+    pub endpoint: String,
+    pub network: String,
+    pub asset_contract: String,
+    pub receiver: String,
+    pub timeout_ms: u64,
+}
+
+impl X402FacilitatorConfig {
+    pub fn validate(
+        endpoint: &str,
+        network: &str,
+        asset_contract: &str,
+        receiver: &str,
+        timeout_ms: u64,
+    ) -> Result<Self, X402FacilitatorTransportError> {
+        let endpoint = endpoint.trim().trim_end_matches('/');
+        let parsed = reqwest::Url::parse(endpoint).map_err(|err| {
+            X402FacilitatorTransportError::InvalidConfiguration(format!(
+                "invalid facilitator endpoint: {err}"
+            ))
+        })?;
+        if parsed.scheme() != "https"
+            || parsed.host_str().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator endpoint must be a credential-free HTTPS base URL without query or fragment"
+                    .to_string(),
+            ));
+        }
+
+        let network = network.trim();
+        if !matches!(network, "stellar:testnet" | "stellar:pubnet") {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator network must be stellar:testnet or stellar:pubnet".to_string(),
+            ));
+        }
+        if !is_stellar_strkey(asset_contract.trim(), &['C']) {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "asset_contract must be a Stellar contract StrKey".to_string(),
+            ));
+        }
+        if !is_stellar_strkey(receiver.trim(), &['G', 'C', 'M']) {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "receiver must be a Stellar account, contract, or muxed-account StrKey".to_string(),
+            ));
+        }
+        if !(MIN_FACILITATOR_TIMEOUT_MS..=MAX_FACILITATOR_TIMEOUT_MS).contains(&timeout_ms) {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                format!(
+                    "facilitator timeout must be between {MIN_FACILITATOR_TIMEOUT_MS} and {MAX_FACILITATOR_TIMEOUT_MS} milliseconds"
+                ),
+            ));
+        }
+
+        Ok(Self {
+            endpoint: endpoint.to_string(),
+            network: network.to_string(),
+            asset_contract: asset_contract.trim().to_string(),
+            receiver: receiver.trim().to_string(),
+            timeout_ms,
+        })
+    }
+
+    pub fn verify_url(&self) -> String {
+        format!("{}/verify", self.endpoint)
+    }
+
+    pub fn settle_url(&self) -> String {
+        format!("{}/settle", self.endpoint)
+    }
+
+    pub fn supported_url(&self) -> String {
+        format!("{}/supported", self.endpoint)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct X402FacilitatorRequest {
@@ -171,6 +255,17 @@ fn required_adapter_string<'a>(
                 "{field} must be a non-empty string"
             ))
         })
+}
+
+fn is_stellar_strkey(value: &str, prefixes: &[char]) -> bool {
+    value.len() == 56
+        && value
+            .chars()
+            .next()
+            .is_some_and(|first| prefixes.contains(&first))
+        && value
+            .chars()
+            .all(|character| matches!(character, 'A'..='Z' | '2'..='7'))
 }
 
 #[derive(Debug, Clone)]
@@ -636,5 +731,103 @@ mod tests {
             facilitator_request_from_adapter(&mismatched, "verify"),
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
+    }
+
+    #[test]
+    fn facilitator_config_validates_stellar_transport_without_network_calls() {
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet/",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.endpoint,
+            "https://channels.openzeppelin.com/x402/testnet"
+        );
+        assert_eq!(
+            config.verify_url(),
+            "https://channels.openzeppelin.com/x402/testnet/verify"
+        );
+        assert_eq!(
+            config.settle_url(),
+            "https://channels.openzeppelin.com/x402/testnet/settle"
+        );
+        assert_eq!(
+            config.supported_url(),
+            "https://channels.openzeppelin.com/x402/testnet/supported"
+        );
+    }
+
+    #[test]
+    fn facilitator_config_rejects_unsafe_or_incomplete_values() {
+        let valid_asset = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA";
+        let valid_receiver = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+        for (endpoint, network, asset, receiver, timeout_ms) in [
+            (
+                "http://facilitator.example",
+                "stellar:testnet",
+                valid_asset,
+                valid_receiver,
+                5_000,
+            ),
+            (
+                "https://user:secret@facilitator.example",
+                "stellar:testnet",
+                valid_asset,
+                valid_receiver,
+                5_000,
+            ),
+            (
+                "https://facilitator.example?network=testnet",
+                "stellar:testnet",
+                valid_asset,
+                valid_receiver,
+                5_000,
+            ),
+            (
+                "https://facilitator.example",
+                "stellar:mainnet",
+                valid_asset,
+                valid_receiver,
+                5_000,
+            ),
+            (
+                "https://facilitator.example",
+                "stellar:testnet",
+                "USDC",
+                valid_receiver,
+                5_000,
+            ),
+            (
+                "https://facilitator.example",
+                "stellar:testnet",
+                valid_asset,
+                "receiver",
+                5_000,
+            ),
+            (
+                "https://facilitator.example",
+                "stellar:testnet",
+                valid_asset,
+                valid_receiver,
+                50,
+            ),
+            (
+                "https://facilitator.example",
+                "stellar:testnet",
+                valid_asset,
+                valid_receiver,
+                60_000,
+            ),
+        ] {
+            assert!(matches!(
+                X402FacilitatorConfig::validate(endpoint, network, asset, receiver, timeout_ms),
+                Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+            ));
+        }
     }
 }

@@ -42,6 +42,12 @@ The transport port follows the current official Stellar x402 baseline:
 Only an offline fake implements the port in tests. The production verifier
 continues to fail closed because no HTTP transport is connected yet.
 
+`X402FacilitatorConfig` validates the transport base URL, Stellar network,
+SEP-41 asset contract, receiver StrKey, and bounded timeout before any HTTP
+client can be constructed. Endpoint credentials, query strings, fragments,
+plain HTTP, unknown networks, malformed StrKeys, and unsafe timeout values fail
+closed. API keys are intentionally outside this configuration object.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:
