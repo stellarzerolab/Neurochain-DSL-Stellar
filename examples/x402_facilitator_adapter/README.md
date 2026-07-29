@@ -19,6 +19,15 @@ The payload and requirements objects are intentionally opaque. A future
 transport adapter must map the pinned x402 protocol version into these objects
 without changing NeuroChain guardrail, ZK, approval, or submit semantics.
 
+`state_transitions.json` locks the idempotency and replay behavior expected from
+that transport:
+
+- only `verified` may proceed to one settlement attempt
+- a repeated settled idempotency key is replay-blocked
+- rejected, unavailable, and expired requests remain fail-closed
+- unknown state fails closed as unavailable
+- no transition grants underlying ActionPlan submit authority
+
 This package does not provide an HTTP endpoint, facilitator URL, credentials,
 network call, signing operation, or transaction submission implementation.
 

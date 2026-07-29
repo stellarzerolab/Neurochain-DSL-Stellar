@@ -1097,6 +1097,62 @@ fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
 }
 
 #[test]
+fn x402_facilitator_state_transitions_fail_closed_on_replay_and_unknown_state() {
+    let path = Path::new("examples")
+        .join("x402_facilitator_adapter")
+        .join("state_transitions.json");
+    let matrix: Value = serde_json::from_str(
+        &fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display())),
+    )
+    .expect("parse facilitator state transitions");
+    let transitions = matrix["transitions"].as_array().expect("transition array");
+
+    assert_eq!(matrix["idempotency_scope"], "resource_request");
+    assert_eq!(matrix["unknown_state_policy"]["outcome"], "unavailable");
+    assert_eq!(matrix["unknown_state_policy"]["settlement_allowed"], false);
+    assert_eq!(
+        matrix["unknown_state_policy"]["underlying_action_submit_allowed"],
+        false
+    );
+
+    for transition in transitions {
+        assert_eq!(
+            transition["underlying_action_submit_allowed"], false,
+            "no payment transition may grant ActionPlan submit authority"
+        );
+    }
+
+    let settle_entry = transitions
+        .iter()
+        .find(|transition| {
+            transition["from"] == "verified" && transition["event"] == "settle_success"
+        })
+        .expect("verified settle transition");
+    assert_eq!(settle_entry["to"], "settled");
+
+    let replay_entry = transitions
+        .iter()
+        .find(|transition| {
+            transition["from"] == "settled" && transition["event"] == "repeat_same_idempotency_key"
+        })
+        .expect("settled replay transition");
+    assert_eq!(replay_entry["to"], "replay_blocked");
+    assert_eq!(replay_entry["settlement_allowed"], false);
+
+    for terminal in ["rejected", "unavailable", "expired"] {
+        let entry = transitions
+            .iter()
+            .find(|transition| {
+                transition["from"] == terminal
+                    && transition["event"] == "repeat_same_idempotency_key"
+            })
+            .unwrap_or_else(|| panic!("missing terminal replay transition for {terminal}"));
+        assert_eq!(entry["to"], terminal);
+        assert_eq!(entry["settlement_allowed"], false);
+    }
+}
+
+#[test]
 fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
     let readme = fs::read_to_string("README.md").expect("read root README");
 

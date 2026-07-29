@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "idempotency_scope": "resource_request",
+  "initial_state": "payment_required",
+  "terminal_states": [
+    "settled",
+    "replay_blocked",
+    "expired",
+    "rejected",
+    "unavailable"
+  ],
+  "transitions": [
+    {
+      "from": "payment_required",
+      "event": "verify_valid",
+      "to": "verified",
+      "settlement_allowed": true,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "payment_required",
+      "event": "verify_rejected",
+      "to": "rejected",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "payment_required",
+      "event": "facilitator_unavailable",
+      "to": "unavailable",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "payment_required",
+      "event": "challenge_expired",
+      "to": "expired",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "verified",
+      "event": "settle_success",
+      "to": "settled",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "verified",
+      "event": "settle_rejected",
+      "to": "rejected",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settled",
+      "event": "repeat_same_idempotency_key",
+      "to": "replay_blocked",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "rejected",
+      "event": "repeat_same_idempotency_key",
+      "to": "rejected",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "unavailable",
+      "event": "repeat_same_idempotency_key",
+      "to": "unavailable",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "expired",
+      "event": "repeat_same_idempotency_key",
+      "to": "expired",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    }
+  ],
+  "unknown_state_policy": {
+    "outcome": "unavailable",
+    "settlement_allowed": false,
+    "underlying_action_submit_allowed": false
+  }
+}

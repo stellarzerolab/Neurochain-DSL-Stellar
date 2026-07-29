@@ -43,7 +43,8 @@ Phase 3 must add these pieces as a separate reviewed change:
 The protocol-neutral adapter contract is defined in
 `examples/x402_facilitator_adapter/schema.json`. It locks the verify/settle
 split, idempotency input, and no-submit invariant before any network transport
-is selected.
+is selected. Its `state_transitions.json` companion locks replay and
+fail-closed terminal behavior.
 
 ## Non Goals
 
