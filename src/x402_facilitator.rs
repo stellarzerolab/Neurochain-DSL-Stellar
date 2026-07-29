@@ -1,8 +1,55 @@
 use std::env;
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
 use crate::x402_store::{
     X402ChallengeRecord, X402ChallengeStore, X402FinalizeOutcome, X402StellarChallenge,
 };
+
+pub const X402_FACILITATOR_PROTOCOL_VERSION: u8 = 2;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct X402FacilitatorRequest {
+    pub x402_version: u8,
+    pub payment_payload: Value,
+    pub payment_requirements: Value,
+    pub idempotency_key: String,
+    pub network: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct X402FacilitatorVerifyResponse {
+    pub is_valid: bool,
+    pub invalid_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct X402FacilitatorSettleResponse {
+    pub success: bool,
+    pub transaction_hash: Option<String>,
+    pub error_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum X402FacilitatorTransportError {
+    InvalidConfiguration(String),
+    Unavailable(String),
+    Timeout,
+    InvalidResponse(String),
+}
+
+pub trait X402FacilitatorTransport {
+    fn transport_kind(&self) -> &'static str;
+    fn verify(
+        &self,
+        request: &X402FacilitatorRequest,
+    ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError>;
+    fn settle(
+        &self,
+        request: &X402FacilitatorRequest,
+    ) -> Result<X402FacilitatorSettleResponse, X402FacilitatorTransportError>;
+}
 
 #[derive(Debug, Clone)]
 pub enum X402PaymentVerification {
@@ -199,6 +246,59 @@ fn x402_runtime_is_production() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Debug)]
+    struct FakeFacilitatorTransport {
+        calls: Mutex<Vec<&'static str>>,
+    }
+
+    impl FakeFacilitatorTransport {
+        fn new() -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl X402FacilitatorTransport for FakeFacilitatorTransport {
+        fn transport_kind(&self) -> &'static str {
+            "offline_fake"
+        }
+
+        fn verify(
+            &self,
+            request: &X402FacilitatorRequest,
+        ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
+            self.calls.lock().unwrap().push("verify");
+            if request.x402_version != X402_FACILITATOR_PROTOCOL_VERSION {
+                return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                    "unsupported x402 version".to_string(),
+                ));
+            }
+            Ok(X402FacilitatorVerifyResponse {
+                is_valid: true,
+                invalid_reason: None,
+            })
+        }
+
+        fn settle(
+            &self,
+            request: &X402FacilitatorRequest,
+        ) -> Result<X402FacilitatorSettleResponse, X402FacilitatorTransportError> {
+            self.calls.lock().unwrap().push("settle");
+            if request.idempotency_key.trim().is_empty() {
+                return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                    "idempotency key is required".to_string(),
+                ));
+            }
+            Ok(X402FacilitatorSettleResponse {
+                success: true,
+                transaction_hash: Some("fixture:payment-transaction".to_string()),
+                error_reason: None,
+            })
+        }
+    }
 
     #[derive(Debug, Default)]
     struct TestChallengeStore {
@@ -310,5 +410,60 @@ mod tests {
         assert!(err.contains("mock"));
         assert!(err.contains("facilitator"));
         assert!(!store.created);
+    }
+
+    #[test]
+    fn facilitator_transport_port_keeps_verify_and_settle_separate_offline() {
+        let transport = FakeFacilitatorTransport::new();
+        assert_eq!(transport.transport_kind(), "offline_fake");
+        let request = X402FacilitatorRequest {
+            x402_version: X402_FACILITATOR_PROTOCOL_VERSION,
+            payment_payload: serde_json::json!({"payload_ref": "fixture:payment"}),
+            payment_requirements: serde_json::json!({
+                "scheme": "exact",
+                "network": "stellar:testnet"
+            }),
+            idempotency_key: "fixture-request-0001".to_string(),
+            network: "stellar:testnet".to_string(),
+        };
+
+        let verified = transport.verify(&request).unwrap();
+        assert!(verified.is_valid);
+        assert_eq!(transport.calls.lock().unwrap().as_slice(), ["verify"]);
+
+        let settled = transport.settle(&request).unwrap();
+        assert!(settled.success);
+        assert_eq!(
+            settled.transaction_hash.as_deref(),
+            Some("fixture:payment-transaction")
+        );
+        assert_eq!(
+            transport.calls.lock().unwrap().as_slice(),
+            ["verify", "settle"]
+        );
+    }
+
+    #[test]
+    fn facilitator_transport_port_rejects_invalid_version_and_idempotency() {
+        let transport = FakeFacilitatorTransport::new();
+        let mut request = X402FacilitatorRequest {
+            x402_version: 1,
+            payment_payload: serde_json::json!({"payload_ref": "fixture:payment"}),
+            payment_requirements: serde_json::json!({"scheme": "exact"}),
+            idempotency_key: "fixture-request-0001".to_string(),
+            network: "stellar:testnet".to_string(),
+        };
+
+        assert!(matches!(
+            transport.verify(&request),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+
+        request.x402_version = X402_FACILITATOR_PROTOCOL_VERSION;
+        request.idempotency_key.clear();
+        assert!(matches!(
+            transport.settle(&request),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
     }
 }

@@ -27,6 +27,21 @@ This is not production x402 yet. Production begins only when a real
 facilitator verify/settle transport is implemented behind
 `src/x402_facilitator.rs` and validated against the invariants below.
 
+## Stellar Transport Baseline
+
+The transport port follows the current official Stellar x402 baseline:
+
+- x402 protocol version `2`
+- Stellar scheme `exact` / `exact-v2`
+- network identifiers `stellar:testnet` and `stellar:pubnet`
+- facilitator operations `/supported`, `/verify`, and `/settle`
+- Stellar payment payloads authorize SEP-41 token transfers through Soroban
+  authorization entries
+
+`X402FacilitatorTransport` now models separate verify and settle calls in Rust.
+Only an offline fake implements the port in tests. The production verifier
+continues to fail closed because no HTTP transport is connected yet.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:
