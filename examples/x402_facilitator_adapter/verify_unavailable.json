@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "operation": "settle",
-  "outcome": "settled",
+  "operation": "verify",
+  "outcome": "unavailable",
   "payment_payload": {
     "x402_version": 2,
-    "payload_ref": "fixture:payment-payload"
+    "payload_ref": "fixture:unverified-payment-payload"
   },
   "payment_requirements": {
     "scheme": "exact",
@@ -13,16 +13,11 @@
     "amount": "10000",
     "pay_to": "fixture:receiver"
   },
-  "idempotency_key": "fixture-request-0001",
+  "idempotency_key": "fixture-request-0003",
   "network": "stellar:testnet",
   "verification": {
-    "is_valid": true,
-    "invalid_reason": null
-  },
-  "settlement": {
-    "success": true,
-    "transaction_hash": "fixture:payment-transaction",
-    "error_reason": null
+    "is_valid": false,
+    "invalid_reason": "facilitator_unavailable"
   },
   "underlying_action_submit_allowed": false
 }

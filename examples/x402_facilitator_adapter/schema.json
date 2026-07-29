@@ -8,6 +8,7 @@
   "required": [
     "schema_version",
     "operation",
+    "outcome",
     "payment_payload",
     "payment_requirements",
     "idempotency_key",
@@ -24,6 +25,16 @@
         "verify",
         "settle"
       ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "rejected",
+        "unavailable",
+        "settled"
+      ],
+      "description": "Fail-closed adapter result. Only settled means the payment settlement succeeded."
     },
     "payment_payload": {
       "type": "object",
@@ -104,7 +115,16 @@
       "then": {
         "required": [
           "verification"
-        ]
+        ],
+        "properties": {
+          "outcome": {
+            "enum": [
+              "verified",
+              "rejected",
+              "unavailable"
+            ]
+          }
+        }
       }
     },
     {
@@ -121,6 +141,9 @@
           "settlement"
         ],
         "properties": {
+          "outcome": {
+            "const": "settled"
+          },
           "verification": {
             "properties": {
               "is_valid": {

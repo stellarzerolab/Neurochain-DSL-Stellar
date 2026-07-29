@@ -9,6 +9,9 @@ settlement:
 - `verify` checks a `PaymentPayload` against selected `PaymentRequirements`
 - `settle` is allowed only after successful verification
 - both operations require an idempotency key
+- verify outcomes are explicitly `verified`, `rejected`, or `unavailable`
+- facilitator rejection and unavailability fail closed without settlement
+- a successful settle outcome is explicitly `settled`
 - payment settlement may return a payment transaction hash
 - neither operation authorizes the underlying Stellar ActionPlan
 

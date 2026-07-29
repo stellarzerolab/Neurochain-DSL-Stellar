@@ -1040,7 +1040,12 @@ fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
         .expect("required array")
         .contains(&Value::String("idempotency_key".to_string())));
 
-    for fixture in ["verify_valid.json", "settle_success.json"] {
+    for fixture in [
+        "verify_valid.json",
+        "verify_rejected.json",
+        "verify_unavailable.json",
+        "settle_success.json",
+    ] {
         let value: Value = serde_json::from_str(
             &fs::read_to_string(root.join(fixture))
                 .unwrap_or_else(|err| panic!("read {fixture}: {err}")),
@@ -1056,6 +1061,7 @@ fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
     let verify: Value =
         serde_json::from_str(&fs::read_to_string(root.join("verify_valid.json")).unwrap()).unwrap();
     assert_eq!(verify["operation"], "verify");
+    assert_eq!(verify["outcome"], "verified");
     assert_eq!(verify["verification"]["is_valid"], true);
     assert!(verify.get("settlement").is_none());
 
@@ -1063,8 +1069,27 @@ fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
         serde_json::from_str(&fs::read_to_string(root.join("settle_success.json")).unwrap())
             .unwrap();
     assert_eq!(settle["operation"], "settle");
+    assert_eq!(settle["outcome"], "settled");
     assert_eq!(settle["verification"]["is_valid"], true);
     assert_eq!(settle["settlement"]["success"], true);
+
+    for (fixture, outcome, reason) in [
+        ("verify_rejected.json", "rejected", "facilitator_rejected"),
+        (
+            "verify_unavailable.json",
+            "unavailable",
+            "facilitator_unavailable",
+        ),
+    ] {
+        let value: Value =
+            serde_json::from_str(&fs::read_to_string(root.join(fixture)).unwrap()).unwrap();
+        assert_eq!(value["operation"], "verify");
+        assert_eq!(value["outcome"], outcome);
+        assert_eq!(value["verification"]["is_valid"], false);
+        assert_eq!(value["verification"]["invalid_reason"], reason);
+        assert!(value.get("settlement").is_none());
+        assert_eq!(value["underlying_action_submit_allowed"], false);
+    }
 
     let phase3 = fs::read_to_string("docs/x402_facilitator_phase3.md")
         .expect("read x402 facilitator phase 3 doc");
