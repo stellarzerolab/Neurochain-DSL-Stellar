@@ -48,6 +48,11 @@ client can be constructed. Endpoint credentials, query strings, fragments,
 plain HTTP, unknown networks, malformed StrKeys, and unsafe timeout values fail
 closed. API keys are intentionally outside this configuration object.
 
+The transport also models `/supported`. Capability validation requires x402
+v2, exact/exact-v2, the configured Stellar network, and the configured SEP-41
+asset. Missing or mismatched capability data fails closed before verify or
+settle.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:

@@ -31,6 +31,11 @@ that transport:
 - unknown state fails closed as unavailable
 - no transition grants underlying ActionPlan submit authority
 
+`supported_stellar_exact_v2.json` is an offline `/supported` capability
+fixture. A facilitator config must match x402 v2, exact/exact-v2, the configured
+Stellar network, and the configured SEP-41 asset before verify or settle can be
+enabled.
+
 This package does not provide an HTTP endpoint, facilitator URL, credentials,
 network call, signing operation, or transaction submission implementation.
 

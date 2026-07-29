@@ -1,0 +1,12 @@
+{
+  "kinds": [
+    {
+      "x402_version": 2,
+      "scheme": "exact-v2",
+      "network": "stellar:testnet",
+      "asset_contracts": [
+        "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
+      ]
+    }
+  ]
+}

@@ -91,6 +91,29 @@ impl X402FacilitatorConfig {
     pub fn supported_url(&self) -> String {
         format!("{}/supported", self.endpoint)
     }
+
+    pub fn validate_supported(
+        &self,
+        response: &X402FacilitatorSupportedResponse,
+    ) -> Result<(), X402FacilitatorTransportError> {
+        let supported = response.kinds.iter().any(|kind| {
+            kind.x402_version == X402_FACILITATOR_PROTOCOL_VERSION
+                && matches!(kind.scheme.as_str(), "exact" | "exact-v2")
+                && kind.network == self.network
+                && kind
+                    .asset_contracts
+                    .iter()
+                    .any(|asset| asset == &self.asset_contract)
+        });
+        if supported {
+            Ok(())
+        } else {
+            Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator does not advertise x402 v2 exact support for the configured Stellar network and asset"
+                    .to_string(),
+            ))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -115,6 +138,19 @@ pub struct X402FacilitatorSettleResponse {
     pub error_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct X402FacilitatorSupportedKind {
+    pub x402_version: u8,
+    pub scheme: String,
+    pub network: String,
+    pub asset_contracts: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct X402FacilitatorSupportedResponse {
+    pub kinds: Vec<X402FacilitatorSupportedKind>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum X402FacilitatorTransportError {
     InvalidConfiguration(String),
@@ -125,6 +161,7 @@ pub enum X402FacilitatorTransportError {
 
 pub trait X402FacilitatorTransport {
     fn transport_kind(&self) -> &'static str;
+    fn supported(&self) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError>;
     fn verify(
         &self,
         request: &X402FacilitatorRequest,
@@ -483,6 +520,16 @@ mod tests {
             "offline_fake"
         }
 
+        fn supported(
+            &self,
+        ) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
+            self.calls.lock().unwrap().push("supported");
+            Ok(serde_json::from_str(include_str!(
+                "../examples/x402_facilitator_adapter/supported_stellar_exact_v2.json"
+            ))
+            .unwrap())
+        }
+
         fn verify(
             &self,
             request: &X402FacilitatorRequest,
@@ -829,5 +876,56 @@ mod tests {
                 Err(X402FacilitatorTransportError::InvalidConfiguration(_))
             ));
         }
+    }
+
+    #[test]
+    fn facilitator_capability_handshake_accepts_configured_stellar_asset_offline() {
+        let transport = FakeFacilitatorTransport::new();
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let supported = transport.supported().unwrap();
+
+        config.validate_supported(&supported).unwrap();
+        assert_eq!(transport.calls.lock().unwrap().as_slice(), ["supported"]);
+    }
+
+    #[test]
+    fn facilitator_capability_handshake_fails_closed_on_mismatch() {
+        let config = X402FacilitatorConfig::validate(
+            "https://facilitator.example",
+            "stellar:pubnet",
+            "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let testnet_only: X402FacilitatorSupportedResponse = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/supported_stellar_exact_v2.json"
+        ))
+        .unwrap();
+
+        assert!(matches!(
+            config.validate_supported(&testnet_only),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+
+        let unsupported_version = X402FacilitatorSupportedResponse {
+            kinds: vec![X402FacilitatorSupportedKind {
+                x402_version: 1,
+                scheme: "exact".to_string(),
+                network: config.network.clone(),
+                asset_contracts: vec![config.asset_contract.clone()],
+            }],
+        };
+        assert!(matches!(
+            config.validate_supported(&unsupported_version),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
     }
 }
