@@ -58,6 +58,12 @@ Network mismatch, unavailable capability discovery, timeout, or unsupported
 capability data stops before the verify call. It does not perform HTTP traffic,
 settlement, signing, or ActionPlan submission.
 
+The offline settlement gate accepts only a successful verify result and a
+settlement request that exactly matches the verified network, payment payload,
+payment requirements, and idempotency key. Rejected or mismatched requests stop
+before the settlement transport. This gate is not connected to runtime or a
+network transport.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:

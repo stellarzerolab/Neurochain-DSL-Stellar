@@ -40,6 +40,10 @@ The Rust offline orchestrator requires this handshake before verify and
 preserves unavailable and timeout errors as fail-closed outcomes. No verify
 call occurs when capability discovery or validation fails.
 
+Offline settlement requires an accepted verify result plus an exact match of
+network, payment payload, payment requirements, and idempotency key. Rejected
+or mismatched requests do not reach the settlement transport.
+
 This package does not provide an HTTP endpoint, facilitator URL, credentials,
 network call, signing operation, or transaction submission implementation.
 

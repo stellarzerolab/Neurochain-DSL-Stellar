@@ -188,6 +188,36 @@ pub fn verify_with_capability_handshake<T: X402FacilitatorTransport>(
     transport.verify(request)
 }
 
+pub fn settle_after_verified_request<T: X402FacilitatorTransport>(
+    config: &X402FacilitatorConfig,
+    transport: &T,
+    verified_request: &X402FacilitatorRequest,
+    verification: &X402FacilitatorVerifyResponse,
+    settle_request: &X402FacilitatorRequest,
+) -> Result<X402FacilitatorSettleResponse, X402FacilitatorTransportError> {
+    if !verification.is_valid {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "rejected facilitator verification cannot proceed to settlement".to_string(),
+        ));
+    }
+    if verified_request.network != config.network || settle_request.network != config.network {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "verified and settlement request networks must match configured network".to_string(),
+        ));
+    }
+    if verified_request.idempotency_key != settle_request.idempotency_key
+        || verified_request.payment_payload != settle_request.payment_payload
+        || verified_request.payment_requirements != settle_request.payment_requirements
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "settlement request must exactly match the verified payment and idempotency key"
+                .to_string(),
+        ));
+    }
+
+    transport.settle(settle_request)
+}
+
 pub fn facilitator_request_from_adapter(
     envelope: &Value,
     expected_operation: &str,
@@ -1018,6 +1048,98 @@ mod tests {
         let transport = FakeFacilitatorTransport::new();
         assert!(matches!(
             verify_with_capability_handshake(&config, &transport, &mismatched_request),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+        assert!(transport.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn facilitator_settle_requires_matching_successful_verification() {
+        let transport = FakeFacilitatorTransport::new();
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let verify_fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        let settle_fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/settle_success.json"
+        ))
+        .unwrap();
+        let verify_request = facilitator_request_from_adapter(&verify_fixture, "verify").unwrap();
+        let settle_request = facilitator_request_from_adapter(&settle_fixture, "settle").unwrap();
+        let verification =
+            verify_with_capability_handshake(&config, &transport, &verify_request).unwrap();
+
+        let settlement = settle_after_verified_request(
+            &config,
+            &transport,
+            &verify_request,
+            &verification,
+            &settle_request,
+        )
+        .unwrap();
+
+        assert!(settlement.success);
+        assert_eq!(
+            transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify", "settle"]
+        );
+    }
+
+    #[test]
+    fn facilitator_settle_fails_closed_before_transport_on_rejection_or_mismatch() {
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        let verified_request = facilitator_request_from_adapter(&fixture, "verify").unwrap();
+        let accepted = X402FacilitatorVerifyResponse {
+            is_valid: true,
+            invalid_reason: None,
+        };
+        let rejected = X402FacilitatorVerifyResponse {
+            is_valid: false,
+            invalid_reason: Some("fixture rejected".to_string()),
+        };
+
+        let transport = FakeFacilitatorTransport::new();
+        assert!(matches!(
+            settle_after_verified_request(
+                &config,
+                &transport,
+                &verified_request,
+                &rejected,
+                &verified_request,
+            ),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+        assert!(transport.calls.lock().unwrap().is_empty());
+
+        let mut mismatched = verified_request.clone();
+        mismatched.idempotency_key = "different-idempotency-key".to_string();
+        assert!(matches!(
+            settle_after_verified_request(
+                &config,
+                &transport,
+                &verified_request,
+                &accepted,
+                &mismatched,
+            ),
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
         assert!(transport.calls.lock().unwrap().is_empty());
