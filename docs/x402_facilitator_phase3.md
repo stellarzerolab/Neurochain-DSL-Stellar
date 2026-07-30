@@ -87,8 +87,21 @@ The authenticated HTTPS transport is currently `/supported`-only. It disables
 redirects, applies the configured timeout, accepts bounded JSON responses, and
 maps authentication, timeout, rate-limit, server, content-type, and decoding
 failures to fail-closed transport errors. Its request construction and response
-parsing are tested offline with a non-secret placeholder. No credential was
-used and no authenticated network request was made in this milestone.
+parsing are tested offline with a non-secret placeholder.
+
+An ignored live conformance test exercises the repository's real Rust
+transport against the official Stellar testnet facilitator. It requires both
+`NC_X402_LIVE_SUPPORTED_PROBE=1` and a process-local
+`NC_X402_FACILITATOR_API_KEY`. Run it only after explicit approval for
+credential use and a live testnet request. The test calls only `GET /supported`;
+it cannot verify, settle, sign, transfer value, or submit an ActionPlan.
+
+On 2026-07-31, an explicitly approved testnet run generated a temporary key
+from the official endpoint (`HTTP 201`, JSON) and passed the ignored Rust
+conformance test against the authenticated `/supported` endpoint. The key
+existed only in that PowerShell process and was removed immediately afterward.
+No credential value was printed or stored, and `/verify` and `/settle` were not
+called.
 
 ## Phase 3 Deliverables
 

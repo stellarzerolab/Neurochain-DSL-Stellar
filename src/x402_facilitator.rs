@@ -1385,6 +1385,38 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an explicit credential-bearing Stellar testnet network probe"]
+    fn authenticated_supported_live_testnet_probe() {
+        assert_eq!(
+            env::var("NC_X402_LIVE_SUPPORTED_PROBE").as_deref(),
+            Ok("1"),
+            "set NC_X402_LIVE_SUPPORTED_PROBE=1 only for an explicitly approved live probe"
+        );
+
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            10_000,
+        )
+        .unwrap();
+        let transport = ReqwestX402FacilitatorTransport::new(
+            config.clone(),
+            EnvX402FacilitatorCredentialProvider::default(),
+        )
+        .unwrap();
+
+        let supported = transport.supported().unwrap();
+
+        config.validate_supported(&supported).unwrap();
+        assert_eq!(
+            transport.transport_kind(),
+            "authenticated_https_supported_only"
+        );
+    }
+
+    #[test]
     fn authenticated_transport_keeps_verify_and_settle_disabled() {
         let config = X402FacilitatorConfig::validate(
             "https://channels.openzeppelin.com/x402/testnet",
