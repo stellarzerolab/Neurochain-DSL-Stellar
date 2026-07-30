@@ -38,9 +38,11 @@ The transport port follows the current official Stellar x402 baseline:
 - Stellar payment payloads authorize SEP-41 token transfers through Soroban
   authorization entries
 
-`X402FacilitatorTransport` now models separate verify and settle calls in Rust.
-Only an offline fake implements the port in tests. The production verifier
-continues to fail closed because no HTTP transport is connected yet.
+`X402FacilitatorTransport` models separate supported, verify, and settle calls
+in Rust. An offline fake exercises the full state gates. A blocking reqwest
+transport implements only the authenticated HTTPS `GET /supported` call; its
+verify and settle methods deliberately return unavailable. The production
+verifier therefore continues to fail closed.
 
 `X402FacilitatorConfig` validates the transport base URL, Stellar network,
 SEP-41 asset contract, receiver StrKey, and bounded timeout before any HTTP
@@ -48,10 +50,13 @@ client can be constructed. Endpoint credentials, query strings, fragments,
 plain HTTP, unknown networks, malformed StrKeys, and unsafe timeout values fail
 closed. API keys are intentionally outside this configuration object.
 
-The transport also models `/supported`. Capability validation requires x402
-v2, exact/exact-v2, the configured Stellar network, and the configured SEP-41
-asset. Missing or mismatched capability data fails closed before verify or
-settle.
+The transport also models the official x402 v2 `/supported` wire format:
+camel-case `x402Version`, version-grouped `kinds`, `signers`, and `extensions`.
+Capability validation requires x402 v2, exact/exact-v2, and the configured
+Stellar network. The standard response does not advertise per-asset allowlists,
+so the configured SEP-41 asset remains a locally validated payment requirement
+instead of being inferred from `/supported`. Missing or mismatched capability
+data fails closed before verify or settle.
 
 The offline verify orchestrator enforces the order `supported -> verify`.
 Network mismatch, unavailable capability discovery, timeout, or unsupported
@@ -72,9 +77,18 @@ key for facilitator use. A credential-free `GET /supported` probe on
 2026-07-30 returned `HTTP 401 Unauthorized`.
 
 No API key was generated or stored, and `/verify` and `/settle` were not
-called. HTTP transport work remains fail closed until an explicit credential
-injection boundary is approved. Credentials must not be embedded in
-`X402FacilitatorConfig`, fixtures, logs, documentation, or source control.
+called. The approved credential boundary now reads the key only at request
+time from `NC_X402_FACILITATOR_API_KEY`, creates a sensitive Authorization
+header, and redacts credential state from Debug output. The key is not a field
+of `X402FacilitatorConfig` and must not appear in fixtures, logs,
+documentation, or source control.
+
+The authenticated HTTPS transport is currently `/supported`-only. It disables
+redirects, applies the configured timeout, accepts bounded JSON responses, and
+maps authentication, timeout, rate-limit, server, content-type, and decoding
+failures to fail-closed transport errors. Its request construction and response
+parsing are tested offline with a non-secret placeholder. No credential was
+used and no authenticated network request was made in this milestone.
 
 ## Phase 3 Deliverables
 
@@ -153,6 +167,8 @@ Use this wording in product docs until Phase 3 is complete:
 ```text
 x402 is beyond a lite UI idea: the paid ingress envelope, response contract,
 viewer, audit path, replay store, production mock fence, and fail-closed
-facilitator boundary exist. It is not production x402 until real facilitator
-verify/settle transport is attached behind src/x402_facilitator.rs.
+facilitator boundary exist. An authenticated, runtime-secret-only
+/supported transport is implemented but not runtime-connected. It is not
+production x402 until real facilitator verify/settle transport is attached
+behind src/x402_facilitator.rs.
 ```

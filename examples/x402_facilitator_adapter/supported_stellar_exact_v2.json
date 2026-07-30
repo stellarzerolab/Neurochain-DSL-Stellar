@@ -1,12 +1,18 @@
 {
   "kinds": [
     {
-      "x402_version": 2,
-      "scheme": "exact-v2",
+      "x402Version": 2,
+      "scheme": "exact",
       "network": "stellar:testnet",
-      "asset_contracts": [
-        "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA"
-      ]
+      "extra": {
+        "areFeesSponsored": true
+      }
     }
-  ]
+  ],
+  "signers": {
+    "stellar:testnet": [
+      "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+    ]
+  },
+  "extensions": []
 }

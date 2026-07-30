@@ -31,10 +31,12 @@ that transport:
 - unknown state fails closed as unavailable
 - no transition grants underlying ActionPlan submit authority
 
-`supported_stellar_exact_v2.json` is an offline `/supported` capability
-fixture. A facilitator config must match x402 v2, exact/exact-v2, the configured
-Stellar network, and the configured SEP-41 asset before verify or settle can be
-enabled.
+`supported_stellar_exact_v2.json` is an offline fixture for the official x402
+v2 `/supported` shape: camel-case `x402Version`, `kinds`, `signers`, and
+`extensions`. A facilitator config must match x402 v2, exact/exact-v2, and the
+configured Stellar network before verify or settle can be enabled. The
+configured SEP-41 asset remains locally validated because `/supported` does not
+advertise per-asset allowlists.
 
 The Rust offline orchestrator requires this handshake before verify and
 preserves unavailable and timeout errors as fail-closed outcomes. No verify
@@ -44,10 +46,15 @@ Offline settlement requires an accepted verify result plus an exact match of
 network, payment payload, payment requirements, and idempotency key. Rejected
 or mismatched requests do not reach the settlement transport.
 
-This package does not provide an HTTP endpoint, facilitator URL, credentials,
-network call, signing operation, or transaction submission implementation.
+The Rust module now contains a real authenticated HTTPS `GET /supported`
+transport. Its credential is injected at runtime, marked sensitive, and never
+stored in this fixture package. The transport keeps `/verify` and `/settle`
+disabled and does not provide an HTTP server endpoint, signing operation, or
+transaction submission implementation.
 
 Sources:
 
+- <https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar>
+- <https://github.com/OpenZeppelin/relayer-plugin-x402-facilitator>
 - <https://docs.x402.org/core-concepts/facilitator>
 - <https://github.com/x402-foundation/x402>

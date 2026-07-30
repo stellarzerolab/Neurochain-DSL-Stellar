@@ -1,5 +1,6 @@
-use std::env;
+use std::{collections::BTreeMap, env, fmt, io::Read, time::Duration};
 
+use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -8,8 +9,10 @@ use crate::x402_store::{
 };
 
 pub const X402_FACILITATOR_PROTOCOL_VERSION: u8 = 2;
+pub const X402_FACILITATOR_API_KEY_ENV: &str = "NC_X402_FACILITATOR_API_KEY";
 const MIN_FACILITATOR_TIMEOUT_MS: u64 = 100;
 const MAX_FACILITATOR_TIMEOUT_MS: u64 = 30_000;
+const MAX_FACILITATOR_RESPONSE_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct X402FacilitatorConfig {
@@ -100,16 +103,12 @@ impl X402FacilitatorConfig {
             kind.x402_version == X402_FACILITATOR_PROTOCOL_VERSION
                 && matches!(kind.scheme.as_str(), "exact" | "exact-v2")
                 && kind.network == self.network
-                && kind
-                    .asset_contracts
-                    .iter()
-                    .any(|asset| asset == &self.asset_contract)
         });
         if supported {
             Ok(())
         } else {
             Err(X402FacilitatorTransportError::InvalidConfiguration(
-                "facilitator does not advertise x402 v2 exact support for the configured Stellar network and asset"
+                "facilitator does not advertise x402 v2 exact support for the configured Stellar network"
                     .to_string(),
             ))
         }
@@ -139,16 +138,22 @@ pub struct X402FacilitatorSettleResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct X402FacilitatorSupportedKind {
     pub x402_version: u8,
     pub scheme: String,
     pub network: String,
-    pub asset_contracts: Vec<String>,
+    #[serde(default)]
+    pub extra: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct X402FacilitatorSupportedResponse {
     pub kinds: Vec<X402FacilitatorSupportedKind>,
+    #[serde(default)]
+    pub signers: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub extensions: Vec<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +162,280 @@ pub enum X402FacilitatorTransportError {
     Unavailable(String),
     Timeout,
     InvalidResponse(String),
+}
+
+pub trait X402FacilitatorCredentialProvider {
+    fn provider_kind(&self) -> &'static str;
+    fn authorization_header(&self) -> Result<HeaderValue, X402FacilitatorTransportError>;
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct EnvX402FacilitatorCredentialProvider {
+    variable: String,
+}
+
+impl EnvX402FacilitatorCredentialProvider {
+    pub fn new(variable: impl Into<String>) -> Result<Self, X402FacilitatorTransportError> {
+        let variable = variable.into();
+        let variable = variable.trim();
+        if variable.is_empty() || variable.contains('=') || variable.contains('\0') {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator credential environment variable name is invalid".to_string(),
+            ));
+        }
+        Ok(Self {
+            variable: variable.to_string(),
+        })
+    }
+
+    pub fn variable(&self) -> &str {
+        &self.variable
+    }
+}
+
+impl Default for EnvX402FacilitatorCredentialProvider {
+    fn default() -> Self {
+        Self {
+            variable: X402_FACILITATOR_API_KEY_ENV.to_string(),
+        }
+    }
+}
+
+impl fmt::Debug for EnvX402FacilitatorCredentialProvider {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EnvX402FacilitatorCredentialProvider")
+            .field("variable", &self.variable)
+            .field("credential", &"<runtime-only>")
+            .finish()
+    }
+}
+
+impl X402FacilitatorCredentialProvider for EnvX402FacilitatorCredentialProvider {
+    fn provider_kind(&self) -> &'static str {
+        "environment"
+    }
+
+    fn authorization_header(&self) -> Result<HeaderValue, X402FacilitatorTransportError> {
+        let token = env::var(&self.variable).map_err(|_| {
+            X402FacilitatorTransportError::InvalidConfiguration(format!(
+                "facilitator credential is unavailable from runtime environment variable {}",
+                self.variable
+            ))
+        })?;
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator credential is empty".to_string(),
+            ));
+        }
+
+        let mut header = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| {
+            X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator credential cannot be encoded as an authorization header".to_string(),
+            )
+        })?;
+        header.set_sensitive(true);
+        Ok(header)
+    }
+}
+
+pub struct ReqwestX402FacilitatorTransport<P> {
+    config: X402FacilitatorConfig,
+    client: reqwest::blocking::Client,
+    credential_provider: P,
+}
+
+impl<P> ReqwestX402FacilitatorTransport<P>
+where
+    P: X402FacilitatorCredentialProvider,
+{
+    pub fn new(
+        config: X402FacilitatorConfig,
+        credential_provider: P,
+    ) -> Result<Self, X402FacilitatorTransportError> {
+        let config = X402FacilitatorConfig::validate(
+            &config.endpoint,
+            &config.network,
+            &config.asset_contract,
+            &config.receiver,
+            config.timeout_ms,
+        )?;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(config.timeout_ms))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| {
+                X402FacilitatorTransportError::InvalidConfiguration(
+                    "facilitator HTTP client could not be constructed".to_string(),
+                )
+            })?;
+        Ok(Self {
+            config,
+            client,
+            credential_provider,
+        })
+    }
+
+    fn build_supported_request(
+        &self,
+    ) -> Result<reqwest::blocking::Request, X402FacilitatorTransportError> {
+        self.client
+            .get(self.config.supported_url())
+            .header(ACCEPT, "application/json")
+            .header(
+                AUTHORIZATION,
+                self.credential_provider.authorization_header()?,
+            )
+            .build()
+            .map_err(|_| {
+                X402FacilitatorTransportError::InvalidConfiguration(
+                    "facilitator supported request could not be constructed".to_string(),
+                )
+            })
+    }
+
+    fn execute_supported(
+        &self,
+        request: reqwest::blocking::Request,
+    ) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
+        let response = self.client.execute(request).map_err(map_reqwest_error)?;
+        ensure_supported_status(response.status())?;
+
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_FACILITATOR_RESPONSE_BYTES)
+        {
+            return Err(X402FacilitatorTransportError::InvalidResponse(
+                "facilitator response exceeds the size limit".to_string(),
+            ));
+        }
+
+        let content_type = response.headers().get(CONTENT_TYPE).cloned();
+        let mut body = Vec::new();
+        response
+            .take(MAX_FACILITATOR_RESPONSE_BYTES + 1)
+            .read_to_end(&mut body)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::TimedOut {
+                    X402FacilitatorTransportError::Timeout
+                } else {
+                    X402FacilitatorTransportError::Unavailable(
+                        "facilitator response body could not be read".to_string(),
+                    )
+                }
+            })?;
+        parse_supported_response(content_type.as_ref(), &body)
+    }
+}
+
+impl<P> fmt::Debug for ReqwestX402FacilitatorTransport<P>
+where
+    P: X402FacilitatorCredentialProvider,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReqwestX402FacilitatorTransport")
+            .field("endpoint", &self.config.endpoint)
+            .field("network", &self.config.network)
+            .field("timeout_ms", &self.config.timeout_ms)
+            .field(
+                "credential_provider",
+                &self.credential_provider.provider_kind(),
+            )
+            .field("credential", &"<redacted>")
+            .finish()
+    }
+}
+
+impl<P> X402FacilitatorTransport for ReqwestX402FacilitatorTransport<P>
+where
+    P: X402FacilitatorCredentialProvider,
+{
+    fn transport_kind(&self) -> &'static str {
+        "authenticated_https_supported_only"
+    }
+
+    fn supported(&self) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
+        self.execute_supported(self.build_supported_request()?)
+    }
+
+    fn verify(
+        &self,
+        _request: &X402FacilitatorRequest,
+    ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
+        Err(X402FacilitatorTransportError::Unavailable(
+            "authenticated facilitator verify transport is not enabled".to_string(),
+        ))
+    }
+
+    fn settle(
+        &self,
+        _request: &X402FacilitatorRequest,
+    ) -> Result<X402FacilitatorSettleResponse, X402FacilitatorTransportError> {
+        Err(X402FacilitatorTransportError::Unavailable(
+            "authenticated facilitator settlement transport is not enabled".to_string(),
+        ))
+    }
+}
+
+fn map_reqwest_error(error: reqwest::Error) -> X402FacilitatorTransportError {
+    if error.is_timeout() {
+        X402FacilitatorTransportError::Timeout
+    } else {
+        X402FacilitatorTransportError::Unavailable("facilitator HTTPS request failed".to_string())
+    }
+}
+
+fn ensure_supported_status(
+    status: reqwest::StatusCode,
+) -> Result<(), X402FacilitatorTransportError> {
+    if status.is_success() {
+        return Ok(());
+    }
+    if matches!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator rejected the runtime credential".to_string(),
+        ));
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+        return Err(X402FacilitatorTransportError::Unavailable(
+            "facilitator is unavailable".to_string(),
+        ));
+    }
+    Err(X402FacilitatorTransportError::InvalidResponse(format!(
+        "facilitator returned unexpected HTTP status {}",
+        status.as_u16()
+    )))
+}
+
+fn parse_supported_response(
+    content_type: Option<&HeaderValue>,
+    body: &[u8],
+) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
+    if body.len() as u64 > MAX_FACILITATOR_RESPONSE_BYTES {
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "facilitator response exceeds the size limit".to_string(),
+        ));
+    }
+    let content_type = content_type
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .unwrap_or_default();
+    if content_type != "application/json" && !content_type.ends_with("+json") {
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "facilitator response must use a JSON content type".to_string(),
+        ));
+    }
+    serde_json::from_slice(body).map_err(|_| {
+        X402FacilitatorTransportError::InvalidResponse(
+            "facilitator supported response is not valid x402 v2 JSON".to_string(),
+        )
+    })
 }
 
 pub trait X402FacilitatorTransport {
@@ -548,6 +827,35 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    #[derive(Clone)]
+    struct TestCredentialProvider {
+        authorization: HeaderValue,
+    }
+
+    impl TestCredentialProvider {
+        fn new(value: &'static str) -> Self {
+            let mut authorization = HeaderValue::from_static(value);
+            authorization.set_sensitive(true);
+            Self { authorization }
+        }
+    }
+
+    impl fmt::Debug for TestCredentialProvider {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("TestCredentialProvider(<redacted>)")
+        }
+    }
+
+    impl X402FacilitatorCredentialProvider for TestCredentialProvider {
+        fn provider_kind(&self) -> &'static str {
+            "test"
+        }
+
+        fn authorization_header(&self) -> Result<HeaderValue, X402FacilitatorTransportError> {
+            Ok(self.authorization.clone())
+        }
+    }
+
     #[derive(Debug)]
     struct FakeFacilitatorTransport {
         calls: Mutex<Vec<&'static str>>,
@@ -937,7 +1245,7 @@ mod tests {
     }
 
     #[test]
-    fn facilitator_capability_handshake_accepts_configured_stellar_asset_offline() {
+    fn facilitator_capability_handshake_accepts_configured_stellar_network_offline() {
         let transport = FakeFacilitatorTransport::new();
         let config = X402FacilitatorConfig::validate(
             "https://channels.openzeppelin.com/x402/testnet",
@@ -978,11 +1286,143 @@ mod tests {
                 x402_version: 1,
                 scheme: "exact".to_string(),
                 network: config.network.clone(),
-                asset_contracts: vec![config.asset_contract.clone()],
+                extra: Value::Object(Default::default()),
             }],
+            signers: BTreeMap::new(),
+            extensions: Vec::new(),
         };
         assert!(matches!(
             config.validate_supported(&unsupported_version),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
+    fn authenticated_supported_request_is_built_offline_with_sensitive_credential() {
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let transport = ReqwestX402FacilitatorTransport::new(
+            config,
+            TestCredentialProvider::new("Bearer test-only-placeholder"),
+        )
+        .unwrap();
+
+        let request = transport.build_supported_request().unwrap();
+        let authorization = request.headers().get(AUTHORIZATION).unwrap();
+        assert_eq!(request.method(), reqwest::Method::GET);
+        assert_eq!(
+            request.url().as_str(),
+            "https://channels.openzeppelin.com/x402/testnet/supported"
+        );
+        assert_eq!(authorization, "Bearer test-only-placeholder");
+        assert!(authorization.is_sensitive());
+        assert!(!format!("{transport:?}").contains("test-only-placeholder"));
+        assert!(!format!("{request:?}").contains("test-only-placeholder"));
+    }
+
+    #[test]
+    fn authenticated_transport_revalidates_manually_constructed_config() {
+        let config = X402FacilitatorConfig {
+            endpoint: "http://facilitator.example".to_string(),
+            network: "stellar:testnet".to_string(),
+            asset_contract: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA".to_string(),
+            receiver: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string(),
+            timeout_ms: 5_000,
+        };
+
+        assert!(matches!(
+            ReqwestX402FacilitatorTransport::new(
+                config,
+                TestCredentialProvider::new("Bearer test-only-placeholder"),
+            ),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
+    fn authenticated_supported_response_parsing_is_bounded_and_fail_closed() {
+        let content_type = HeaderValue::from_static("application/json; charset=utf-8");
+        let response = parse_supported_response(
+            Some(&content_type),
+            include_bytes!("../examples/x402_facilitator_adapter/supported_stellar_exact_v2.json"),
+        )
+        .unwrap();
+        assert_eq!(response.kinds[0].x402_version, 2);
+        assert_eq!(response.kinds[0].network, "stellar:testnet");
+        assert_eq!(
+            response.signers["stellar:testnet"],
+            ["GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"]
+        );
+
+        assert!(matches!(
+            parse_supported_response(
+                Some(&HeaderValue::from_static("text/html")),
+                br#"{"kinds":[]}"#
+            ),
+            Err(X402FacilitatorTransportError::InvalidResponse(_))
+        ));
+        assert!(matches!(
+            parse_supported_response(
+                Some(&HeaderValue::from_static("application/json")),
+                &vec![b' '; MAX_FACILITATOR_RESPONSE_BYTES as usize + 1],
+            ),
+            Err(X402FacilitatorTransportError::InvalidResponse(_))
+        ));
+        assert!(matches!(
+            ensure_supported_status(reqwest::StatusCode::UNAUTHORIZED),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+        assert!(matches!(
+            ensure_supported_status(reqwest::StatusCode::SERVICE_UNAVAILABLE),
+            Err(X402FacilitatorTransportError::Unavailable(_))
+        ));
+    }
+
+    #[test]
+    fn authenticated_transport_keeps_verify_and_settle_disabled() {
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let transport = ReqwestX402FacilitatorTransport::new(
+            config,
+            TestCredentialProvider::new("Bearer test-only-placeholder"),
+        )
+        .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+        let request = facilitator_request_from_adapter(&fixture, "verify").unwrap();
+
+        assert!(matches!(
+            transport.verify(&request),
+            Err(X402FacilitatorTransportError::Unavailable(_))
+        ));
+        assert!(matches!(
+            transport.settle(&request),
+            Err(X402FacilitatorTransportError::Unavailable(_))
+        ));
+    }
+
+    #[test]
+    fn environment_credential_provider_exposes_only_source_metadata() {
+        let provider = EnvX402FacilitatorCredentialProvider::default();
+        assert_eq!(provider.variable(), X402_FACILITATOR_API_KEY_ENV);
+        assert_eq!(provider.provider_kind(), "environment");
+        assert!(format!("{provider:?}").contains("<runtime-only>"));
+        assert!(matches!(
+            EnvX402FacilitatorCredentialProvider::new(""),
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
     }
