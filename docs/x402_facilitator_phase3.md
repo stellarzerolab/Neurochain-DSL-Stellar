@@ -64,6 +64,18 @@ payment requirements, and idempotency key. Rejected or mismatched requests stop
 before the settlement transport. This gate is not connected to runtime or a
 network transport.
 
+## Hosted Facilitator Validation
+
+The official Built on Stellar facilitator documents the testnet base URL as
+`https://channels.openzeppelin.com/x402/testnet` and requires a generated API
+key for facilitator use. A credential-free `GET /supported` probe on
+2026-07-30 returned `HTTP 401 Unauthorized`.
+
+No API key was generated or stored, and `/verify` and `/settle` were not
+called. HTTP transport work remains fail closed until an explicit credential
+injection boundary is approved. Credentials must not be embedded in
+`X402FacilitatorConfig`, fixtures, logs, documentation, or source control.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:
