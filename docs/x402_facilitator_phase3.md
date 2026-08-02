@@ -94,17 +94,19 @@ receiver, amount, timeout, and accepted requirements locally, and preserves a
 protocol-level `isValid: false` response as a payment rejection. Request
 construction and response parsing are tested offline with non-secret fixtures.
 
-No live `/verify` call has been made. The internal idempotency key remains a
-NeuroChain replay input and is not added to the standard x402 v2 verify body.
-`/settle` remains disabled, and the authenticated transport is not connected to
-the server payment verifier.
+The internal idempotency key remains a NeuroChain replay input and is not added
+to the standard x402 v2 verify body. `/settle` remains disabled, and the
+authenticated transport is not connected to the server payment verifier.
 
-An ignored live conformance test exercises the repository's real Rust
-transport against the official Stellar testnet facilitator. It requires both
-`NC_X402_LIVE_SUPPORTED_PROBE=1` and a process-local
-`NC_X402_FACILITATOR_API_KEY`. Run it only after explicit approval for
-credential use and a live testnet request. The test calls only `GET /supported`;
-it cannot verify, settle, sign, transfer value, or submit an ActionPlan.
+Ignored live conformance tests exercise the repository's real Rust transport
+against the official Stellar testnet facilitator. The capability probe requires
+`NC_X402_LIVE_SUPPORTED_PROBE=1`; the verify probe requires
+`NC_X402_LIVE_VERIFY_PROBE=1`. Both require a process-local
+`NC_X402_FACILITATOR_API_KEY` and explicit approval for credential use and a
+live testnet request. The verify probe sends a deliberately malformed, unsigned
+payment payload and requires the facilitator to return `isValid: false`; it
+cannot produce a valid payment authorization. Neither test can settle, sign,
+transfer value, or submit an ActionPlan.
 
 On 2026-07-31, an explicitly approved testnet run generated a temporary key
 from the official endpoint (`HTTP 201`, JSON) and passed the ignored Rust
@@ -113,13 +115,22 @@ existed only in that PowerShell process and was removed immediately afterward.
 No credential value was printed or stored, and `/verify` and `/settle` were not
 called.
 
+On 2026-08-02, a separately approved run generated another temporary testnet
+key (`HTTP 201`, JSON) and made exactly one authenticated `POST /verify` call
+through the repository's Rust transport. The facilitator rejected the unsigned
+fixture with `invalid_exact_stellar_payload_malformed`, confirming the live
+wire mapping, authentication, parser, and fail-closed rejection path. The key
+again existed only in that PowerShell process and was removed immediately.
+No `/settle`, payment, signature, transaction submission, or ActionPlan submit
+occurred.
+
 ## Phase 3 Deliverables
 
 Phase 3 must add these pieces as a separate reviewed change:
 
 1. Real facilitator verify/settle transport behind `src/x402_facilitator.rs`
-   - authenticated verify is offline-ready but has not completed a separately
-     approved live conformance call
+   - authenticated verify has completed a separately approved live rejection
+     conformance call; a valid signed payment has not been verified
    - settlement remains disabled and still requires implementation and review
 2. Production pricing, asset, receiver, network, and facilitator endpoint
    configuration

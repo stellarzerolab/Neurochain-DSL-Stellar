@@ -1832,6 +1832,42 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an explicitly approved authenticated Stellar testnet verify probe"]
+    fn authenticated_verify_live_testnet_rejection_probe() {
+        assert_eq!(
+            env::var("NC_X402_LIVE_VERIFY_PROBE").as_deref(),
+            Ok("1"),
+            "set NC_X402_LIVE_VERIFY_PROBE=1 only for an explicitly approved live probe"
+        );
+
+        let transport = ReqwestX402FacilitatorTransport::new(
+            authenticated_test_config(),
+            EnvX402FacilitatorCredentialProvider::default(),
+        )
+        .unwrap();
+
+        let response = transport.verify(&official_verify_request()).unwrap();
+
+        assert!(
+            !response.is_valid,
+            "the deliberately malformed, unsigned fixture must be rejected"
+        );
+        let invalid_reason = response
+            .invalid_reason
+            .as_deref()
+            .expect("a rejected live verify response must include an invalid reason");
+        assert!(
+            invalid_reason.starts_with("invalid_"),
+            "unexpected live verify rejection reason: {invalid_reason}"
+        );
+        assert_eq!(
+            transport.transport_kind(),
+            "authenticated_https_supported_verify"
+        );
+        println!("live x402 verify rejected safely: {invalid_reason}");
+    }
+
+    #[test]
     fn authenticated_transport_keeps_settlement_disabled() {
         let transport = ReqwestX402FacilitatorTransport::new(
             authenticated_test_config(),
