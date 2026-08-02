@@ -807,6 +807,79 @@ pub fn verify_response_to_adapter(
     })
 }
 
+fn verify_unavailable_to_adapter(
+    request: &X402FacilitatorRequest,
+    error: &X402FacilitatorTransportError,
+) -> Value {
+    let invalid_reason = match error {
+        X402FacilitatorTransportError::InvalidConfiguration(_) => {
+            "facilitator_configuration_invalid"
+        }
+        X402FacilitatorTransportError::Unavailable(_) => "facilitator_unavailable",
+        X402FacilitatorTransportError::Timeout => "facilitator_timeout",
+        X402FacilitatorTransportError::InvalidResponse(_) => "facilitator_invalid_response",
+    };
+
+    serde_json::json!({
+        "schema_version": 1,
+        "operation": "verify",
+        "outcome": "unavailable",
+        "payment_payload": request.payment_payload,
+        "payment_requirements": request.payment_requirements,
+        "idempotency_key": request.idempotency_key,
+        "network": request.network,
+        "verification": {
+            "is_valid": false,
+            "invalid_reason": invalid_reason,
+        },
+        "underlying_action_submit_allowed": false,
+    })
+}
+
+pub struct X402FacilitatorVerifyOnlyAdapter<'a, T>
+where
+    T: X402FacilitatorTransport,
+{
+    config: X402FacilitatorConfig,
+    transport: &'a T,
+}
+
+impl<'a, T> X402FacilitatorVerifyOnlyAdapter<'a, T>
+where
+    T: X402FacilitatorTransport,
+{
+    pub fn new(
+        config: X402FacilitatorConfig,
+        transport: &'a T,
+    ) -> Result<Self, X402FacilitatorTransportError> {
+        let config = X402FacilitatorConfig::validate(
+            &config.endpoint,
+            &config.network,
+            &config.asset_contract,
+            &config.receiver,
+            config.timeout_ms,
+        )?;
+        Ok(Self { config, transport })
+    }
+
+    pub fn transport_kind(&self) -> &'static str {
+        self.transport.transport_kind()
+    }
+
+    pub fn verify_adapter_envelope(
+        &self,
+        envelope: &Value,
+    ) -> Result<Value, X402FacilitatorTransportError> {
+        let request = facilitator_request_from_adapter(envelope, "verify")?;
+        let response =
+            match verify_with_capability_handshake(&self.config, self.transport, &request) {
+                Ok(response) => verify_response_to_adapter(&request, &response),
+                Err(error) => verify_unavailable_to_adapter(&request, &error),
+            };
+        Ok(response)
+    }
+}
+
 pub fn settle_response_to_adapter(
     request: &X402FacilitatorRequest,
     response: &X402FacilitatorSettleResponse,
@@ -1123,6 +1196,8 @@ mod tests {
     struct FakeFacilitatorTransport {
         calls: Mutex<Vec<&'static str>>,
         supported_error: Option<X402FacilitatorTransportError>,
+        verify_response: X402FacilitatorVerifyResponse,
+        verify_error: Option<X402FacilitatorTransportError>,
     }
 
     impl FakeFacilitatorTransport {
@@ -1130,6 +1205,11 @@ mod tests {
             Self {
                 calls: Mutex::new(Vec::new()),
                 supported_error: None,
+                verify_response: X402FacilitatorVerifyResponse {
+                    is_valid: true,
+                    invalid_reason: None,
+                },
+                verify_error: None,
             }
         }
 
@@ -1137,6 +1217,35 @@ mod tests {
             Self {
                 calls: Mutex::new(Vec::new()),
                 supported_error: Some(error),
+                verify_response: X402FacilitatorVerifyResponse {
+                    is_valid: true,
+                    invalid_reason: None,
+                },
+                verify_error: None,
+            }
+        }
+
+        fn rejecting_verify(reason: &str) -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                supported_error: None,
+                verify_response: X402FacilitatorVerifyResponse {
+                    is_valid: false,
+                    invalid_reason: Some(reason.to_string()),
+                },
+                verify_error: None,
+            }
+        }
+
+        fn failing_verify(error: X402FacilitatorTransportError) -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                supported_error: None,
+                verify_response: X402FacilitatorVerifyResponse {
+                    is_valid: false,
+                    invalid_reason: None,
+                },
+                verify_error: Some(error),
             }
         }
     }
@@ -1169,10 +1278,10 @@ mod tests {
                     "unsupported x402 version".to_string(),
                 ));
             }
-            Ok(X402FacilitatorVerifyResponse {
-                is_valid: true,
-                invalid_reason: None,
-            })
+            if let Some(error) = &self.verify_error {
+                return Err(error.clone());
+            }
+            Ok(self.verify_response.clone())
         }
 
         fn settle(
@@ -1959,6 +2068,101 @@ mod tests {
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
         assert!(transport.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn verify_only_adapter_maps_offline_results_without_settlement() {
+        let config = X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../examples/x402_facilitator_adapter/verify_valid.json"
+        ))
+        .unwrap();
+
+        let accepted_transport = FakeFacilitatorTransport::new();
+        let accepted_adapter =
+            X402FacilitatorVerifyOnlyAdapter::new(config.clone(), &accepted_transport).unwrap();
+        assert_eq!(accepted_adapter.transport_kind(), "offline_fake");
+        let accepted = accepted_adapter.verify_adapter_envelope(&fixture).unwrap();
+        assert_eq!(accepted["outcome"], "verified");
+        assert_eq!(accepted["verification"]["is_valid"], true);
+        assert_eq!(accepted["underlying_action_submit_allowed"], false);
+        assert!(accepted.get("settlement").is_none());
+        assert_eq!(
+            accepted_transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify"]
+        );
+
+        let rejected_transport = FakeFacilitatorTransport::rejecting_verify("facilitator_rejected");
+        let rejected_adapter =
+            X402FacilitatorVerifyOnlyAdapter::new(config.clone(), &rejected_transport).unwrap();
+        let rejected = rejected_adapter.verify_adapter_envelope(&fixture).unwrap();
+        assert_eq!(rejected["outcome"], "rejected");
+        assert_eq!(rejected["verification"]["is_valid"], false);
+        assert_eq!(
+            rejected["verification"]["invalid_reason"],
+            "facilitator_rejected"
+        );
+        assert_eq!(rejected["underlying_action_submit_allowed"], false);
+        assert_eq!(
+            rejected_transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify"]
+        );
+
+        let timeout_transport =
+            FakeFacilitatorTransport::failing_supported(X402FacilitatorTransportError::Timeout);
+        let timeout_adapter =
+            X402FacilitatorVerifyOnlyAdapter::new(config.clone(), &timeout_transport).unwrap();
+        let timeout = timeout_adapter.verify_adapter_envelope(&fixture).unwrap();
+        assert_eq!(timeout["outcome"], "unavailable");
+        assert_eq!(timeout["verification"]["is_valid"], false);
+        assert_eq!(
+            timeout["verification"]["invalid_reason"],
+            "facilitator_timeout"
+        );
+        assert_eq!(timeout["underlying_action_submit_allowed"], false);
+        assert_eq!(
+            timeout_transport.calls.lock().unwrap().as_slice(),
+            ["supported"]
+        );
+
+        let unavailable_transport =
+            FakeFacilitatorTransport::failing_verify(X402FacilitatorTransportError::Unavailable(
+                "offline facilitator unavailable".to_string(),
+            ));
+        let unavailable_adapter =
+            X402FacilitatorVerifyOnlyAdapter::new(config.clone(), &unavailable_transport).unwrap();
+        let unavailable = unavailable_adapter
+            .verify_adapter_envelope(&fixture)
+            .unwrap();
+        assert_eq!(unavailable["outcome"], "unavailable");
+        assert_eq!(unavailable["verification"]["is_valid"], false);
+        assert_eq!(
+            unavailable["verification"]["invalid_reason"],
+            "facilitator_unavailable"
+        );
+        assert_eq!(unavailable["underlying_action_submit_allowed"], false);
+        assert_eq!(
+            unavailable_transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify"]
+        );
+
+        let malformed_transport = FakeFacilitatorTransport::new();
+        let malformed_adapter =
+            X402FacilitatorVerifyOnlyAdapter::new(config, &malformed_transport).unwrap();
+        let mut malformed = fixture;
+        malformed.as_object_mut().unwrap().remove("payment_payload");
+        assert!(matches!(
+            malformed_adapter.verify_adapter_envelope(&malformed),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+        assert!(malformed_transport.calls.lock().unwrap().is_empty());
     }
 
     #[test]

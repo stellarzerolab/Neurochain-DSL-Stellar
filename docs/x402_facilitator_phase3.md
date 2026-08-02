@@ -64,6 +64,14 @@ Network mismatch, unavailable capability discovery, timeout, or unsupported
 capability data stops before the verify call. It does not perform HTTP traffic,
 settlement, signing, or ActionPlan submission.
 
+`X402FacilitatorVerifyOnlyAdapter` composes that orchestrator with the
+protocol-neutral adapter contract. It accepts only verify envelopes and maps
+accepted, rejected, timeout, unavailable, invalid-response, and capability
+failures to typed no-submit results. It intentionally has no settle method,
+does not implement `X402PaymentVerifier`, and is not selected by
+`build_x402_payment_verifier()`. The server's facilitator mode therefore
+continues to fail closed.
+
 The offline settlement gate accepts only a successful verify result and a
 settlement request that exactly matches the verified network, payment payload,
 payment requirements, and idempotency key. Rejected or mismatched requests stop
@@ -206,7 +214,9 @@ x402 is beyond a lite UI idea: the paid ingress envelope, response contract,
 viewer, audit path, replay store, production mock fence, and fail-closed
 facilitator boundary exist. An authenticated, runtime-secret-only
 /supported and read-only /verify transport is implemented but not
-runtime-connected. The verify wire mapping is offline-tested; no live verify
-call has been made. It is not production x402 until settlement and the reviewed
-runtime integration are attached behind src/x402_facilitator.rs.
+runtime-connected. The verify wire mapping and verify-only runtime adapter are
+offline-tested, and one approved live testnet rejection probe confirmed the
+authenticated /verify path without validating or settling a payment. It is not
+production x402 until settlement and the reviewed runtime activation are
+attached behind src/x402_facilitator.rs.
 ```

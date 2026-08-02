@@ -42,6 +42,13 @@ The Rust offline orchestrator requires this handshake before verify and
 preserves unavailable and timeout errors as fail-closed outcomes. No verify
 call occurs when capability discovery or validation fails.
 
+`X402FacilitatorVerifyOnlyAdapter` is the first runtime-integration candidate.
+It accepts only a `verify` envelope, performs the offline-tested capability
+handshake, and maps accepted, rejected, timeout, unavailable, invalid-response,
+and capability failures into this no-submit contract. It has no settle method,
+does not implement `X402PaymentVerifier`, and is not selected by the server's
+runtime verifier factory.
+
 Offline settlement requires an accepted verify result plus an exact match of
 network, payment payload, payment requirements, and idempotency key. Rejected
 or mismatched requests do not reach the settlement transport.
@@ -54,9 +61,11 @@ requirements before request construction. The adapter fixtures remain
 protocol-neutral; a real HTTP request must carry a complete official
 `PaymentPayload` and `PaymentRequirements`, not fixture references.
 
-The HTTP mapping and parser are tested offline. No live `/verify` call has been
-made, `/settle` remains disabled, and this package provides no HTTP server,
-signing operation, payment submission, or underlying ActionPlan submission.
+The HTTP mapping and parser are tested offline. One separately approved live
+testnet `/verify` rejection probe confirmed the unsigned malformed request
+path; it did not validate or settle a payment. `/settle` remains disabled, and
+this package provides no HTTP server, signing operation, payment submission,
+or underlying ActionPlan submission.
 
 Sources:
 

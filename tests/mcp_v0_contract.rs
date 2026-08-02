@@ -1094,6 +1094,17 @@ fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
     let phase3 = fs::read_to_string("docs/x402_facilitator_phase3.md")
         .expect("read x402 facilitator phase 3 doc");
     assert!(phase3.contains("examples/x402_facilitator_adapter/schema.json"));
+    for required in [
+        "X402FacilitatorVerifyOnlyAdapter",
+        "It intentionally has no settle method",
+        "does not implement `X402PaymentVerifier`",
+        "continues to fail closed",
+    ] {
+        assert!(
+            phase3.contains(required),
+            "verify-only adapter boundary must remain explicit: {required}"
+        );
+    }
 }
 
 #[test]
