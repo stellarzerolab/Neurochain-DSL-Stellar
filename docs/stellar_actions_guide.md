@@ -1330,9 +1330,11 @@ Implementation note:
 - current boundary kind: `mock_header_store`
 - `NC_X402_STELLAR_VERIFIER=facilitator` selects the explicit
   `facilitator_verify_settle` boundary, but it currently returns
-  `state_unavailable` because real verify/settle transport is not implemented
+  `state_unavailable` because the authenticated `/verify` transport is not
+  runtime-connected and `/settle` is not implemented
 - production envs disable the mock verifier; production payment requests stay
-  fail closed until the facilitator transport is implemented and configured
+  fail closed until the facilitator integration and settlement path are
+  implemented, configured, and reviewed
 - future real facilitator support should be added behind that verifier boundary
   while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
   finalized `plan` stable for clients

@@ -46,11 +46,17 @@ Offline settlement requires an accepted verify result plus an exact match of
 network, payment payload, payment requirements, and idempotency key. Rejected
 or mismatched requests do not reach the settlement transport.
 
-The Rust module now contains a real authenticated HTTPS `GET /supported`
-transport. Its credential is injected at runtime, marked sensitive, and never
-stored in this fixture package. The transport keeps `/verify` and `/settle`
-disabled and does not provide an HTTP server endpoint, signing operation, or
-transaction submission implementation.
+The Rust module now contains authenticated HTTPS `GET /supported` and
+read-only `POST /verify` transports. The credential is injected at runtime,
+marked sensitive, and never stored in this fixture package. The verify request
+uses the official x402 v2 wire names and validates the exact selected
+requirements before request construction. The adapter fixtures remain
+protocol-neutral; a real HTTP request must carry a complete official
+`PaymentPayload` and `PaymentRequirements`, not fixture references.
+
+The HTTP mapping and parser are tested offline. No live `/verify` call has been
+made, `/settle` remains disabled, and this package provides no HTTP server,
+signing operation, payment submission, or underlying ActionPlan submission.
 
 Sources:
 

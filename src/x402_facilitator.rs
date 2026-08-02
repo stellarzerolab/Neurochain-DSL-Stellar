@@ -327,6 +327,67 @@ where
             })?;
         parse_supported_response(content_type.as_ref(), &body)
     }
+
+    fn build_verify_request(
+        &self,
+        request: &X402FacilitatorRequest,
+    ) -> Result<reqwest::blocking::Request, X402FacilitatorTransportError> {
+        validate_verify_wire_request(&self.config, request)?;
+        let body = serde_json::json!({
+            "x402Version": request.x402_version,
+            "paymentPayload": request.payment_payload,
+            "paymentRequirements": request.payment_requirements,
+        });
+
+        self.client
+            .post(self.config.verify_url())
+            .header(ACCEPT, "application/json")
+            .header(
+                AUTHORIZATION,
+                self.credential_provider.authorization_header()?,
+            )
+            .json(&body)
+            .build()
+            .map_err(|_| {
+                X402FacilitatorTransportError::InvalidConfiguration(
+                    "facilitator verify request could not be constructed".to_string(),
+                )
+            })
+    }
+
+    fn execute_verify(
+        &self,
+        request: reqwest::blocking::Request,
+    ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
+        let response = self.client.execute(request).map_err(map_reqwest_error)?;
+        let status = response.status();
+        ensure_verify_status(status)?;
+
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_FACILITATOR_RESPONSE_BYTES)
+        {
+            return Err(X402FacilitatorTransportError::InvalidResponse(
+                "facilitator response exceeds the size limit".to_string(),
+            ));
+        }
+
+        let content_type = response.headers().get(CONTENT_TYPE).cloned();
+        let mut body = Vec::new();
+        response
+            .take(MAX_FACILITATOR_RESPONSE_BYTES + 1)
+            .read_to_end(&mut body)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::TimedOut {
+                    X402FacilitatorTransportError::Timeout
+                } else {
+                    X402FacilitatorTransportError::Unavailable(
+                        "facilitator response body could not be read".to_string(),
+                    )
+                }
+            })?;
+        parse_verify_response(status, content_type.as_ref(), &body)
+    }
 }
 
 impl<P> fmt::Debug for ReqwestX402FacilitatorTransport<P>
@@ -353,7 +414,7 @@ where
     P: X402FacilitatorCredentialProvider,
 {
     fn transport_kind(&self) -> &'static str {
-        "authenticated_https_supported_only"
+        "authenticated_https_supported_verify"
     }
 
     fn supported(&self) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
@@ -362,11 +423,9 @@ where
 
     fn verify(
         &self,
-        _request: &X402FacilitatorRequest,
+        request: &X402FacilitatorRequest,
     ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
-        Err(X402FacilitatorTransportError::Unavailable(
-            "authenticated facilitator verify transport is not enabled".to_string(),
-        ))
+        self.execute_verify(self.build_verify_request(request)?)
     }
 
     fn settle(
@@ -412,6 +471,130 @@ fn ensure_supported_status(
     )))
 }
 
+fn ensure_verify_status(status: reqwest::StatusCode) -> Result<(), X402FacilitatorTransportError> {
+    if status.is_success() {
+        return Ok(());
+    }
+    if matches!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator rejected the runtime credential".to_string(),
+        ));
+    }
+    if status == reqwest::StatusCode::REQUEST_TIMEOUT {
+        return Err(X402FacilitatorTransportError::Timeout);
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+        return Err(X402FacilitatorTransportError::Unavailable(
+            "facilitator is unavailable".to_string(),
+        ));
+    }
+    if status.is_client_error() {
+        return Ok(());
+    }
+    Err(X402FacilitatorTransportError::InvalidResponse(format!(
+        "facilitator returned unexpected HTTP status {}",
+        status.as_u16()
+    )))
+}
+
+fn validate_verify_wire_request(
+    config: &X402FacilitatorConfig,
+    request: &X402FacilitatorRequest,
+) -> Result<(), X402FacilitatorTransportError> {
+    if request.x402_version != X402_FACILITATOR_PROTOCOL_VERSION {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator verify request must use x402 v2".to_string(),
+        ));
+    }
+    if request.network != config.network {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator verify request network must match configured network".to_string(),
+        ));
+    }
+    let idempotency_key = request.idempotency_key.trim();
+    if idempotency_key.is_empty() || idempotency_key.len() > 128 {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator verify idempotency key must contain 1-128 bytes".to_string(),
+        ));
+    }
+
+    let payment_payload = request.payment_payload.as_object().ok_or_else(|| {
+        X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentPayload must be an object".to_string(),
+        )
+    })?;
+    let payment_requirements = request.payment_requirements.as_object().ok_or_else(|| {
+        X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentRequirements must be an object".to_string(),
+        )
+    })?;
+
+    if payment_payload.get("x402Version").and_then(Value::as_u64)
+        != Some(u64::from(X402_FACILITATOR_PROTOCOL_VERSION))
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentPayload.x402Version must be 2".to_string(),
+        ));
+    }
+    if payment_payload.get("accepted") != Some(&request.payment_requirements) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentPayload.accepted must exactly match paymentRequirements".to_string(),
+        ));
+    }
+    if !payment_payload.get("payload").is_some_and(Value::is_object) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentPayload.payload must be an object".to_string(),
+        ));
+    }
+
+    for (field, expected) in [
+        ("scheme", "exact"),
+        ("network", config.network.as_str()),
+        ("asset", config.asset_contract.as_str()),
+        ("payTo", config.receiver.as_str()),
+    ] {
+        if payment_requirements.get(field).and_then(Value::as_str) != Some(expected) {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                format!("paymentRequirements.{field} does not match facilitator configuration"),
+            ));
+        }
+    }
+
+    let amount = payment_requirements
+        .get("amount")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if amount.is_empty()
+        || !amount.bytes().all(|byte| byte.is_ascii_digit())
+        || amount.bytes().all(|byte| byte == b'0')
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentRequirements.amount must be a positive base-unit integer string".to_string(),
+        ));
+    }
+    if payment_requirements
+        .get("maxTimeoutSeconds")
+        .and_then(Value::as_u64)
+        .is_none_or(|timeout| timeout == 0)
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentRequirements.maxTimeoutSeconds must be a positive integer".to_string(),
+        ));
+    }
+    if !payment_requirements
+        .get("extra")
+        .is_some_and(Value::is_object)
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "paymentRequirements.extra must be an object".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn parse_supported_response(
     content_type: Option<&HeaderValue>,
     body: &[u8],
@@ -435,6 +618,52 @@ fn parse_supported_response(
         X402FacilitatorTransportError::InvalidResponse(
             "facilitator supported response is not valid x402 v2 JSON".to_string(),
         )
+    })
+}
+
+fn parse_verify_response(
+    status: reqwest::StatusCode,
+    content_type: Option<&HeaderValue>,
+    body: &[u8],
+) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
+    if body.len() as u64 > MAX_FACILITATOR_RESPONSE_BYTES {
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "facilitator response exceeds the size limit".to_string(),
+        ));
+    }
+    let content_type = content_type
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .unwrap_or_default();
+    if content_type != "application/json" && !content_type.ends_with("+json") {
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "facilitator response must use a JSON content type".to_string(),
+        ));
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VerifyWireResponse {
+        is_valid: bool,
+        #[serde(default)]
+        invalid_reason: Option<String>,
+    }
+
+    let response: VerifyWireResponse = serde_json::from_slice(body).map_err(|_| {
+        X402FacilitatorTransportError::InvalidResponse(
+            "facilitator verify response is not valid x402 v2 JSON".to_string(),
+        )
+    })?;
+    if !status.is_success() && response.is_valid {
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "facilitator returned a valid payment with a failing HTTP status".to_string(),
+        ));
+    }
+
+    Ok(X402FacilitatorVerifyResponse {
+        is_valid: response.is_valid,
+        invalid_reason: response.invalid_reason,
     })
 }
 
@@ -853,6 +1082,40 @@ mod tests {
 
         fn authorization_header(&self) -> Result<HeaderValue, X402FacilitatorTransportError> {
             Ok(self.authorization.clone())
+        }
+    }
+
+    fn authenticated_test_config() -> X402FacilitatorConfig {
+        X402FacilitatorConfig::validate(
+            "https://channels.openzeppelin.com/x402/testnet",
+            "stellar:testnet",
+            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            5_000,
+        )
+        .unwrap()
+    }
+
+    fn official_verify_request() -> X402FacilitatorRequest {
+        let payment_requirements = serde_json::json!({
+            "scheme": "exact",
+            "network": "stellar:testnet",
+            "asset": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            "amount": "10000",
+            "payTo": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            "maxTimeoutSeconds": 60,
+            "extra": { "areFeesSponsored": true }
+        });
+        X402FacilitatorRequest {
+            x402_version: X402_FACILITATOR_PROTOCOL_VERSION,
+            payment_payload: serde_json::json!({
+                "x402Version": 2,
+                "accepted": payment_requirements,
+                "payload": { "transaction": "offline-fixture-xdr" }
+            }),
+            payment_requirements,
+            idempotency_key: "offline-verify-request-0001".to_string(),
+            network: "stellar:testnet".to_string(),
         }
     }
 
@@ -1327,6 +1590,76 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_verify_request_matches_official_v2_wire_shape_offline() {
+        let transport = ReqwestX402FacilitatorTransport::new(
+            authenticated_test_config(),
+            TestCredentialProvider::new("Bearer test-only-placeholder"),
+        )
+        .unwrap();
+        let request = official_verify_request();
+
+        let built = transport.build_verify_request(&request).unwrap();
+        let authorization = built.headers().get(AUTHORIZATION).unwrap();
+        let body: Value =
+            serde_json::from_slice(built.body().unwrap().as_bytes().unwrap()).unwrap();
+
+        assert_eq!(built.method(), reqwest::Method::POST);
+        assert_eq!(
+            built.url().as_str(),
+            "https://channels.openzeppelin.com/x402/testnet/verify"
+        );
+        assert_eq!(built.headers().get(ACCEPT).unwrap(), "application/json");
+        assert_eq!(
+            built.headers().get(CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        assert_eq!(authorization, "Bearer test-only-placeholder");
+        assert!(authorization.is_sensitive());
+        assert_eq!(body["x402Version"], 2);
+        assert_eq!(body["paymentPayload"], request.payment_payload);
+        assert_eq!(body["paymentRequirements"], request.payment_requirements);
+        assert!(body.get("idempotencyKey").is_none());
+        assert!(!format!("{built:?}").contains("test-only-placeholder"));
+    }
+
+    #[test]
+    fn authenticated_verify_request_validation_fails_closed_offline() {
+        let config = authenticated_test_config();
+        let valid = official_verify_request();
+
+        let mut wrong_version = valid.clone();
+        wrong_version.payment_payload["x402Version"] = Value::from(1);
+        let mut wrong_asset = valid.clone();
+        wrong_asset.payment_requirements["asset"] =
+            Value::String("CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75".to_string());
+        wrong_asset.payment_payload["accepted"] = wrong_asset.payment_requirements.clone();
+        let mut mismatched_accepted = valid.clone();
+        mismatched_accepted.payment_payload["accepted"]["amount"] =
+            Value::String("9999".to_string());
+        let mut missing_payload = valid.clone();
+        missing_payload
+            .payment_payload
+            .as_object_mut()
+            .unwrap()
+            .remove("payload");
+        let mut empty_idempotency = valid;
+        empty_idempotency.idempotency_key.clear();
+
+        for invalid in [
+            wrong_version,
+            wrong_asset,
+            mismatched_accepted,
+            missing_payload,
+            empty_idempotency,
+        ] {
+            assert!(matches!(
+                validate_verify_wire_request(&config, &invalid),
+                Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+            ));
+        }
+    }
+
+    #[test]
     fn authenticated_transport_revalidates_manually_constructed_config() {
         let config = X402FacilitatorConfig {
             endpoint: "http://facilitator.example".to_string(),
@@ -1385,6 +1718,88 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_verify_response_preserves_valid_and_rejected_outcomes_offline() {
+        let content_type = HeaderValue::from_static("application/json; charset=utf-8");
+        let verified = parse_verify_response(
+            reqwest::StatusCode::OK,
+            Some(&content_type),
+            br#"{"isValid":true,"payer":"G-PAYER","extensions":{}}"#,
+        )
+        .unwrap();
+        assert!(verified.is_valid);
+        assert_eq!(verified.invalid_reason, None);
+
+        let rejected = parse_verify_response(
+            reqwest::StatusCode::OK,
+            Some(&content_type),
+            br#"{"isValid":false,"invalidReason":"invalid_exact_stellar_payload_wrong_amount","payer":"G-PAYER"}"#,
+        )
+        .unwrap();
+        assert!(!rejected.is_valid);
+        assert_eq!(
+            rejected.invalid_reason.as_deref(),
+            Some("invalid_exact_stellar_payload_wrong_amount")
+        );
+
+        let client_rejection = parse_verify_response(
+            reqwest::StatusCode::BAD_REQUEST,
+            Some(&content_type),
+            br#"{"isValid":false,"invalidReason":"invalid_exact_payload_malformed"}"#,
+        )
+        .unwrap();
+        assert!(!client_rejection.is_valid);
+    }
+
+    #[test]
+    fn authenticated_verify_response_errors_fail_closed_offline() {
+        let json = HeaderValue::from_static("application/json");
+        assert!(matches!(
+            ensure_verify_status(reqwest::StatusCode::UNAUTHORIZED),
+            Err(X402FacilitatorTransportError::InvalidConfiguration(_))
+        ));
+        assert_eq!(
+            ensure_verify_status(reqwest::StatusCode::REQUEST_TIMEOUT),
+            Err(X402FacilitatorTransportError::Timeout)
+        );
+        assert!(matches!(
+            ensure_verify_status(reqwest::StatusCode::TOO_MANY_REQUESTS),
+            Err(X402FacilitatorTransportError::Unavailable(_))
+        ));
+        assert!(matches!(
+            ensure_verify_status(reqwest::StatusCode::SERVICE_UNAVAILABLE),
+            Err(X402FacilitatorTransportError::Unavailable(_))
+        ));
+        assert!(matches!(
+            parse_verify_response(
+                reqwest::StatusCode::OK,
+                Some(&HeaderValue::from_static("text/html")),
+                br#"{"isValid":true}"#,
+            ),
+            Err(X402FacilitatorTransportError::InvalidResponse(_))
+        ));
+        assert!(matches!(
+            parse_verify_response(
+                reqwest::StatusCode::OK,
+                Some(&json),
+                &vec![b' '; MAX_FACILITATOR_RESPONSE_BYTES as usize + 1],
+            ),
+            Err(X402FacilitatorTransportError::InvalidResponse(_))
+        ));
+        assert!(matches!(
+            parse_verify_response(reqwest::StatusCode::OK, Some(&json), br#"{}"#),
+            Err(X402FacilitatorTransportError::InvalidResponse(_))
+        ));
+        assert!(matches!(
+            parse_verify_response(
+                reqwest::StatusCode::BAD_REQUEST,
+                Some(&json),
+                br#"{"isValid":true}"#,
+            ),
+            Err(X402FacilitatorTransportError::InvalidResponse(_))
+        ));
+    }
+
+    #[test]
     #[ignore = "requires an explicit credential-bearing Stellar testnet network probe"]
     fn authenticated_supported_live_testnet_probe() {
         assert_eq!(
@@ -1412,35 +1827,20 @@ mod tests {
         config.validate_supported(&supported).unwrap();
         assert_eq!(
             transport.transport_kind(),
-            "authenticated_https_supported_only"
+            "authenticated_https_supported_verify"
         );
     }
 
     #[test]
-    fn authenticated_transport_keeps_verify_and_settle_disabled() {
-        let config = X402FacilitatorConfig::validate(
-            "https://channels.openzeppelin.com/x402/testnet",
-            "stellar:testnet",
-            "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
-            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-            5_000,
-        )
-        .unwrap();
+    fn authenticated_transport_keeps_settlement_disabled() {
         let transport = ReqwestX402FacilitatorTransport::new(
-            config,
+            authenticated_test_config(),
             TestCredentialProvider::new("Bearer test-only-placeholder"),
         )
         .unwrap();
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../examples/x402_facilitator_adapter/verify_valid.json"
-        ))
-        .unwrap();
-        let request = facilitator_request_from_adapter(&fixture, "verify").unwrap();
+        let request = official_verify_request();
 
-        assert!(matches!(
-            transport.verify(&request),
-            Err(X402FacilitatorTransportError::Unavailable(_))
-        ));
+        transport.build_verify_request(&request).unwrap();
         assert!(matches!(
             transport.settle(&request),
             Err(X402FacilitatorTransportError::Unavailable(_))

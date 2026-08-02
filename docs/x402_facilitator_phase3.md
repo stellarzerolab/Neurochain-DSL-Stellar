@@ -40,9 +40,10 @@ The transport port follows the current official Stellar x402 baseline:
 
 `X402FacilitatorTransport` models separate supported, verify, and settle calls
 in Rust. An offline fake exercises the full state gates. A blocking reqwest
-transport implements only the authenticated HTTPS `GET /supported` call; its
-verify and settle methods deliberately return unavailable. The production
-verifier therefore continues to fail closed.
+transport implements authenticated HTTPS `GET /supported` and read-only
+`POST /verify`; settlement deliberately returns unavailable. The production
+verifier remains fail closed because this transport is not runtime-connected
+and no settlement path is enabled.
 
 `X402FacilitatorConfig` validates the transport base URL, Stellar network,
 SEP-41 asset contract, receiver StrKey, and bounded timeout before any HTTP
@@ -83,11 +84,20 @@ header, and redacts credential state from Debug output. The key is not a field
 of `X402FacilitatorConfig` and must not appear in fixtures, logs,
 documentation, or source control.
 
-The authenticated HTTPS transport is currently `/supported`-only. It disables
-redirects, applies the configured timeout, accepts bounded JSON responses, and
-maps authentication, timeout, rate-limit, server, content-type, and decoding
-failures to fail-closed transport errors. Its request construction and response
-parsing are tested offline with a non-secret placeholder.
+The authenticated HTTPS transport now supports `/supported` and read-only
+`/verify`. It disables redirects, applies the configured timeout, accepts
+bounded JSON responses, and maps authentication, timeout, rate-limit, server,
+content-type, and decoding failures to fail-closed transport errors. The
+`/verify` builder emits the official x402 v2 `x402Version`, `paymentPayload`,
+and `paymentRequirements` body, validates the selected network, SEP-41 asset,
+receiver, amount, timeout, and accepted requirements locally, and preserves a
+protocol-level `isValid: false` response as a payment rejection. Request
+construction and response parsing are tested offline with non-secret fixtures.
+
+No live `/verify` call has been made. The internal idempotency key remains a
+NeuroChain replay input and is not added to the standard x402 v2 verify body.
+`/settle` remains disabled, and the authenticated transport is not connected to
+the server payment verifier.
 
 An ignored live conformance test exercises the repository's real Rust
 transport against the official Stellar testnet facilitator. It requires both
@@ -108,6 +118,9 @@ called.
 Phase 3 must add these pieces as a separate reviewed change:
 
 1. Real facilitator verify/settle transport behind `src/x402_facilitator.rs`
+   - authenticated verify is offline-ready but has not completed a separately
+     approved live conformance call
+   - settlement remains disabled and still requires implementation and review
 2. Production pricing, asset, receiver, network, and facilitator endpoint
    configuration
 3. Persistent replay/idempotency store policy for paid access attempts
@@ -181,7 +194,8 @@ Use this wording in product docs until Phase 3 is complete:
 x402 is beyond a lite UI idea: the paid ingress envelope, response contract,
 viewer, audit path, replay store, production mock fence, and fail-closed
 facilitator boundary exist. An authenticated, runtime-secret-only
-/supported transport is implemented but not runtime-connected. It is not
-production x402 until real facilitator verify/settle transport is attached
-behind src/x402_facilitator.rs.
+/supported and read-only /verify transport is implemented but not
+runtime-connected. The verify wire mapping is offline-tested; no live verify
+call has been made. It is not production x402 until settlement and the reviewed
+runtime integration are attached behind src/x402_facilitator.rs.
 ```
