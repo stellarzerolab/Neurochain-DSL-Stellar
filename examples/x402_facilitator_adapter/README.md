@@ -63,11 +63,11 @@ Offline settlement requires an accepted verify result plus an exact match of
 network, payment payload, payment requirements, and idempotency key. Rejected
 or mismatched requests do not reach the settlement transport.
 
-The Rust module now contains authenticated HTTPS `GET /supported` and
-read-only `POST /verify` transports. The credential is injected at runtime,
-marked sensitive, and never stored in this fixture package. The verify request
-uses the official x402 v2 wire names and validates the exact selected
-requirements before request construction. The adapter fixtures remain
+The Rust module now contains authenticated HTTPS `GET /supported`, read-only
+`POST /verify`, and state-gated `POST /settle` transports. The credential is
+injected at runtime, marked sensitive, and never stored in this fixture package.
+Both POST requests use the official x402 v2 wire names and validate the exact
+selected requirements before request construction. The adapter fixtures remain
 protocol-neutral; a real HTTP request must carry a complete official
 `PaymentPayload` and `PaymentRequirements`, not fixture references.
 
@@ -75,9 +75,9 @@ The HTTP mapping and parser are tested offline. One separately approved live
 testnet `/verify` rejection probe confirmed the unsigned malformed request
 path; it did not validate or settle a payment. The server now emits official
 Base64 x402 v2 `PAYMENT-REQUIRED` data and accepts bounded v2
-`PAYMENT-SIGNATURE` data in facilitator mode. `/settle` remains disabled, and
-this package provides no signing operation, payment submission, or underlying
-ActionPlan submission.
+`PAYMENT-SIGNATURE` data in facilitator mode. The server remains verify-only and
+does not expose the settlement transport. This package provides no signing
+operation, automatic payment submission, or underlying ActionPlan submission.
 
 Sources:
 

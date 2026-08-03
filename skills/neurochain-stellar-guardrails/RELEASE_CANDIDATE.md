@@ -115,7 +115,7 @@ The release candidate must not include or advertise:
 - private keys
 - API keys
 - hosted service tokens
-- real x402 facilitator settlement transport
+- explicit x402 settlement runtime integration and valid signed conformance
 - mainnet or testnet transaction submit
 
 ## Review Notes
@@ -126,7 +126,7 @@ The release candidate must not include or advertise:
 - x402 is beyond a lite UI idea at the product-boundary level: the project has
   gateway responses, schema/types, a viewer, audit/replay boundaries, mock
   verifier fencing, and a fail-closed facilitator verify-only runtime.
-- x402 is not production until real facilitator settlement is implemented and
-  reviewed behind the existing boundary.
+- x402 is not production until settlement runtime integration, valid signed
+  testnet conformance, and production pricing/receiver review are complete.
 - Payment, proof, read-only verification, status, or attestation evidence must
   never imply underlying ActionPlan submit permission.

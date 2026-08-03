@@ -69,20 +69,21 @@ fail-closed facilitator boundary already exist. The server now emits official
 x402 v2 challenge data and runtime-connects authenticated `supported -> verify`
 without settlement or ActionPlan execution.
 
-It is still not production x402 until real facilitator settlement is
-implemented and reviewed behind `src/x402_facilitator.rs`.
+The authenticated `/settle` transport and persistent single-attempt state
+machine are implemented and validated offline behind
+`src/x402_facilitator.rs`. It is still not production x402 until settlement is
+explicitly connected to a reviewed runtime path and validated with a valid
+signed testnet payment and production pricing/receiver configuration.
 
 The detailed contract lives in
 [`docs/x402_facilitator_phase3.md`](x402_facilitator_phase3.md).
 
 The remaining Phase 3 work should add, in a separate review:
 
-- real facilitator settlement transport
+- explicit settlement runtime integration behind the persistent state machine
 - reviewed production pricing and receiver configuration
-- settlement idempotency and persistent replay policy
-- safe audit events for settlement outcomes
-- tests proving x402 payment never bypasses guardrails, ZK verification,
-  approval, or submit boundaries
+- a separately approved valid signed testnet settlement conformance run
+- external reconciliation for `settlement_outcome_unknown`
 
 ## ZK Status
 

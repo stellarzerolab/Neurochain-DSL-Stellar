@@ -62,7 +62,8 @@ secrets_included = false
 These are intentionally not part of the completed last-mile package:
 
 - publishing the skill to a specific external registry or marketplace
-- adding real x402 facilitator settlement transport
+- connecting the offline-validated x402 settlement transport to an explicit
+  reviewed runtime path
 - adding submit, signing, testnet attestation submit, or nullifier consume to
   the default MCP path
 - making Raven, Stellar Skills, or any external guide a NeuroChain runtime
@@ -75,6 +76,7 @@ The next optional steps are separate milestones:
 
 1. Run an external MCP host or MCP Inspector validation when a host is selected.
 2. Do a distribution-channel-specific publish review for the skill.
-3. Implement and review real x402 facilitator settlement behind
-   `src/x402_facilitator.rs` as the remaining Phase 3 runtime step.
+3. Add an explicit reviewed settlement runtime path behind the persistent
+   state machine, then run a separately approved valid signed testnet
+   conformance case.
 4. Continue ZK product polish around artifact naming and hosted status UX.

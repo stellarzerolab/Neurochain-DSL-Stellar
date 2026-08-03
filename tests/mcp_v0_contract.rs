@@ -821,7 +821,7 @@ fn neurochain_guardrails_skill_release_candidate_manifest_is_bounded() {
         "Plan -> Evaluate -> Prove -> Verify -> Status -> no automatic submit",
         "ZK is beyond a lite demo",
         "x402 is beyond a lite UI idea",
-        "x402 is not production until real facilitator settlement is implemented",
+        "x402 is not production until settlement runtime integration",
         "never imply underlying ActionPlan submit permission",
     ] {
         assert!(
@@ -987,7 +987,8 @@ fn x402_phase3_contract_preserves_paid_ingress_boundary() {
         "`payment finalized` is not `underlying_action_submit_allowed`",
         "payment is not submit permission",
         "`NC_X402_STELLAR_VERIFIER=mock` fails closed in production runtimes",
-        "`NC_X402_STELLAR_VERIFIER=facilitator` fails closed after verify until real",
+        "`NC_X402_STELLAR_VERIFIER=facilitator` fails closed after verify until",
+        "settlement runtime activation is separately implemented and reviewed",
         "underlying_action_submit_allowed=false",
         "requires_approval",
         "blocked",
@@ -1227,7 +1228,7 @@ fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
         "validated_by_launch=true",
         "ZK is beyond a lite demo",
         "x402 is beyond a lite UI idea",
-        "x402 is not production until real facilitator settlement is implemented",
+        "x402 is not production until settlement is explicitly runtime-gated",
         "Payment is not guardrail approval",
         "docs/x402_facilitator_phase3.md",
         "docs/mcp_skill_completion_audit.md",
@@ -1277,7 +1278,7 @@ fn mcp_skill_completion_audit_covers_requested_last_mile_scope() {
         "validated_by_launch = true",
         "conformance_cases = 7",
         "publishing the skill to a specific external registry",
-        "real x402 facilitator settlement transport",
+        "settlement transport to an explicit",
         "external MCP host or MCP Inspector validation",
     ] {
         assert!(

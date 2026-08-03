@@ -1000,7 +1000,8 @@ Facilitator boundary:
 - accepted facilitator verification stops at
   `payment_verified_settlement_required`; it does not finalize the challenge,
   run guardrails, settle payment, or execute the ActionPlan
-- `/settle` remains disabled
+- authenticated `/settle` is implemented behind the persistent state machine
+  but is not connected to the server's default verify-only request path
 
 What stays stable for agents and frontends:
 
@@ -1356,11 +1357,12 @@ Implementation note:
 - accepted verify returns `verified_pending_settlement` and
   `underlying_action_submit_allowed=false`
 - production envs disable the mock verifier; production payment requests stay
-  fail closed after verification until settlement is implemented, configured,
-  and reviewed
-- settlement support must be added behind the same verifier boundary
-  while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
-  finalized `plan` stable for clients
+  fail closed after verification until settlement runtime integration, pricing,
+  receiver configuration, and a valid signed testnet conformance run are
+  reviewed
+- any settlement runtime integration must use the existing persistent state
+  machine while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`,
+  and finalized `plan` stable for clients
 
 ## 13) ZK Guardrail: Local Binding And Soroban Verification
 
