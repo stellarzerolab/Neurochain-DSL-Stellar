@@ -131,7 +131,9 @@ Current boundary status:
   schema/types, viewer, audit/replay boundaries, production mock fence, and
   fail-closed facilitator boundary exist. Facilitator mode emits an official
   x402 v2 `PAYMENT-REQUIRED` challenge and can run authenticated
-  `supported -> verify` without settling or executing an ActionPlan.
+  `supported -> verify` without settling or executing an ActionPlan. Accepted
+  verification is persistently bound to the exact payment request digest, and
+  the offline settlement state machine blocks duplicate or uncertain retries.
 - x402 is not production until real facilitator settlement is implemented and
   reviewed behind `src/x402_facilitator.rs`.
 

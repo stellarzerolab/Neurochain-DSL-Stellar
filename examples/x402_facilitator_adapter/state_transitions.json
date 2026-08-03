@@ -1,9 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "idempotency_scope": "resource_request",
   "initial_state": "payment_required",
   "terminal_states": [
     "settled",
+    "settlement_rejected",
+    "settlement_outcome_unknown",
     "replay_blocked",
     "expired",
     "rejected",
@@ -13,8 +15,8 @@
     {
       "from": "payment_required",
       "event": "verify_valid",
-      "to": "verified",
-      "settlement_allowed": true,
+      "to": "verified_pending_settlement",
+      "settlement_allowed": false,
       "underlying_action_submit_allowed": false
     },
     {
@@ -39,16 +41,51 @@
       "underlying_action_submit_allowed": false
     },
     {
-      "from": "verified",
+      "from": "verified_pending_settlement",
+      "event": "begin_settlement",
+      "to": "settlement_in_progress",
+      "settlement_allowed": true,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settlement_in_progress",
       "event": "settle_success",
       "to": "settled",
       "settlement_allowed": false,
       "underlying_action_submit_allowed": false
     },
     {
-      "from": "verified",
+      "from": "settlement_in_progress",
       "event": "settle_rejected",
-      "to": "rejected",
+      "to": "settlement_rejected",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settlement_in_progress",
+      "event": "timeout_or_unavailable_after_dispatch",
+      "to": "settlement_outcome_unknown",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settlement_in_progress",
+      "event": "process_restart",
+      "to": "settlement_outcome_unknown",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "verified_pending_settlement",
+      "event": "repeat_same_idempotency_key",
+      "to": "verified_pending_settlement",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settlement_in_progress",
+      "event": "repeat_same_idempotency_key",
+      "to": "settlement_in_progress",
       "settlement_allowed": false,
       "underlying_action_submit_allowed": false
     },
@@ -56,6 +93,20 @@
       "from": "settled",
       "event": "repeat_same_idempotency_key",
       "to": "replay_blocked",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settlement_rejected",
+      "event": "repeat_same_idempotency_key",
+      "to": "settlement_rejected",
+      "settlement_allowed": false,
+      "underlying_action_submit_allowed": false
+    },
+    {
+      "from": "settlement_outcome_unknown",
+      "event": "repeat_same_idempotency_key",
+      "to": "settlement_outcome_unknown",
       "settlement_allowed": false,
       "underlying_action_submit_allowed": false
     },

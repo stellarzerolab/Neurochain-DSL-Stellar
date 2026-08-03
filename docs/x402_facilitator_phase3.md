@@ -24,6 +24,10 @@ x402 is already beyond a lite UI idea in this repository:
   accepts a bounded Base64 x402 v2 `PAYMENT-SIGNATURE` payload
 - the authenticated runtime performs only `supported -> verify`; accepted
   verification stops at `verified_pending_settlement`
+- accepted verification is persistently bound to a canonical SHA-256 digest
+  of the exact network, payment payload, requirements, and idempotency key
+- an offline settlement state machine now locks single-attempt dispatch,
+  terminal rejection, successful finalization, and uncertain-outcome recovery
 
 This is not production x402 yet. Production begins only when settlement is
 implemented and reviewed behind `src/x402_facilitator.rs` and the complete
@@ -77,11 +81,35 @@ returns `payment_verified_settlement_required` after accepted verification.
 Guardrails remain `not_run`, challenge state remains unfinalized, and
 `underlying_action_submit_allowed=false`.
 
+`src/x402_store.rs` now persists a protocol-safe settlement record without the
+raw payment payload or signature. The allowed lifecycle is
+`verified_pending_settlement -> settlement_in_progress -> settled`.
+`settlement_rejected` is terminal. A timeout or unavailable response after
+dispatch is not safe evidence that no transaction was submitted, so it becomes
+`settlement_outcome_unknown` and cannot be retried automatically. Loading a
+store that was left in `settlement_in_progress` after a process stop performs
+the same fail-closed recovery. Successful completion alone marks the challenge
+finalized and stores a bounded Stellar transaction hash.
+
+The state transition and file persistence happen while the server owns the
+single challenge-store mutex. The current file store is therefore a
+single-process policy; running multiple server processes against one state file
+is unsupported until a storage backend with cross-process transactions is
+introduced.
+
+`src/x402_audit.rs` provides a settlement audit event format containing only
+the audit and challenge identifiers, request digest, timestamps, state, and an
+optional public transaction hash. It never accepts or writes the payment
+payload, payment requirements, signed authorization, or credential.
+
 The offline settlement gate accepts only a successful verify result and a
 settlement request that exactly matches the verified network, payment payload,
 payment requirements, and idempotency key. Rejected or mismatched requests stop
-before the settlement transport. This gate is not connected to runtime or a
-network transport.
+before the settlement transport. Every transport attempt must first persist the
+single-use `begin_settlement` transition; success, rejection, and uncertain
+transport errors are then persisted before another attempt can be considered.
+This gate is not connected to runtime, and authenticated HTTP settlement
+remains disabled.
 
 ## Hosted Facilitator Validation
 
@@ -108,9 +136,10 @@ protocol-level `isValid: false` response as a payment rejection. Request
 construction and response parsing are tested offline with non-secret fixtures.
 
 The internal idempotency key remains a NeuroChain replay input and is not added
-to the standard x402 v2 verify body. `/settle` remains disabled. The
-authenticated verify-only transport is connected to the server payment
-verifier only when all facilitator runtime settings validate.
+to the standard x402 v2 verify body. It is included in the local request digest
+that binds verify to the future settlement transition. `/settle` remains
+disabled. The authenticated verify-only transport is connected to the server
+payment verifier only when all facilitator runtime settings validate.
 
 Ignored live conformance tests exercise the repository's real Rust transport
 against the official Stellar testnet facilitator. The capability probe requires
@@ -151,8 +180,11 @@ Phase 3 must add these pieces as a separate reviewed change:
 2. Production pricing, asset, receiver, network, and facilitator endpoint
    configuration
 3. Persistent replay/idempotency store policy for paid access attempts
+   - implemented for exact verify binding, single settlement start, terminal
+     rejection, successful finalization, and uncertain-outcome recovery
 4. Safe audit events for payment-required, finalized, replay, expired,
-   invalid-payment, facilitator-unavailable, and facilitator-rejected outcomes
+   invalid-payment, facilitator-unavailable, facilitator-rejected, and future
+   settlement outcomes
 5. Tests proving that payment state never bypasses guardrails, ZK
    verification, approval, or submit boundaries
 
@@ -206,6 +238,10 @@ Before calling Phase 3 production-ready, the test suite must prove:
 - mock verifier is unavailable when `NC_ENV`, `APP_ENV`, or `RUST_ENV` is
   `production`
 - facilitator mode cannot finalize a payment until real settlement exists
+- the same verified request cannot trigger a second verify or concurrent
+  settlement attempt
+- settlement timeout, post-dispatch unavailability, and process restart remain
+  fail closed as `settlement_outcome_unknown`
 - replay store failures do not open access
 - `invalid_payment` produces a typed fail-closed response
 - paid access still runs the same deterministic guardrail evaluation
@@ -223,9 +259,11 @@ viewer, audit path, replay store, production mock fence, and fail-closed
 facilitator boundary exist. Facilitator mode emits an official x402 v2
 PAYMENT-REQUIRED challenge and runtime-connects authenticated supported ->
 verify through a blocking worker. Accepted verification stops at
-verified_pending_settlement with guardrails not run and
-underlying_action_submit_allowed=false. One approved live testnet rejection
-probe confirmed the authenticated /verify wire path without validating or
-settling a payment. It is not production x402 until settlement is implemented
-and reviewed behind src/x402_facilitator.rs.
+verified_pending_settlement, persists an exact request digest, and keeps
+guardrails not run and underlying_action_submit_allowed=false. The offline
+settlement state machine blocks duplicate and uncertain retries, but the HTTP
+/settle transport remains disabled. One approved live testnet rejection probe
+confirmed the authenticated /verify wire path without validating or settling a
+payment. It is not production x402 until settlement is implemented and reviewed
+behind src/x402_facilitator.rs.
 ```

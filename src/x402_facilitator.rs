@@ -4,10 +4,12 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::x402_store::{
-    X402ChallengeInspection, X402ChallengeRecord, X402ChallengeStore, X402FinalizeOutcome,
-    X402StellarChallenge,
+    X402BeginSettlementOutcome, X402ChallengeInspection, X402ChallengeRecord, X402ChallengeStore,
+    X402CompleteSettlementOutcome, X402FinalizeOutcome, X402RecordVerificationOutcome,
+    X402SettlementCompletion, X402SettlementInspection, X402SettlementState, X402StellarChallenge,
 };
 
 pub const X402_FACILITATOR_PROTOCOL_VERSION: u8 = 2;
@@ -256,6 +258,75 @@ pub struct X402FacilitatorRequest {
     pub payment_requirements: Value,
     pub idempotency_key: String,
     pub network: String,
+}
+
+pub fn facilitator_request_digest(
+    request: &X402FacilitatorRequest,
+) -> Result<String, X402FacilitatorTransportError> {
+    let value = serde_json::json!({
+        "x402Version": request.x402_version,
+        "paymentPayload": request.payment_payload,
+        "paymentRequirements": request.payment_requirements,
+        "idempotencyKey": request.idempotency_key,
+        "network": request.network,
+    });
+    let mut hasher = Sha256::new();
+    update_json_digest(&mut hasher, &value)?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn update_json_digest(
+    hasher: &mut Sha256,
+    value: &Value,
+) -> Result<(), X402FacilitatorTransportError> {
+    match value {
+        Value::Null => hasher.update([0]),
+        Value::Bool(boolean) => hasher.update([1, u8::from(*boolean)]),
+        Value::Number(number) => {
+            hasher.update([2]);
+            update_digest_bytes(hasher, number.to_string().as_bytes());
+        }
+        Value::String(string) => {
+            hasher.update([3]);
+            update_digest_bytes(hasher, string.as_bytes());
+        }
+        Value::Array(values) => {
+            hasher.update([4]);
+            update_digest_length(hasher, values.len())?;
+            for value in values {
+                update_json_digest(hasher, value)?;
+            }
+        }
+        Value::Object(object) => {
+            hasher.update([5]);
+            update_digest_length(hasher, object.len())?;
+            let mut fields: Vec<_> = object.iter().collect();
+            fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            for (field, value) in fields {
+                update_digest_bytes(hasher, field.as_bytes());
+                update_json_digest(hasher, value)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn update_digest_length(
+    hasher: &mut Sha256,
+    length: usize,
+) -> Result<(), X402FacilitatorTransportError> {
+    let length = u64::try_from(length).map_err(|_| {
+        X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator request is too large to bind".to_string(),
+        )
+    })?;
+    hasher.update(length.to_be_bytes());
+    Ok(())
+}
+
+fn update_digest_bytes(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update((bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -840,6 +911,8 @@ pub fn verify_with_capability_handshake<T: X402FacilitatorTransport>(
 pub fn settle_after_verified_request<T: X402FacilitatorTransport>(
     config: &X402FacilitatorConfig,
     transport: &T,
+    store: &mut dyn X402ChallengeStore,
+    challenge_id: &str,
     verified_request: &X402FacilitatorRequest,
     verification: &X402FacilitatorVerifyResponse,
     settle_request: &X402FacilitatorRequest,
@@ -864,7 +937,137 @@ pub fn settle_after_verified_request<T: X402FacilitatorTransport>(
         ));
     }
 
-    transport.settle(settle_request)
+    let request_digest = facilitator_request_digest(settle_request)?;
+    match store
+        .begin_settlement(challenge_id, &request_digest)
+        .map_err(|error| {
+            X402FacilitatorTransportError::Unavailable(format!(
+                "x402 settlement state transition failed: {error}"
+            ))
+        })? {
+        X402BeginSettlementOutcome::Started(_) => {}
+        X402BeginSettlementOutcome::AlreadySettled(record) => {
+            let transaction_hash = record.transaction_hash.ok_or_else(|| {
+                X402FacilitatorTransportError::InvalidResponse(
+                    "settled payment is missing its transaction hash".to_string(),
+                )
+            })?;
+            return Ok(X402FacilitatorSettleResponse {
+                success: true,
+                transaction_hash: Some(transaction_hash),
+                error_reason: None,
+            });
+        }
+        X402BeginSettlementOutcome::AlreadyInProgress(record)
+        | X402BeginSettlementOutcome::Blocked(record) => {
+            return Err(X402FacilitatorTransportError::Unavailable(format!(
+                "x402 settlement cannot be retried from state {}",
+                record.state.as_str()
+            )));
+        }
+        X402BeginSettlementOutcome::NotVerified => {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "payment must be persistently verified before settlement".to_string(),
+            ));
+        }
+        X402BeginSettlementOutcome::BindingMismatch => {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "settlement request digest does not match verified payment".to_string(),
+            ));
+        }
+        X402BeginSettlementOutcome::ReplayBlocked(_)
+        | X402BeginSettlementOutcome::Expired(_)
+        | X402BeginSettlementOutcome::UnknownChallenge => {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "settlement challenge is unavailable".to_string(),
+            ));
+        }
+    }
+
+    let response = match transport.settle(settle_request) {
+        Ok(response) => response,
+        Err(error) => {
+            mark_settlement_outcome_unknown(store, challenge_id, &request_digest)?;
+            return Err(error);
+        }
+    };
+
+    let completion = if response.success {
+        let Some(transaction_hash) = response
+            .transaction_hash
+            .as_deref()
+            .filter(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        else {
+            mark_settlement_outcome_unknown(store, challenge_id, &request_digest)?;
+            return Err(X402FacilitatorTransportError::InvalidResponse(
+                "successful settlement response requires a Stellar transaction hash".to_string(),
+            ));
+        };
+        X402SettlementCompletion::Settled {
+            transaction_hash: transaction_hash.to_string(),
+        }
+    } else if response.transaction_hash.is_some() {
+        mark_settlement_outcome_unknown(store, challenge_id, &request_digest)?;
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "rejected settlement response cannot include a transaction hash".to_string(),
+        ));
+    } else {
+        X402SettlementCompletion::Rejected
+    };
+
+    match store
+        .complete_settlement(challenge_id, &request_digest, completion)
+        .map_err(|error| {
+            X402FacilitatorTransportError::Unavailable(format!(
+                "x402 settlement completion state failed: {error}"
+            ))
+        })? {
+        X402CompleteSettlementOutcome::Completed(_) => Ok(response),
+        X402CompleteSettlementOutcome::AlreadyCompleted(record) => {
+            Ok(X402FacilitatorSettleResponse {
+                success: true,
+                transaction_hash: record.transaction_hash,
+                error_reason: None,
+            })
+        }
+        X402CompleteSettlementOutcome::StateConflict(_)
+        | X402CompleteSettlementOutcome::NotVerified
+        | X402CompleteSettlementOutcome::BindingMismatch
+        | X402CompleteSettlementOutcome::UnknownChallenge => {
+            Err(X402FacilitatorTransportError::Unavailable(
+                "x402 settlement completion state is inconsistent".to_string(),
+            ))
+        }
+    }
+}
+
+fn mark_settlement_outcome_unknown(
+    store: &mut dyn X402ChallengeStore,
+    challenge_id: &str,
+    request_digest: &str,
+) -> Result<(), X402FacilitatorTransportError> {
+    match store
+        .complete_settlement(
+            challenge_id,
+            request_digest,
+            X402SettlementCompletion::OutcomeUnknown,
+        )
+        .map_err(|error| {
+            X402FacilitatorTransportError::Unavailable(format!(
+                "x402 uncertain settlement state failed: {error}"
+            ))
+        })? {
+        X402CompleteSettlementOutcome::Completed(_) => Ok(()),
+        X402CompleteSettlementOutcome::AlreadyCompleted(_)
+        | X402CompleteSettlementOutcome::StateConflict(_)
+        | X402CompleteSettlementOutcome::NotVerified
+        | X402CompleteSettlementOutcome::BindingMismatch
+        | X402CompleteSettlementOutcome::UnknownChallenge => {
+            Err(X402FacilitatorTransportError::Unavailable(
+                "x402 uncertain settlement state is inconsistent".to_string(),
+            ))
+        }
+    }
 }
 
 pub fn facilitator_request_from_adapter(
@@ -1259,6 +1462,11 @@ pub enum X402PaymentVerification {
         challenge_id: String,
         challenge: X402StellarChallenge,
     },
+    SettlementStateUnavailable {
+        challenge_id: String,
+        challenge: X402StellarChallenge,
+        payment_state: String,
+    },
     InvalidPayment,
 }
 
@@ -1404,6 +1612,8 @@ where
                 Ok(request) => request,
                 Err(_) => return Ok(X402PaymentVerification::InvalidPayment),
             };
+        let request_digest = facilitator_request_digest(&request)
+            .map_err(|error| facilitator_error_code(&error).to_string())?;
         let challenge = match store.inspect_challenge(&challenge_id)? {
             X402ChallengeInspection::Available(challenge) => challenge,
             X402ChallengeInspection::ReplayBlocked(challenge) => {
@@ -1422,6 +1632,29 @@ where
                 return Ok(X402PaymentVerification::InvalidPayment);
             }
         };
+        match store.inspect_settlement(&challenge_id)? {
+            X402SettlementInspection::NotVerified => {}
+            X402SettlementInspection::Recorded(record) => {
+                if record.request_digest != request_digest {
+                    return Ok(X402PaymentVerification::InvalidPayment);
+                }
+                return if record.state == X402SettlementState::VerifiedPendingSettlement {
+                    Ok(X402PaymentVerification::VerifiedPendingSettlement {
+                        challenge_id,
+                        challenge,
+                    })
+                } else {
+                    Ok(X402PaymentVerification::SettlementStateUnavailable {
+                        challenge_id,
+                        challenge,
+                        payment_state: record.state.as_str().to_string(),
+                    })
+                };
+            }
+            X402SettlementInspection::UnknownChallenge => {
+                return Ok(X402PaymentVerification::InvalidPayment);
+            }
+        }
 
         let adapter =
             X402FacilitatorVerifyOnlyAdapter::new(self.runtime.transport.clone(), &self.transport)
@@ -1430,10 +1663,38 @@ where
             .verify_request(&request)
             .map_err(|error| facilitator_error_code(&error).to_string())?;
         if verification.is_valid {
-            Ok(X402PaymentVerification::VerifiedPendingSettlement {
-                challenge_id,
-                challenge,
-            })
+            match store.record_verified_payment(&challenge_id, &request_digest)? {
+                X402RecordVerificationOutcome::Recorded(_)
+                | X402RecordVerificationOutcome::AlreadyRecorded(_) => {
+                    Ok(X402PaymentVerification::VerifiedPendingSettlement {
+                        challenge_id,
+                        challenge,
+                    })
+                }
+                X402RecordVerificationOutcome::SettlementBlocked(record) => {
+                    Ok(X402PaymentVerification::SettlementStateUnavailable {
+                        challenge_id,
+                        challenge,
+                        payment_state: record.state.as_str().to_string(),
+                    })
+                }
+                X402RecordVerificationOutcome::ReplayBlocked(challenge) => {
+                    Ok(X402PaymentVerification::ReplayBlocked {
+                        challenge_id,
+                        challenge,
+                    })
+                }
+                X402RecordVerificationOutcome::Expired(challenge) => {
+                    Ok(X402PaymentVerification::Expired {
+                        challenge_id,
+                        challenge,
+                    })
+                }
+                X402RecordVerificationOutcome::BindingMismatch
+                | X402RecordVerificationOutcome::UnknownChallenge => {
+                    Ok(X402PaymentVerification::InvalidPayment)
+                }
+            }
         } else {
             Ok(X402PaymentVerification::FacilitatorRejected {
                 challenge_id,
@@ -1660,6 +1921,7 @@ mod tests {
         supported_error: Option<X402FacilitatorTransportError>,
         verify_response: X402FacilitatorVerifyResponse,
         verify_error: Option<X402FacilitatorTransportError>,
+        settle_error: Option<X402FacilitatorTransportError>,
     }
 
     impl FakeFacilitatorTransport {
@@ -1672,6 +1934,7 @@ mod tests {
                     invalid_reason: None,
                 },
                 verify_error: None,
+                settle_error: None,
             }
         }
 
@@ -1684,6 +1947,7 @@ mod tests {
                     invalid_reason: None,
                 },
                 verify_error: None,
+                settle_error: None,
             }
         }
 
@@ -1696,6 +1960,7 @@ mod tests {
                     invalid_reason: Some(reason.to_string()),
                 },
                 verify_error: None,
+                settle_error: None,
             }
         }
 
@@ -1708,7 +1973,14 @@ mod tests {
                     invalid_reason: None,
                 },
                 verify_error: Some(error),
+                settle_error: None,
             }
+        }
+
+        fn failing_settle(error: X402FacilitatorTransportError) -> Self {
+            let mut transport = Self::new();
+            transport.settle_error = Some(error);
+            transport
         }
     }
 
@@ -1756,9 +2028,12 @@ mod tests {
                     "idempotency key is required".to_string(),
                 ));
             }
+            if let Some(error) = &self.settle_error {
+                return Err(error.clone());
+            }
             Ok(X402FacilitatorSettleResponse {
                 success: true,
-                transaction_hash: Some("fixture:payment-transaction".to_string()),
+                transaction_hash: Some("a".repeat(64)),
                 error_reason: None,
             })
         }
@@ -1769,6 +2044,35 @@ mod tests {
         created: bool,
         finalized: bool,
         persistent: bool,
+        verified_request_digest: Option<String>,
+        settlement_state: Option<X402SettlementState>,
+        settlement_transaction_hash: Option<String>,
+    }
+
+    impl TestChallengeStore {
+        fn settlement_record(&self) -> Option<crate::x402_store::X402SettlementRecord> {
+            Some(crate::x402_store::X402SettlementRecord {
+                request_digest: self.verified_request_digest.clone()?,
+                state: self
+                    .settlement_state
+                    .clone()
+                    .unwrap_or(X402SettlementState::VerifiedPendingSettlement),
+                verified_at: 2,
+                settlement_started_at: self.settlement_state.as_ref().and_then(|state| {
+                    (*state != X402SettlementState::VerifiedPendingSettlement).then_some(3)
+                }),
+                settlement_completed_at: self.settlement_state.as_ref().and_then(|state| {
+                    matches!(
+                        state,
+                        X402SettlementState::Settled
+                            | X402SettlementState::SettlementRejected
+                            | X402SettlementState::SettlementOutcomeUnknown
+                    )
+                    .then_some(4)
+                }),
+                transaction_hash: self.settlement_transaction_hash.clone(),
+            })
+        }
     }
 
     impl X402ChallengeStore for TestChallengeStore {
@@ -1821,6 +2125,108 @@ mod tests {
             } else {
                 Ok(X402FinalizeOutcome::UnknownChallenge)
             }
+        }
+
+        fn inspect_settlement(
+            &self,
+            challenge_id: &str,
+        ) -> Result<X402SettlementInspection, String> {
+            if challenge_id == "x402s0001" {
+                Ok(match self.settlement_record() {
+                    Some(record) => X402SettlementInspection::Recorded(record),
+                    None => X402SettlementInspection::NotVerified,
+                })
+            } else {
+                Ok(X402SettlementInspection::UnknownChallenge)
+            }
+        }
+
+        fn record_verified_payment(
+            &mut self,
+            challenge_id: &str,
+            request_digest: &str,
+        ) -> Result<X402RecordVerificationOutcome, String> {
+            if challenge_id != "x402s0001" || request_digest.len() != 64 {
+                return Ok(X402RecordVerificationOutcome::UnknownChallenge);
+            }
+            self.verified_request_digest = Some(request_digest.to_string());
+            self.settlement_state = Some(X402SettlementState::VerifiedPendingSettlement);
+            self.settlement_transaction_hash = None;
+            Ok(X402RecordVerificationOutcome::Recorded(
+                self.settlement_record().expect("recorded test settlement"),
+            ))
+        }
+
+        fn begin_settlement(
+            &mut self,
+            challenge_id: &str,
+            request_digest: &str,
+        ) -> Result<crate::x402_store::X402BeginSettlementOutcome, String> {
+            if challenge_id != "x402s0001" {
+                return Ok(X402BeginSettlementOutcome::UnknownChallenge);
+            }
+            let Some(record) = self.settlement_record() else {
+                return Ok(X402BeginSettlementOutcome::NotVerified);
+            };
+            if record.request_digest != request_digest {
+                return Ok(X402BeginSettlementOutcome::BindingMismatch);
+            }
+            Ok(match record.state {
+                X402SettlementState::VerifiedPendingSettlement => {
+                    self.settlement_state = Some(X402SettlementState::SettlementInProgress);
+                    X402BeginSettlementOutcome::Started(
+                        self.settlement_record().expect("started test settlement"),
+                    )
+                }
+                X402SettlementState::SettlementInProgress => {
+                    X402BeginSettlementOutcome::AlreadyInProgress(record)
+                }
+                X402SettlementState::Settled => X402BeginSettlementOutcome::AlreadySettled(record),
+                X402SettlementState::SettlementRejected
+                | X402SettlementState::SettlementOutcomeUnknown => {
+                    X402BeginSettlementOutcome::Blocked(record)
+                }
+            })
+        }
+
+        fn complete_settlement(
+            &mut self,
+            challenge_id: &str,
+            request_digest: &str,
+            completion: crate::x402_store::X402SettlementCompletion,
+        ) -> Result<crate::x402_store::X402CompleteSettlementOutcome, String> {
+            if challenge_id != "x402s0001" {
+                return Ok(X402CompleteSettlementOutcome::UnknownChallenge);
+            }
+            let Some(record) = self.settlement_record() else {
+                return Ok(X402CompleteSettlementOutcome::NotVerified);
+            };
+            if record.request_digest != request_digest {
+                return Ok(X402CompleteSettlementOutcome::BindingMismatch);
+            }
+            if record.state == X402SettlementState::Settled {
+                return Ok(X402CompleteSettlementOutcome::AlreadyCompleted(record));
+            }
+            if record.state != X402SettlementState::SettlementInProgress {
+                return Ok(X402CompleteSettlementOutcome::StateConflict(record));
+            }
+
+            match completion {
+                X402SettlementCompletion::Settled { transaction_hash } => {
+                    self.settlement_state = Some(X402SettlementState::Settled);
+                    self.settlement_transaction_hash = Some(transaction_hash);
+                    self.finalized = true;
+                }
+                X402SettlementCompletion::Rejected => {
+                    self.settlement_state = Some(X402SettlementState::SettlementRejected);
+                }
+                X402SettlementCompletion::OutcomeUnknown => {
+                    self.settlement_state = Some(X402SettlementState::SettlementOutcomeUnknown);
+                }
+            }
+            Ok(X402CompleteSettlementOutcome::Completed(
+                self.settlement_record().expect("completed test settlement"),
+            ))
         }
     }
 
@@ -1922,15 +2328,47 @@ mod tests {
         };
 
         let verification = verifier.verify_payment(&signature, &mut store).unwrap();
+        let repeated = verifier.verify_payment(&signature, &mut store).unwrap();
 
         assert!(matches!(
             verification,
+            X402PaymentVerification::VerifiedPendingSettlement { .. }
+        ));
+        assert!(matches!(
+            repeated,
             X402PaymentVerification::VerifiedPendingSettlement { .. }
         ));
         assert!(!store.finalized);
         assert_eq!(
             verifier.transport.calls.lock().unwrap().as_slice(),
             ["supported", "verify"]
+        );
+    }
+
+    #[test]
+    fn facilitator_request_digest_is_stable_across_object_field_order() {
+        let first = official_verify_request();
+        let mut second = first.clone();
+        second.payment_requirements = serde_json::json!({
+            "extra": first.payment_requirements["extra"],
+            "maxTimeoutSeconds": first.payment_requirements["maxTimeoutSeconds"],
+            "payTo": first.payment_requirements["payTo"],
+            "amount": first.payment_requirements["amount"],
+            "asset": first.payment_requirements["asset"],
+            "network": first.payment_requirements["network"],
+            "scheme": first.payment_requirements["scheme"],
+        });
+        second.payment_payload["accepted"] = second.payment_requirements.clone();
+
+        assert_eq!(
+            facilitator_request_digest(&first).unwrap(),
+            facilitator_request_digest(&second).unwrap()
+        );
+
+        second.idempotency_key.push_str("-changed");
+        assert_ne!(
+            facilitator_request_digest(&first).unwrap(),
+            facilitator_request_digest(&second).unwrap()
         );
     }
 
@@ -2001,7 +2439,7 @@ mod tests {
         assert!(settled.success);
         assert_eq!(
             settled.transaction_hash.as_deref(),
-            Some("fixture:payment-transaction")
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert_eq!(
             transport.calls.lock().unwrap().as_slice(),
@@ -2752,10 +3190,20 @@ mod tests {
         let settle_request = facilitator_request_from_adapter(&settle_fixture, "settle").unwrap();
         let verification =
             verify_with_capability_handshake(&config, &transport, &verify_request).unwrap();
+        let mut store = TestChallengeStore {
+            persistent: true,
+            ..TestChallengeStore::default()
+        };
+        let request_digest = facilitator_request_digest(&settle_request).unwrap();
+        store
+            .record_verified_payment("x402s0001", &request_digest)
+            .unwrap();
 
         let settlement = settle_after_verified_request(
             &config,
             &transport,
+            &mut store,
+            "x402s0001",
             &verify_request,
             &verification,
             &settle_request,
@@ -2763,6 +3211,27 @@ mod tests {
         .unwrap();
 
         assert!(settlement.success);
+        assert!(store.finalized);
+        assert_eq!(
+            transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify", "settle"]
+        );
+
+        let repeated = settle_after_verified_request(
+            &config,
+            &transport,
+            &mut store,
+            "x402s0001",
+            &verify_request,
+            &verification,
+            &settle_request,
+        )
+        .unwrap();
+        assert!(repeated.success);
+        assert_eq!(
+            repeated.transaction_hash.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
         assert_eq!(
             transport.calls.lock().unwrap().as_slice(),
             ["supported", "verify", "settle"]
@@ -2794,10 +3263,13 @@ mod tests {
         };
 
         let transport = FakeFacilitatorTransport::new();
+        let mut store = TestChallengeStore::default();
         assert!(matches!(
             settle_after_verified_request(
                 &config,
                 &transport,
+                &mut store,
+                "x402s0001",
                 &verified_request,
                 &rejected,
                 &verified_request,
@@ -2812,6 +3284,8 @@ mod tests {
             settle_after_verified_request(
                 &config,
                 &transport,
+                &mut store,
+                "x402s0001",
                 &verified_request,
                 &accepted,
                 &mismatched,
@@ -2819,5 +3293,47 @@ mod tests {
             Err(X402FacilitatorTransportError::InvalidConfiguration(_))
         ));
         assert!(transport.calls.lock().unwrap().is_empty());
+
+        let request_digest = facilitator_request_digest(&verified_request).unwrap();
+        store
+            .record_verified_payment("x402s0001", &request_digest)
+            .unwrap();
+        let timeout_transport =
+            FakeFacilitatorTransport::failing_settle(X402FacilitatorTransportError::Timeout);
+        assert_eq!(
+            settle_after_verified_request(
+                &config,
+                &timeout_transport,
+                &mut store,
+                "x402s0001",
+                &verified_request,
+                &accepted,
+                &verified_request,
+            ),
+            Err(X402FacilitatorTransportError::Timeout)
+        );
+        assert!(matches!(
+            store.inspect_settlement("x402s0001").unwrap(),
+            X402SettlementInspection::Recorded(crate::x402_store::X402SettlementRecord {
+                state: X402SettlementState::SettlementOutcomeUnknown,
+                ..
+            })
+        ));
+        assert!(matches!(
+            settle_after_verified_request(
+                &config,
+                &timeout_transport,
+                &mut store,
+                "x402s0001",
+                &verified_request,
+                &accepted,
+                &verified_request,
+            ),
+            Err(X402FacilitatorTransportError::Unavailable(_))
+        ));
+        assert_eq!(
+            timeout_transport.calls.lock().unwrap().as_slice(),
+            ["settle"]
+        );
     }
 }

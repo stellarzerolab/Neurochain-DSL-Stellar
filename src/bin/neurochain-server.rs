@@ -815,6 +815,27 @@ async fn api_x402_stellar_intent_plan(
                 logs,
             );
         }
+        Ok(X402PaymentVerification::SettlementStateUnavailable {
+            challenge_id,
+            challenge,
+            payment_state,
+        }) => {
+            logs.push(format!(
+                "x402: settlement state {payment_state} blocks challenge={challenge_id}"
+            ));
+            return x402_error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "payment_settlement_unavailable",
+                &payment_state,
+                X402PaymentContext {
+                    challenge_id: Some(&challenge_id),
+                    created_at: Some(challenge.created_at),
+                    expires_at: Some(challenge.expires_at),
+                    finalized_at: challenge.finalized_at,
+                },
+                logs,
+            );
+        }
         Ok(X402PaymentVerification::Finalized {
             challenge_id,
             challenge,

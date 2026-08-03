@@ -11,7 +11,9 @@ settlement:
 - both operations require an idempotency key
 - verify outcomes are explicitly `verified`, `rejected`, or `unavailable`
 - facilitator rejection and unavailability fail closed without settlement
-- a successful settle outcome is explicitly `settled`
+- settlement uses explicit `verified_pending_settlement`,
+  `settlement_in_progress`, `settled`, `settlement_rejected`, and
+  `settlement_outcome_unknown` states
 - payment settlement may return a payment transaction hash
 - neither operation authorizes the underlying Stellar ActionPlan
 
@@ -25,7 +27,11 @@ idempotency, or network mismatches before transport execution.
 `state_transitions.json` locks the idempotency and replay behavior expected from
 that transport:
 
-- only `verified` may proceed to one settlement attempt
+- only `verified_pending_settlement` may proceed to one settlement attempt
+- the exact verified request is bound by a canonical SHA-256 digest
+- repeated requests cannot dispatch a second settlement while one is in flight
+- timeout, post-dispatch unavailability, or restart becomes
+  `settlement_outcome_unknown` and requires external reconciliation
 - a repeated settled idempotency key is replay-blocked
 - rejected, unavailable, and expired requests remain fail-closed
 - unknown state fails closed as unavailable
@@ -47,7 +53,9 @@ It accepts only a `verify` envelope, performs the offline-tested capability
 handshake, and maps accepted, rejected, timeout, unavailable, invalid-response,
 and capability failures into this no-submit contract. It has no settle method.
 The server wrapper selects it in facilitator mode, performs read-only challenge
-inspection, and stops accepted verification at `verified_pending_settlement`.
+inspection, and persists accepted verification at
+`verified_pending_settlement`. An identical retry reuses that state without a
+second facilitator verify call; a mismatched request fails closed.
 It does not finalize challenge state, run guardrails, or authorize the
 underlying ActionPlan.
 

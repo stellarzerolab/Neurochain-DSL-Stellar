@@ -21,7 +21,7 @@
   },
   "settlement": {
     "success": true,
-    "transaction_hash": "fixture:payment-transaction",
+    "transaction_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "error_reason": null
   },
   "underlying_action_submit_allowed": false

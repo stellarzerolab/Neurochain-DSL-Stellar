@@ -1073,6 +1073,26 @@ fn x402_facilitator_adapter_contract_separates_payment_from_action_submit() {
     assert_eq!(settle["verification"]["is_valid"], true);
     assert_eq!(settle["settlement"]["success"], true);
 
+    let failed_settlement_rule = schema["allOf"]
+        .as_array()
+        .expect("schema allOf array")
+        .iter()
+        .find(|rule| {
+            rule["if"]["properties"]["operation"]["const"] == "settle"
+                && rule["if"]["properties"]["outcome"]["enum"].is_array()
+        })
+        .expect("non-success settlement rule");
+    assert_eq!(
+        failed_settlement_rule["then"]["properties"]["settlement"]["properties"]["success"]
+            ["const"],
+        false
+    );
+    assert_eq!(
+        failed_settlement_rule["then"]["properties"]["settlement"]["properties"]
+            ["transaction_hash"]["const"],
+        Value::Null
+    );
+
     for (fixture, outcome, reason) in [
         ("verify_rejected.json", "rejected", "facilitator_rejected"),
         (
@@ -1133,13 +1153,36 @@ fn x402_facilitator_state_transitions_fail_closed_on_replay_and_unknown_state() 
         );
     }
 
+    assert_eq!(matrix["schema_version"], 2);
+
+    let begin_entry = transitions
+        .iter()
+        .find(|transition| {
+            transition["from"] == "verified_pending_settlement"
+                && transition["event"] == "begin_settlement"
+        })
+        .expect("verified settlement start transition");
+    assert_eq!(begin_entry["to"], "settlement_in_progress");
+    assert_eq!(begin_entry["underlying_action_submit_allowed"], false);
+
     let settle_entry = transitions
         .iter()
         .find(|transition| {
-            transition["from"] == "verified" && transition["event"] == "settle_success"
+            transition["from"] == "settlement_in_progress"
+                && transition["event"] == "settle_success"
         })
-        .expect("verified settle transition");
+        .expect("settlement success transition");
     assert_eq!(settle_entry["to"], "settled");
+
+    let unknown_entry = transitions
+        .iter()
+        .find(|transition| {
+            transition["from"] == "settlement_in_progress"
+                && transition["event"] == "timeout_or_unavailable_after_dispatch"
+        })
+        .expect("uncertain settlement transition");
+    assert_eq!(unknown_entry["to"], "settlement_outcome_unknown");
+    assert_eq!(unknown_entry["settlement_allowed"], false);
 
     let replay_entry = transitions
         .iter()
@@ -1150,7 +1193,13 @@ fn x402_facilitator_state_transitions_fail_closed_on_replay_and_unknown_state() 
     assert_eq!(replay_entry["to"], "replay_blocked");
     assert_eq!(replay_entry["settlement_allowed"], false);
 
-    for terminal in ["rejected", "unavailable", "expired"] {
+    for terminal in [
+        "settlement_rejected",
+        "settlement_outcome_unknown",
+        "rejected",
+        "unavailable",
+        "expired",
+    ] {
         let entry = transitions
             .iter()
             .find(|transition| {

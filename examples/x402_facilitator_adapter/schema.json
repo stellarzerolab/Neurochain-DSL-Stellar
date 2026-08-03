@@ -32,6 +32,7 @@
         "verified",
         "rejected",
         "unavailable",
+        "settlement_outcome_unknown",
         "settled"
       ],
       "description": "Fail-closed adapter result. Only settled means the payment settlement succeeded."
@@ -142,12 +143,74 @@
         ],
         "properties": {
           "outcome": {
-            "const": "settled"
+            "enum": [
+              "settled",
+              "rejected",
+              "unavailable",
+              "settlement_outcome_unknown"
+            ]
           },
           "verification": {
             "properties": {
               "is_valid": {
                 "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "settle"
+          },
+          "outcome": {
+            "const": "settled"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settlement": {
+            "properties": {
+              "success": {
+                "const": true
+              },
+              "transaction_hash": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "settle"
+          },
+          "outcome": {
+            "enum": [
+              "rejected",
+              "unavailable",
+              "settlement_outcome_unknown"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settlement": {
+            "properties": {
+              "success": {
+                "const": false
+              },
+              "transaction_hash": {
+                "const": null
               }
             }
           }
