@@ -1,13 +1,16 @@
 use std::env;
 
 use axum::{
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
 use serde_json::{json, Value};
 
-use crate::{actions::ActionPlan, x402_audit::write_x402_audit_event, x402_store::now_unix_secs};
+use crate::{
+    actions::ActionPlan, x402_audit::write_x402_audit_event,
+    x402_facilitator::X402PaymentRequiredPresentation, x402_store::now_unix_secs,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct X402PaymentContext<'a> {
@@ -45,6 +48,7 @@ pub fn x402_payment_required_response(
     challenge_id: String,
     created_at: u64,
     expires_at: u64,
+    presentation: X402PaymentRequiredPresentation,
     mut logs: Vec<String>,
 ) -> Response {
     let audit_id = x402_audit_id(&challenge_id);
@@ -77,11 +81,12 @@ pub fn x402_payment_required_response(
         &guardrails,
     );
 
-    (
+    let mut response = (
         StatusCode::PAYMENT_REQUIRED,
         Json(json!({
             "ok": false,
             "blocked": false,
+            "underlying_action_submit_allowed": false,
             "error": "payment_required",
             "audit_id": audit_id,
             "challenge_id": &challenge_id,
@@ -91,14 +96,21 @@ pub fn x402_payment_required_response(
             "receiver": x402_stellar_receiver(),
             "expires_at": expires_at,
             "payment_header": "PAYMENT-SIGNATURE",
-            "mock_signature": format!("paid:{challenge_id}"),
+            "payment_required": presentation.payment_required,
+            "mock_signature": presentation.mock_signature,
             "payment": payment,
             "decision": decision,
             "guardrails": guardrails,
             "logs": logs
         })),
     )
-        .into_response()
+        .into_response();
+    if let Some(encoded_header) = presentation.encoded_header {
+        if let Ok(value) = HeaderValue::from_str(&encoded_header) {
+            response.headers_mut().insert("payment-required", value);
+        }
+    }
+    response
 }
 
 pub fn x402_error_response(
@@ -146,6 +158,7 @@ pub fn x402_error_response(
         Json(json!({
             "ok": false,
             "blocked": true,
+            "underlying_action_submit_allowed": false,
             "error": error,
             "audit_id": audit_id,
             "payment": payment,
@@ -215,6 +228,7 @@ pub fn x402_stellar_decision_response(
         Json(json!({
             "ok": outcome.ok,
             "blocked": outcome.blocked,
+            "underlying_action_submit_allowed": false,
             "exit_code": outcome.exit_code,
             "error": outcome.error,
             "audit_id": audit_id,

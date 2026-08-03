@@ -65,20 +65,22 @@ runtime dependency or a path around MCP v0.
 
 x402 is more than a UI idea now: the gateway, response contract, schema,
 TypeScript types, viewer, audit path, replay store, mock verifier fence, and
-fail-closed facilitator boundary already exist.
+fail-closed facilitator boundary already exist. The server now emits official
+x402 v2 challenge data and runtime-connects authenticated `supported -> verify`
+without settlement or ActionPlan execution.
 
-It is still not production x402 until real facilitator verify/settle transport
-is attached behind `src/x402_facilitator.rs`.
+It is still not production x402 until real facilitator settlement is
+implemented and reviewed behind `src/x402_facilitator.rs`.
 
 The detailed contract lives in
 [`docs/x402_facilitator_phase3.md`](x402_facilitator_phase3.md).
 
-Phase 3 should add, in a separate review:
+The remaining Phase 3 work should add, in a separate review:
 
-- real facilitator verify/settle transport
-- production pricing and receiver configuration
-- persistent replay state policy
-- safe audit events for facilitator outcomes
+- real facilitator settlement transport
+- reviewed production pricing and receiver configuration
+- settlement idempotency and persistent replay policy
+- safe audit events for settlement outcomes
 - tests proving x402 payment never bypasses guardrails, ZK verification,
   approval, or submit boundaries
 
@@ -107,10 +109,10 @@ These are planning estimates, not release claims:
 
 | Area | Status |
 | --- | --- |
-| MCP v0 core | about 85% |
+| MCP v0 core | release package complete |
 | ZK core | about 90% |
-| x402 production | about 65% |
-| publishable skill | about 45% |
+| x402 production | verify-only runtime complete; settlement pending |
+| publishable skill | internal release candidate complete |
 
 ## Guardrail Invariants
 
@@ -129,6 +131,5 @@ Do not weaken these while finishing the package:
 
 1. Keep the release conformance port as the main no-submit proof.
 2. Add an external host or MCP Inspector run when an approved host is available.
-3. Improve the ZK artifact/status wording in MCP docs and skill examples.
-4. Package the skill only after the host path is proven.
-5. Add real x402 facilitator support only as Phase 3.
+3. Keep the packaged skill separate from runtime and submit surfaces.
+4. Design and review x402 settlement as the remaining Phase 3 step.

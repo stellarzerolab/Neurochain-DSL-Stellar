@@ -71,8 +71,8 @@ Plan -> Evaluate -> Prove -> Verify -> Status
 ```
 
 It should not include optional testnet attestation submit, nullifier consume,
-real x402 facilitator transport, hosted admin actions, or underlying Stellar
-ActionPlan execution.
+real x402 facilitator settlement transport, hosted admin actions, or
+underlying Stellar ActionPlan execution.
 
 Those can be documented later as separate product surfaces with their own
 approval and security review.

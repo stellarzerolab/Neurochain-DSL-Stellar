@@ -20,12 +20,14 @@ x402 is already beyond a lite UI idea in this repository:
 - safe JSONL audit can be enabled with `NC_X402_STELLAR_AUDIT_PATH`
 - replay/idempotency state is separated behind `src/x402_store.rs`
 - mock verification is fenced away from production
-- `src/x402_facilitator.rs` contains an explicit `facilitator_verify_settle`
-  boundary that currently fails closed
+- facilitator mode emits an official x402 v2 `PAYMENT-REQUIRED` header and
+  accepts a bounded Base64 x402 v2 `PAYMENT-SIGNATURE` payload
+- the authenticated runtime performs only `supported -> verify`; accepted
+  verification stops at `verified_pending_settlement`
 
-This is not production x402 yet. Production begins only when a real
-facilitator verify/settle transport is implemented behind
-`src/x402_facilitator.rs` and validated against the invariants below.
+This is not production x402 yet. Production begins only when settlement is
+implemented and reviewed behind `src/x402_facilitator.rs` and the complete
+paid-access lifecycle is validated against the invariants below.
 
 ## Stellar Transport Baseline
 
@@ -41,9 +43,10 @@ The transport port follows the current official Stellar x402 baseline:
 `X402FacilitatorTransport` models separate supported, verify, and settle calls
 in Rust. An offline fake exercises the full state gates. A blocking reqwest
 transport implements authenticated HTTPS `GET /supported` and read-only
-`POST /verify`; settlement deliberately returns unavailable. The production
-verifier remains fail closed because this transport is not runtime-connected
-and no settlement path is enabled.
+`POST /verify`; settlement deliberately returns unavailable. Facilitator mode
+runtime-connects this verify-only transport through a blocking worker. It
+never treats verification as settlement or permission to evaluate or execute
+the underlying ActionPlan.
 
 `X402FacilitatorConfig` validates the transport base URL, Stellar network,
 SEP-41 asset contract, receiver StrKey, and bounded timeout before any HTTP
@@ -67,10 +70,12 @@ settlement, signing, or ActionPlan submission.
 `X402FacilitatorVerifyOnlyAdapter` composes that orchestrator with the
 protocol-neutral adapter contract. It accepts only verify envelopes and maps
 accepted, rejected, timeout, unavailable, invalid-response, and capability
-failures to typed no-submit results. It intentionally has no settle method,
-does not implement `X402PaymentVerifier`, and is not selected by
-`build_x402_payment_verifier()`. The server's facilitator mode therefore
-continues to fail closed.
+failures to typed no-submit results. It intentionally has no settle method.
+The server's `FacilitatorX402PaymentVerifier` wrapper uses it for
+`supported -> verify`, inspects challenge state without consuming it, and
+returns `payment_verified_settlement_required` after accepted verification.
+Guardrails remain `not_run`, challenge state remains unfinalized, and
+`underlying_action_submit_allowed=false`.
 
 The offline settlement gate accepts only a successful verify result and a
 settlement request that exactly matches the verified network, payment payload,
@@ -103,8 +108,9 @@ protocol-level `isValid: false` response as a payment rejection. Request
 construction and response parsing are tested offline with non-secret fixtures.
 
 The internal idempotency key remains a NeuroChain replay input and is not added
-to the standard x402 v2 verify body. `/settle` remains disabled, and the
-authenticated transport is not connected to the server payment verifier.
+to the standard x402 v2 verify body. `/settle` remains disabled. The
+authenticated verify-only transport is connected to the server payment
+verifier only when all facilitator runtime settings validate.
 
 Ignored live conformance tests exercise the repository's real Rust transport
 against the official Stellar testnet facilitator. The capability probe requires
@@ -139,6 +145,8 @@ Phase 3 must add these pieces as a separate reviewed change:
 1. Real facilitator verify/settle transport behind `src/x402_facilitator.rs`
    - authenticated verify has completed a separately approved live rejection
      conformance call; a valid signed payment has not been verified
+   - verify-only runtime activation now emits official x402 v2 challenge and
+     payload headers and connects authenticated `supported -> verify`
    - settlement remains disabled and still requires implementation and review
 2. Production pricing, asset, receiver, network, and facilitator endpoint
    configuration
@@ -186,8 +194,8 @@ attached:
 - proof is not submit permission
 - payment is not submit permission
 - `NC_X402_STELLAR_VERIFIER=mock` fails closed in production runtimes
-- `NC_X402_STELLAR_VERIFIER=facilitator` fails closed until real verify/settle
-  transport is implemented
+- `NC_X402_STELLAR_VERIFIER=facilitator` fails closed after verify until real
+  settlement is implemented and reviewed
 - unknown verifier modes fail closed
 
 ## Acceptance Tests
@@ -197,7 +205,7 @@ Before calling Phase 3 production-ready, the test suite must prove:
 - mock verifier works only in non-production development mode
 - mock verifier is unavailable when `NC_ENV`, `APP_ENV`, or `RUST_ENV` is
   `production`
-- facilitator mode cannot finalize a payment until real transport exists
+- facilitator mode cannot finalize a payment until real settlement exists
 - replay store failures do not open access
 - `invalid_payment` produces a typed fail-closed response
 - paid access still runs the same deterministic guardrail evaluation
@@ -212,11 +220,12 @@ Use this wording in product docs until Phase 3 is complete:
 ```text
 x402 is beyond a lite UI idea: the paid ingress envelope, response contract,
 viewer, audit path, replay store, production mock fence, and fail-closed
-facilitator boundary exist. An authenticated, runtime-secret-only
-/supported and read-only /verify transport is implemented but not
-runtime-connected. The verify wire mapping and verify-only runtime adapter are
-offline-tested, and one approved live testnet rejection probe confirmed the
-authenticated /verify path without validating or settling a payment. It is not
-production x402 until settlement and the reviewed runtime activation are
-attached behind src/x402_facilitator.rs.
+facilitator boundary exist. Facilitator mode emits an official x402 v2
+PAYMENT-REQUIRED challenge and runtime-connects authenticated supported ->
+verify through a blocking worker. Accepted verification stops at
+verified_pending_settlement with guardrails not run and
+underlying_action_submit_allowed=false. One approved live testnet rejection
+probe confirmed the authenticated /verify wire path without validating or
+settling a payment. It is not production x402 until settlement is implemented
+and reviewed behind src/x402_facilitator.rs.
 ```

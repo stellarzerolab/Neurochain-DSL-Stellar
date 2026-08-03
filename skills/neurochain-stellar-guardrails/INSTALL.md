@@ -88,7 +88,7 @@ This install/use note does not enable:
 - `submit_underlying_action`
 - `sign_transaction`
 - `configure_server`
-- real x402 facilitator verify/settle transport
+- real x402 facilitator settlement transport
 - mainnet or testnet transaction submit
 
 Those remain separate product surfaces with their own explicit approval and

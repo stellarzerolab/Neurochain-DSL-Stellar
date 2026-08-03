@@ -38,7 +38,7 @@ $requiredPhrases = @(
     "underlying_action_submit_allowed=false",
     "Payment, proof, read-only verification, status, or attestation evidence must",
     "never imply underlying ActionPlan submit permission",
-    "x402 is not production until real facilitator verify/settle transport",
+    "x402 is not production until real facilitator settlement is implemented",
     "ZK is beyond a lite demo"
 )
 

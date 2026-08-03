@@ -1,11 +1,13 @@
 use std::{collections::BTreeMap, env, fmt, io::Read, time::Duration};
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::x402_store::{
-    X402ChallengeRecord, X402ChallengeStore, X402FinalizeOutcome, X402StellarChallenge,
+    X402ChallengeInspection, X402ChallengeRecord, X402ChallengeStore, X402FinalizeOutcome,
+    X402StellarChallenge,
 };
 
 pub const X402_FACILITATOR_PROTOCOL_VERSION: u8 = 2;
@@ -13,6 +15,18 @@ pub const X402_FACILITATOR_API_KEY_ENV: &str = "NC_X402_FACILITATOR_API_KEY";
 const MIN_FACILITATOR_TIMEOUT_MS: u64 = 100;
 const MAX_FACILITATOR_TIMEOUT_MS: u64 = 30_000;
 const MAX_FACILITATOR_RESPONSE_BYTES: u64 = 256 * 1024;
+const MAX_X402_HEADER_BYTES: usize = 256 * 1024;
+const MAX_X402_HEADER_ENCODED_BYTES: usize = 384 * 1024;
+const X402_FACILITATOR_ENDPOINT_ENV: &str = "NC_X402_FACILITATOR_ENDPOINT";
+const X402_FACILITATOR_TIMEOUT_MS_ENV: &str = "NC_X402_FACILITATOR_TIMEOUT_MS";
+const X402_FACILITATOR_RESOURCE_URL_ENV: &str = "NC_X402_FACILITATOR_RESOURCE_URL";
+const X402_STELLAR_AMOUNT_ENV: &str = "NC_X402_STELLAR_AMOUNT";
+const X402_STELLAR_ASSET_ENV: &str = "NC_X402_STELLAR_ASSET";
+const X402_STELLAR_NETWORK_ENV: &str = "NC_X402_STELLAR_NETWORK";
+const X402_STELLAR_RECEIVER_ENV: &str = "NC_X402_STELLAR_RECEIVER";
+const X402_STELLAR_MAX_TIMEOUT_SECONDS_ENV: &str = "NC_X402_STELLAR_MAX_TIMEOUT_SECONDS";
+const X402_STELLAR_STORE_PATH_ENV: &str = "NC_X402_STELLAR_STORE_PATH";
+const X402_STELLAR_AUDIT_PATH_ENV: &str = "NC_X402_STELLAR_AUDIT_PATH";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct X402FacilitatorConfig {
@@ -112,6 +126,126 @@ impl X402FacilitatorConfig {
                     .to_string(),
             ))
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct X402PaymentRequiredPresentation {
+    pub encoded_header: Option<String>,
+    pub payment_required: Option<Value>,
+    pub mock_signature: Option<String>,
+}
+
+impl X402PaymentRequiredPresentation {
+    fn mock(challenge_id: &str) -> Self {
+        Self {
+            encoded_header: None,
+            payment_required: None,
+            mock_signature: Some(format!("paid:{challenge_id}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct X402FacilitatorRuntimeConfig {
+    transport: X402FacilitatorConfig,
+    amount: String,
+    max_timeout_seconds: u64,
+    resource_url: String,
+}
+
+impl X402FacilitatorRuntimeConfig {
+    fn from_env() -> Result<Self, X402FacilitatorTransportError> {
+        let endpoint = required_runtime_env(X402_FACILITATOR_ENDPOINT_ENV)?;
+        let network = required_runtime_env(X402_STELLAR_NETWORK_ENV)?;
+        let asset_contract = required_runtime_env(X402_STELLAR_ASSET_ENV)?;
+        let receiver = required_runtime_env(X402_STELLAR_RECEIVER_ENV)?;
+        let amount = required_runtime_env(X402_STELLAR_AMOUNT_ENV)?;
+        let resource_url = required_runtime_env(X402_FACILITATOR_RESOURCE_URL_ENV)?;
+        required_runtime_env(X402_STELLAR_STORE_PATH_ENV)?;
+        required_runtime_env(X402_STELLAR_AUDIT_PATH_ENV)?;
+
+        let timeout_ms = optional_runtime_u64(X402_FACILITATOR_TIMEOUT_MS_ENV, 5_000)?;
+        let max_timeout_seconds = optional_runtime_u64(X402_STELLAR_MAX_TIMEOUT_SECONDS_ENV, 60)?;
+        if max_timeout_seconds == 0 {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator max timeout must be positive".to_string(),
+            ));
+        }
+        if amount.is_empty()
+            || !amount.bytes().all(|byte| byte.is_ascii_digit())
+            || amount.bytes().all(|byte| byte == b'0')
+        {
+            return Err(X402FacilitatorTransportError::InvalidConfiguration(
+                "facilitator amount must be a positive base-unit integer string".to_string(),
+            ));
+        }
+        validate_resource_url(&resource_url)?;
+
+        Ok(Self {
+            transport: X402FacilitatorConfig::validate(
+                &endpoint,
+                &network,
+                &asset_contract,
+                &receiver,
+                timeout_ms,
+            )?,
+            amount,
+            max_timeout_seconds,
+            resource_url,
+        })
+    }
+
+    fn payment_requirements(&self, challenge_id: &str) -> Value {
+        serde_json::json!({
+            "scheme": "exact",
+            "network": self.transport.network,
+            "asset": self.transport.asset_contract,
+            "amount": self.amount,
+            "payTo": self.transport.receiver,
+            "maxTimeoutSeconds": self.max_timeout_seconds,
+            "extra": {
+                "areFeesSponsored": true,
+                "neurochainChallengeId": challenge_id,
+            }
+        })
+    }
+
+    fn resource(&self) -> Value {
+        serde_json::json!({
+            "url": self.resource_url,
+            "description": "NeuroChain typed Stellar ActionPlan evaluation",
+            "mimeType": "application/json",
+        })
+    }
+
+    fn payment_required(&self, challenge_id: &str) -> Value {
+        serde_json::json!({
+            "x402Version": X402_FACILITATOR_PROTOCOL_VERSION,
+            "error": "PAYMENT-SIGNATURE header is required",
+            "resource": self.resource(),
+            "accepts": [self.payment_requirements(challenge_id)],
+            "extensions": {
+                "neurochain": {
+                    "challengeId": challenge_id,
+                    "settlementRequired": true,
+                    "underlyingActionSubmitAllowed": false,
+                }
+            }
+        })
+    }
+
+    fn payment_required_presentation(
+        &self,
+        challenge_id: &str,
+    ) -> Result<X402PaymentRequiredPresentation, X402FacilitatorTransportError> {
+        let payment_required = self.payment_required(challenge_id);
+        let encoded_header = encode_x402_header(&payment_required)?;
+        Ok(X402PaymentRequiredPresentation {
+            encoded_header: Some(encoded_header),
+            payment_required: Some(payment_required),
+            mock_signature: None,
+        })
     }
 }
 
@@ -242,7 +376,6 @@ impl X402FacilitatorCredentialProvider for EnvX402FacilitatorCredentialProvider 
 
 pub struct ReqwestX402FacilitatorTransport<P> {
     config: X402FacilitatorConfig,
-    client: reqwest::blocking::Client,
     credential_provider: P,
 }
 
@@ -261,26 +394,28 @@ where
             &config.receiver,
             config.timeout_ms,
         )?;
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(config.timeout_ms))
+        Ok(Self {
+            config,
+            credential_provider,
+        })
+    }
+
+    fn http_client(&self) -> Result<reqwest::blocking::Client, X402FacilitatorTransportError> {
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(self.config.timeout_ms))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| {
                 X402FacilitatorTransportError::InvalidConfiguration(
                     "facilitator HTTP client could not be constructed".to_string(),
                 )
-            })?;
-        Ok(Self {
-            config,
-            client,
-            credential_provider,
-        })
+            })
     }
 
     fn build_supported_request(
         &self,
     ) -> Result<reqwest::blocking::Request, X402FacilitatorTransportError> {
-        self.client
+        self.http_client()?
             .get(self.config.supported_url())
             .header(ACCEPT, "application/json")
             .header(
@@ -299,7 +434,10 @@ where
         &self,
         request: reqwest::blocking::Request,
     ) -> Result<X402FacilitatorSupportedResponse, X402FacilitatorTransportError> {
-        let response = self.client.execute(request).map_err(map_reqwest_error)?;
+        let response = self
+            .http_client()?
+            .execute(request)
+            .map_err(map_reqwest_error)?;
         ensure_supported_status(response.status())?;
 
         if response
@@ -339,7 +477,7 @@ where
             "paymentRequirements": request.payment_requirements,
         });
 
-        self.client
+        self.http_client()?
             .post(self.config.verify_url())
             .header(ACCEPT, "application/json")
             .header(
@@ -359,7 +497,10 @@ where
         &self,
         request: reqwest::blocking::Request,
     ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
-        let response = self.client.execute(request).map_err(map_reqwest_error)?;
+        let response = self
+            .http_client()?
+            .execute(request)
+            .map_err(map_reqwest_error)?;
         let status = response.status();
         ensure_verify_status(status)?;
 
@@ -756,12 +897,13 @@ pub fn facilitator_request_from_adapter(
             )
         })?;
     let x402_version = payment_payload
-        .get("x402_version")
+        .get("x402Version")
+        .or_else(|| payment_payload.get("x402_version"))
         .and_then(Value::as_u64)
         .and_then(|value| u8::try_from(value).ok())
         .ok_or_else(|| {
             X402FacilitatorTransportError::InvalidConfiguration(
-                "payment_payload.x402_version must be an unsigned byte".to_string(),
+                "payment_payload.x402Version must be an unsigned byte".to_string(),
             )
         })?;
     if x402_version != X402_FACILITATOR_PROTOCOL_VERSION {
@@ -878,6 +1020,13 @@ where
             };
         Ok(response)
     }
+
+    pub fn verify_request(
+        &self,
+        request: &X402FacilitatorRequest,
+    ) -> Result<X402FacilitatorVerifyResponse, X402FacilitatorTransportError> {
+        verify_with_capability_handshake(&self.config, self.transport, request)
+    }
 }
 
 pub fn settle_response_to_adapter(
@@ -921,6 +1070,162 @@ fn required_adapter_string<'a>(
         })
 }
 
+fn required_runtime_env(name: &str) -> Result<String, X402FacilitatorTransportError> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            X402FacilitatorTransportError::InvalidConfiguration(format!(
+                "required facilitator runtime setting {name} is missing"
+            ))
+        })
+}
+
+fn optional_runtime_u64(name: &str, default: u64) -> Result<u64, X402FacilitatorTransportError> {
+    match env::var(name) {
+        Ok(value) => value.trim().parse::<u64>().map_err(|_| {
+            X402FacilitatorTransportError::InvalidConfiguration(format!(
+                "facilitator runtime setting {name} must be an unsigned integer"
+            ))
+        }),
+        Err(_) => Ok(default),
+    }
+}
+
+fn validate_resource_url(resource_url: &str) -> Result<(), X402FacilitatorTransportError> {
+    let parsed = reqwest::Url::parse(resource_url).map_err(|_| {
+        X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator resource URL is invalid".to_string(),
+        )
+    })?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "facilitator resource URL must be a credential-free HTTPS URL without a fragment"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn encode_x402_header(value: &Value) -> Result<String, X402FacilitatorTransportError> {
+    let bytes = serde_json::to_vec(value).map_err(|_| {
+        X402FacilitatorTransportError::InvalidResponse(
+            "x402 header JSON could not be encoded".to_string(),
+        )
+    })?;
+    if bytes.len() > MAX_X402_HEADER_BYTES {
+        return Err(X402FacilitatorTransportError::InvalidResponse(
+            "x402 header JSON exceeds the size limit".to_string(),
+        ));
+    }
+    Ok(BASE64_STANDARD.encode(bytes))
+}
+
+fn decode_x402_header(encoded: &str) -> Result<Value, X402FacilitatorTransportError> {
+    let encoded = encoded.trim();
+    if encoded.is_empty() || encoded.len() > MAX_X402_HEADER_ENCODED_BYTES {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE header is empty or exceeds the size limit".to_string(),
+        ));
+    }
+    let bytes = BASE64_STANDARD.decode(encoded).map_err(|_| {
+        X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE header is not valid Base64".to_string(),
+        )
+    })?;
+    if bytes.len() > MAX_X402_HEADER_BYTES {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE payload exceeds the size limit".to_string(),
+        ));
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE payload is not valid JSON".to_string(),
+        )
+    })?;
+    if !value.is_object() {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE payload must be an object".to_string(),
+        ));
+    }
+    Ok(value)
+}
+
+fn facilitator_request_from_payment_signature(
+    runtime: &X402FacilitatorRuntimeConfig,
+    payment_signature: &str,
+) -> Result<(String, X402FacilitatorRequest), X402FacilitatorTransportError> {
+    let payment_payload = decode_x402_header(payment_signature)?;
+    if payment_payload.get("x402Version").and_then(Value::as_u64)
+        != Some(u64::from(X402_FACILITATOR_PROTOCOL_VERSION))
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE must contain an x402 v2 PaymentPayload".to_string(),
+        ));
+    }
+    if !payment_payload.get("payload").is_some_and(Value::is_object) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE payload.payload must be an object".to_string(),
+        ));
+    }
+    let challenge_id = payment_payload
+        .pointer("/accepted/extra/neurochainChallengeId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 128
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+        .ok_or_else(|| {
+            X402FacilitatorTransportError::InvalidConfiguration(
+                "PAYMENT-SIGNATURE is missing a valid NeuroChain challenge binding".to_string(),
+            )
+        })?
+        .to_string();
+    let payment_requirements = runtime.payment_requirements(&challenge_id);
+    if payment_payload.get("accepted") != Some(&payment_requirements) {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE accepted requirements do not match the issued challenge".to_string(),
+        ));
+    }
+    if payment_payload
+        .get("resource")
+        .is_some_and(|resource| resource != &runtime.resource())
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE resource does not match the protected resource".to_string(),
+        ));
+    }
+    if payment_payload
+        .get("extensions")
+        .is_some_and(|extensions| !extensions.is_object())
+    {
+        return Err(X402FacilitatorTransportError::InvalidConfiguration(
+            "PAYMENT-SIGNATURE extensions must be an object".to_string(),
+        ));
+    }
+
+    Ok((
+        challenge_id.clone(),
+        X402FacilitatorRequest {
+            x402_version: X402_FACILITATOR_PROTOCOL_VERSION,
+            payment_payload,
+            payment_requirements,
+            idempotency_key: challenge_id,
+            network: runtime.transport.network.clone(),
+        },
+    ))
+}
+
 fn is_stellar_strkey(value: &str, prefixes: &[char]) -> bool {
     value.len() == 56
         && value
@@ -946,6 +1251,14 @@ pub enum X402PaymentVerification {
         challenge_id: String,
         challenge: X402StellarChallenge,
     },
+    FacilitatorRejected {
+        challenge_id: String,
+        challenge: X402StellarChallenge,
+    },
+    VerifiedPendingSettlement {
+        challenge_id: String,
+        challenge: X402StellarChallenge,
+    },
     InvalidPayment,
 }
 
@@ -956,7 +1269,11 @@ pub trait X402PaymentVerifier {
         &self,
         store: &mut dyn X402ChallengeStore,
     ) -> Result<X402ChallengeRecord, String>;
-    fn verify_and_finalize(
+    fn payment_required_presentation(
+        &self,
+        challenge_id: &str,
+    ) -> Result<X402PaymentRequiredPresentation, String>;
+    fn verify_payment(
         &self,
         payment_signature: &str,
         store: &mut dyn X402ChallengeStore,
@@ -966,12 +1283,19 @@ pub trait X402PaymentVerifier {
 #[derive(Debug, Default)]
 struct MockX402PaymentVerifier;
 
-#[derive(Debug, Default)]
-struct FacilitatorX402PaymentVerifier;
+struct FacilitatorX402PaymentVerifier<T>
+where
+    T: X402FacilitatorTransport,
+{
+    runtime: X402FacilitatorRuntimeConfig,
+    transport: T,
+}
 
 #[derive(Debug)]
 struct UnavailableX402PaymentVerifier {
     reason: String,
+    verifier_kind: &'static str,
+    boundary_kind: &'static str,
 }
 
 impl X402PaymentVerifier for MockX402PaymentVerifier {
@@ -990,7 +1314,14 @@ impl X402PaymentVerifier for MockX402PaymentVerifier {
         store.create_challenge()
     }
 
-    fn verify_and_finalize(
+    fn payment_required_presentation(
+        &self,
+        challenge_id: &str,
+    ) -> Result<X402PaymentRequiredPresentation, String> {
+        Ok(X402PaymentRequiredPresentation::mock(challenge_id))
+    }
+
+    fn verify_payment(
         &self,
         payment_signature: &str,
         store: &mut dyn X402ChallengeStore,
@@ -1023,38 +1354,102 @@ impl X402PaymentVerifier for MockX402PaymentVerifier {
     }
 }
 
-impl X402PaymentVerifier for FacilitatorX402PaymentVerifier {
+impl<T> X402PaymentVerifier for FacilitatorX402PaymentVerifier<T>
+where
+    T: X402FacilitatorTransport + Send + Sync,
+{
     fn verifier_kind(&self) -> &'static str {
         "facilitator"
     }
 
     fn boundary_kind(&self) -> &'static str {
-        "facilitator_verify_settle"
+        "facilitator_verify_only_pending_settlement"
     }
 
     fn create_challenge(
         &self,
-        _store: &mut dyn X402ChallengeStore,
+        store: &mut dyn X402ChallengeStore,
     ) -> Result<X402ChallengeRecord, String> {
-        Err(facilitator_transport_unavailable())
+        if store.store_kind() != "file" {
+            return Err(
+                "facilitator x402 verifier requires the persistent file challenge store"
+                    .to_string(),
+            );
+        }
+        store.create_challenge()
     }
 
-    fn verify_and_finalize(
+    fn payment_required_presentation(
         &self,
-        _payment_signature: &str,
-        _store: &mut dyn X402ChallengeStore,
+        challenge_id: &str,
+    ) -> Result<X402PaymentRequiredPresentation, String> {
+        self.runtime
+            .payment_required_presentation(challenge_id)
+            .map_err(|error| facilitator_error_code(&error).to_string())
+    }
+
+    fn verify_payment(
+        &self,
+        payment_signature: &str,
+        store: &mut dyn X402ChallengeStore,
     ) -> Result<X402PaymentVerification, String> {
-        Err(facilitator_transport_unavailable())
+        if store.store_kind() != "file" {
+            return Err(
+                "facilitator x402 verifier requires the persistent file challenge store"
+                    .to_string(),
+            );
+        }
+        let (challenge_id, request) =
+            match facilitator_request_from_payment_signature(&self.runtime, payment_signature) {
+                Ok(request) => request,
+                Err(_) => return Ok(X402PaymentVerification::InvalidPayment),
+            };
+        let challenge = match store.inspect_challenge(&challenge_id)? {
+            X402ChallengeInspection::Available(challenge) => challenge,
+            X402ChallengeInspection::ReplayBlocked(challenge) => {
+                return Ok(X402PaymentVerification::ReplayBlocked {
+                    challenge_id,
+                    challenge,
+                });
+            }
+            X402ChallengeInspection::Expired(challenge) => {
+                return Ok(X402PaymentVerification::Expired {
+                    challenge_id,
+                    challenge,
+                });
+            }
+            X402ChallengeInspection::UnknownChallenge => {
+                return Ok(X402PaymentVerification::InvalidPayment);
+            }
+        };
+
+        let adapter =
+            X402FacilitatorVerifyOnlyAdapter::new(self.runtime.transport.clone(), &self.transport)
+                .map_err(|error| facilitator_error_code(&error).to_string())?;
+        let verification = adapter
+            .verify_request(&request)
+            .map_err(|error| facilitator_error_code(&error).to_string())?;
+        if verification.is_valid {
+            Ok(X402PaymentVerification::VerifiedPendingSettlement {
+                challenge_id,
+                challenge,
+            })
+        } else {
+            Ok(X402PaymentVerification::FacilitatorRejected {
+                challenge_id,
+                challenge,
+            })
+        }
     }
 }
 
 impl X402PaymentVerifier for UnavailableX402PaymentVerifier {
     fn verifier_kind(&self) -> &'static str {
-        "unavailable"
+        self.verifier_kind
     }
 
     fn boundary_kind(&self) -> &'static str {
-        "facilitator_required"
+        self.boundary_kind
     }
 
     fn create_challenge(
@@ -1064,7 +1459,14 @@ impl X402PaymentVerifier for UnavailableX402PaymentVerifier {
         Err(self.reason.clone())
     }
 
-    fn verify_and_finalize(
+    fn payment_required_presentation(
+        &self,
+        _challenge_id: &str,
+    ) -> Result<X402PaymentRequiredPresentation, String> {
+        Err(self.reason.clone())
+    }
+
+    fn verify_payment(
         &self,
         _payment_signature: &str,
         _store: &mut dyn X402ChallengeStore,
@@ -1091,20 +1493,57 @@ fn select_x402_payment_verifier(
             reason:
                 "mock x402 verifier is disabled in production; configure the facilitator verifier"
                     .to_string(),
+            verifier_kind: "unavailable",
+            boundary_kind: "facilitator_required",
         }),
         "mock" => Box::<MockX402PaymentVerifier>::default(),
-        "facilitator" => Box::<FacilitatorX402PaymentVerifier>::default(),
+        "facilitator" => build_facilitator_payment_verifier(),
         _ => Box::new(UnavailableX402PaymentVerifier {
             reason: format!(
                 "unsupported x402 verifier mode {mode:?}; expected \"mock\" or \"facilitator\""
             ),
+            verifier_kind: "unavailable",
+            boundary_kind: "facilitator_required",
         }),
     }
 }
 
-fn facilitator_transport_unavailable() -> String {
-    "facilitator x402 verifier is selected, but verify/settle transport is not implemented"
-        .to_string()
+fn build_facilitator_payment_verifier() -> Box<dyn X402PaymentVerifier + Send + Sync> {
+    let runtime = match X402FacilitatorRuntimeConfig::from_env() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return Box::new(UnavailableX402PaymentVerifier {
+                reason: facilitator_error_code(&error).to_string(),
+                verifier_kind: "facilitator",
+                boundary_kind: "facilitator_verify_only_pending_settlement",
+            });
+        }
+    };
+    let transport = match ReqwestX402FacilitatorTransport::new(
+        runtime.transport.clone(),
+        EnvX402FacilitatorCredentialProvider::default(),
+    ) {
+        Ok(transport) => transport,
+        Err(error) => {
+            return Box::new(UnavailableX402PaymentVerifier {
+                reason: facilitator_error_code(&error).to_string(),
+                verifier_kind: "facilitator",
+                boundary_kind: "facilitator_verify_only_pending_settlement",
+            });
+        }
+    };
+    Box::new(FacilitatorX402PaymentVerifier { runtime, transport })
+}
+
+fn facilitator_error_code(error: &X402FacilitatorTransportError) -> &'static str {
+    match error {
+        X402FacilitatorTransportError::InvalidConfiguration(_) => {
+            "facilitator_configuration_invalid"
+        }
+        X402FacilitatorTransportError::Unavailable(_) => "facilitator_unavailable",
+        X402FacilitatorTransportError::Timeout => "facilitator_timeout",
+        X402FacilitatorTransportError::InvalidResponse(_) => "facilitator_invalid_response",
+    }
 }
 
 fn mock_challenge_from_signature(signature: &str) -> Option<&str> {
@@ -1166,6 +1605,29 @@ mod tests {
             "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
             5_000,
         )
+        .unwrap()
+    }
+
+    fn runtime_test_config() -> X402FacilitatorRuntimeConfig {
+        X402FacilitatorRuntimeConfig {
+            transport: authenticated_test_config(),
+            amount: "10000".to_string(),
+            max_timeout_seconds: 60,
+            resource_url: "https://stellarzerolab.com/api/x402/stellar/intent-plan".to_string(),
+        }
+    }
+
+    fn encoded_test_payment_payload(
+        runtime: &X402FacilitatorRuntimeConfig,
+        challenge_id: &str,
+    ) -> String {
+        encode_x402_header(&serde_json::json!({
+            "x402Version": 2,
+            "accepted": runtime.payment_requirements(challenge_id),
+            "payload": { "transaction": "offline-fixture-xdr" },
+            "resource": runtime.resource(),
+            "extensions": {},
+        }))
         .unwrap()
     }
 
@@ -1306,11 +1768,16 @@ mod tests {
     struct TestChallengeStore {
         created: bool,
         finalized: bool,
+        persistent: bool,
     }
 
     impl X402ChallengeStore for TestChallengeStore {
         fn store_kind(&self) -> &'static str {
-            "test"
+            if self.persistent {
+                "file"
+            } else {
+                "test"
+            }
         }
 
         fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
@@ -1325,6 +1792,20 @@ mod tests {
                     payment_state: "payment_required".to_string(),
                 },
             })
+        }
+
+        fn inspect_challenge(&self, challenge_id: &str) -> Result<X402ChallengeInspection, String> {
+            if challenge_id == "x402s0001" {
+                Ok(X402ChallengeInspection::Available(X402StellarChallenge {
+                    created_at: 1,
+                    expires_at: u64::MAX,
+                    finalized: false,
+                    finalized_at: None,
+                    payment_state: "payment_required".to_string(),
+                }))
+            } else {
+                Ok(X402ChallengeInspection::UnknownChallenge)
+            }
         }
 
         fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
@@ -1355,7 +1836,7 @@ mod tests {
         assert!(store.created);
 
         let verification = verifier
-            .verify_and_finalize("paid:x402s0001", &mut store)
+            .verify_payment("paid:x402s0001", &mut store)
             .unwrap();
         assert!(matches!(
             verification,
@@ -1376,28 +1857,111 @@ mod tests {
         assert!(!store.created);
 
         let err = verifier
-            .verify_and_finalize("paid:x402s0001", &mut store)
+            .verify_payment("paid:x402s0001", &mut store)
             .unwrap_err();
         assert!(err.contains("configure the facilitator verifier"));
         assert!(!store.finalized);
     }
 
     #[test]
-    fn selects_facilitator_as_explicit_fail_closed_boundary() {
+    fn facilitator_selection_fails_closed_without_runtime_configuration() {
         let verifier = select_x402_payment_verifier("facilitator", false);
         assert_eq!(verifier.verifier_kind(), "facilitator");
-        assert_eq!(verifier.boundary_kind(), "facilitator_verify_settle");
+        assert_eq!(
+            verifier.boundary_kind(),
+            "facilitator_verify_only_pending_settlement"
+        );
 
         let mut store = TestChallengeStore::default();
         let err = verifier.create_challenge(&mut store).unwrap_err();
-        assert!(err.contains("verify/settle transport is not implemented"));
+        assert_eq!(err, "facilitator_configuration_invalid");
         assert!(!store.created);
 
         let err = verifier
-            .verify_and_finalize("paid:x402s0001", &mut store)
+            .verify_payment("paid:x402s0001", &mut store)
             .unwrap_err();
-        assert!(err.contains("facilitator x402 verifier is selected"));
+        assert_eq!(err, "facilitator_configuration_invalid");
         assert!(!store.finalized);
+    }
+
+    #[test]
+    fn facilitator_payment_required_header_is_x402_v2_and_challenge_bound() {
+        let runtime = runtime_test_config();
+        let presentation = runtime.payment_required_presentation("x402s0001").unwrap();
+        let decoded = decode_x402_header(presentation.encoded_header.as_deref().unwrap()).unwrap();
+
+        assert_eq!(decoded["x402Version"], 2);
+        assert_eq!(
+            decoded["resource"]["url"],
+            "https://stellarzerolab.com/api/x402/stellar/intent-plan"
+        );
+        assert_eq!(decoded["accepts"][0]["scheme"], "exact");
+        assert_eq!(decoded["accepts"][0]["network"], "stellar:testnet");
+        assert_eq!(
+            decoded["accepts"][0]["extra"]["neurochainChallengeId"],
+            "x402s0001"
+        );
+        assert_eq!(
+            decoded["extensions"]["neurochain"]["underlyingActionSubmitAllowed"],
+            false
+        );
+        assert!(presentation.mock_signature.is_none());
+    }
+
+    #[test]
+    fn facilitator_verify_only_runtime_never_finalizes_or_settles() {
+        let runtime = runtime_test_config();
+        let signature = encoded_test_payment_payload(&runtime, "x402s0001");
+        let verifier = FacilitatorX402PaymentVerifier {
+            runtime,
+            transport: FakeFacilitatorTransport::new(),
+        };
+        let mut store = TestChallengeStore {
+            persistent: true,
+            ..Default::default()
+        };
+
+        let verification = verifier.verify_payment(&signature, &mut store).unwrap();
+
+        assert!(matches!(
+            verification,
+            X402PaymentVerification::VerifiedPendingSettlement { .. }
+        ));
+        assert!(!store.finalized);
+        assert_eq!(
+            verifier.transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify"]
+        );
+    }
+
+    #[test]
+    fn facilitator_verify_only_runtime_maps_rejection_and_malformed_header_fail_closed() {
+        let runtime = runtime_test_config();
+        let signature = encoded_test_payment_payload(&runtime, "x402s0001");
+        let verifier = FacilitatorX402PaymentVerifier {
+            runtime,
+            transport: FakeFacilitatorTransport::rejecting_verify("fixture_rejected"),
+        };
+        let mut store = TestChallengeStore {
+            persistent: true,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            verifier.verify_payment(&signature, &mut store).unwrap(),
+            X402PaymentVerification::FacilitatorRejected { .. }
+        ));
+        assert!(!store.finalized);
+        assert!(matches!(
+            verifier
+                .verify_payment("paid:x402s0001", &mut store)
+                .unwrap(),
+            X402PaymentVerification::InvalidPayment
+        ));
+        assert_eq!(
+            verifier.transport.calls.lock().unwrap().as_slice(),
+            ["supported", "verify"]
+        );
     }
 
     #[test]

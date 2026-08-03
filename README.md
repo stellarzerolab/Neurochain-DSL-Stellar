@@ -129,9 +129,11 @@ Current boundary status:
   rejection, replay rejection, and hosted CLI proof evidence.
 - x402 is beyond a lite UI idea: the paid ingress envelope, response contract,
   schema/types, viewer, audit/replay boundaries, production mock fence, and
-  fail-closed facilitator boundary exist.
-- x402 is not production until real facilitator verify/settle transport is
-  attached behind `src/x402_facilitator.rs`.
+  fail-closed facilitator boundary exist. Facilitator mode emits an official
+  x402 v2 `PAYMENT-REQUIRED` challenge and can run authenticated
+  `supported -> verify` without settling or executing an ActionPlan.
+- x402 is not production until real facilitator settlement is implemented and
+  reviewed behind `src/x402_facilitator.rs`.
 
 ## What It Does
 

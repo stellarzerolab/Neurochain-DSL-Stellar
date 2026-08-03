@@ -132,9 +132,10 @@ paid request
 ```
 
 x402 can decide whether an API call is paid. It must not decide whether an
-ActionPlan can execute. The existing facilitator boundary should remain
-fail-closed until real verify/settle transport, pricing, receiver config,
-persistent replay state, and safe audit are implemented.
+ActionPlan can execute. The facilitator boundary now runtime-connects
+authenticated verify-only transport and remains fail-closed after verify until
+settlement, production pricing and receiver review, settlement replay state,
+and safe settlement audit are implemented.
 
 ## ZK Role
 

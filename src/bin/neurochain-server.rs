@@ -661,95 +661,13 @@ async fn api_x402_stellar_intent_plan(
                 );
             }
         };
-        logs.push("x402: payment required".to_string());
-        logs.push("x402: retry with PAYMENT-SIGNATURE=paid:<challenge_id>".to_string());
-        return x402_payment_required_response(
-            record.challenge_id,
-            record.challenge.created_at,
-            record.challenge.expires_at,
-            logs,
-        );
-    };
-
-    let (challenge_id, created_at, expires_at, finalized_at, payment_state) =
-        match state.x402_stellar.lock() {
-            Ok(mut store) => {
-                let store_kind = store.store_kind();
-                logs.push(format!("x402_store: {store_kind}"));
-                match state
-                    .x402_payment_verifier
-                    .verify_and_finalize(&signature, store.as_mut())
-                {
-                    Ok(X402PaymentVerification::InvalidPayment) => {
-                        logs.push("x402: invalid payment proof".to_string());
-                        return x402_error_response(
-                            StatusCode::PAYMENT_REQUIRED,
-                            "invalid_payment",
-                            "invalid",
-                            X402PaymentContext::default(),
-                            logs,
-                        );
-                    }
-                    Ok(X402PaymentVerification::ReplayBlocked {
-                        challenge_id,
-                        challenge,
-                    }) => {
-                        logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
-                        return x402_error_response(
-                            StatusCode::CONFLICT,
-                            "payment_replay_blocked",
-                            &challenge.payment_state,
-                            X402PaymentContext {
-                                challenge_id: Some(&challenge_id),
-                                created_at: Some(challenge.created_at),
-                                expires_at: Some(challenge.expires_at),
-                                finalized_at: challenge.finalized_at,
-                            },
-                            logs,
-                        );
-                    }
-                    Ok(X402PaymentVerification::Expired {
-                        challenge_id,
-                        challenge,
-                    }) => {
-                        logs.push(format!("x402: expired challenge={challenge_id}"));
-                        return x402_error_response(
-                            StatusCode::PAYMENT_REQUIRED,
-                            "payment_expired",
-                            &challenge.payment_state,
-                            X402PaymentContext {
-                                challenge_id: Some(&challenge_id),
-                                created_at: Some(challenge.created_at),
-                                expires_at: Some(challenge.expires_at),
-                                finalized_at: challenge.finalized_at,
-                            },
-                            logs,
-                        );
-                    }
-                    Ok(X402PaymentVerification::Finalized {
-                        challenge_id,
-                        challenge,
-                    }) => (
-                        challenge_id,
-                        challenge.created_at,
-                        challenge.expires_at,
-                        challenge.finalized_at.unwrap_or_else(now_unix_secs),
-                        challenge.payment_state,
-                    ),
-                    Err(err) => {
-                        logs.push(format!("x402: challenge store finalize failed: {err}"));
-                        return x402_error_response(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "x402_state_unavailable",
-                            "state_unavailable",
-                            X402PaymentContext::default(),
-                            logs,
-                        );
-                    }
-                }
-            }
-            Err(_) => {
-                logs.push("x402: state lock poisoned".to_string());
+        let presentation = match state
+            .x402_payment_verifier
+            .payment_required_presentation(&record.challenge_id)
+        {
+            Ok(presentation) => presentation,
+            Err(err) => {
+                logs.push(format!("x402: payment requirements unavailable: {err}"));
                 return x402_error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "x402_state_unavailable",
@@ -759,6 +677,165 @@ async fn api_x402_stellar_intent_plan(
                 );
             }
         };
+        logs.push("x402: payment required".to_string());
+        if presentation.encoded_header.is_some() {
+            logs.push("x402: retry with an x402 v2 PAYMENT-SIGNATURE header".to_string());
+        } else {
+            logs.push("x402: retry with PAYMENT-SIGNATURE=paid:<challenge_id>".to_string());
+        }
+        return x402_payment_required_response(
+            record.challenge_id,
+            record.challenge.created_at,
+            record.challenge.expires_at,
+            presentation,
+            logs,
+        );
+    };
+
+    let verifier = Arc::clone(&state.x402_payment_verifier);
+    let challenge_store = Arc::clone(&state.x402_stellar);
+    let verification = task::spawn_blocking(move || {
+        let mut store = challenge_store
+            .lock()
+            .map_err(|_| "x402 challenge store lock is unavailable".to_string())?;
+        let store_kind = store.store_kind();
+        let result = verifier.verify_payment(&signature, store.as_mut());
+        Ok::<_, String>((store_kind, result))
+    })
+    .await;
+    let (store_kind, verification) = match verification {
+        Ok(Ok(result)) => result,
+        Ok(Err(err)) => {
+            logs.push(format!("x402: {err}"));
+            return x402_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "x402_state_unavailable",
+                "state_unavailable",
+                X402PaymentContext::default(),
+                logs,
+            );
+        }
+        Err(_) => {
+            logs.push("x402: payment verification task failed".to_string());
+            return x402_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "x402_state_unavailable",
+                "state_unavailable",
+                X402PaymentContext::default(),
+                logs,
+            );
+        }
+    };
+    logs.push(format!("x402_store: {store_kind}"));
+
+    let (challenge_id, created_at, expires_at, finalized_at, payment_state) = match verification {
+        Ok(X402PaymentVerification::InvalidPayment) => {
+            logs.push("x402: invalid payment proof".to_string());
+            return x402_error_response(
+                StatusCode::PAYMENT_REQUIRED,
+                "invalid_payment",
+                "invalid",
+                X402PaymentContext::default(),
+                logs,
+            );
+        }
+        Ok(X402PaymentVerification::ReplayBlocked {
+            challenge_id,
+            challenge,
+        }) => {
+            logs.push(format!("x402: replay blocked for challenge={challenge_id}"));
+            return x402_error_response(
+                StatusCode::CONFLICT,
+                "payment_replay_blocked",
+                &challenge.payment_state,
+                X402PaymentContext {
+                    challenge_id: Some(&challenge_id),
+                    created_at: Some(challenge.created_at),
+                    expires_at: Some(challenge.expires_at),
+                    finalized_at: challenge.finalized_at,
+                },
+                logs,
+            );
+        }
+        Ok(X402PaymentVerification::Expired {
+            challenge_id,
+            challenge,
+        }) => {
+            logs.push(format!("x402: expired challenge={challenge_id}"));
+            return x402_error_response(
+                StatusCode::PAYMENT_REQUIRED,
+                "payment_expired",
+                &challenge.payment_state,
+                X402PaymentContext {
+                    challenge_id: Some(&challenge_id),
+                    created_at: Some(challenge.created_at),
+                    expires_at: Some(challenge.expires_at),
+                    finalized_at: challenge.finalized_at,
+                },
+                logs,
+            );
+        }
+        Ok(X402PaymentVerification::FacilitatorRejected {
+            challenge_id,
+            challenge,
+        }) => {
+            logs.push(format!(
+                "x402: facilitator rejected challenge={challenge_id}"
+            ));
+            return x402_error_response(
+                StatusCode::PAYMENT_REQUIRED,
+                "invalid_payment",
+                "facilitator_rejected",
+                X402PaymentContext {
+                    challenge_id: Some(&challenge_id),
+                    created_at: Some(challenge.created_at),
+                    expires_at: Some(challenge.expires_at),
+                    finalized_at: challenge.finalized_at,
+                },
+                logs,
+            );
+        }
+        Ok(X402PaymentVerification::VerifiedPendingSettlement {
+            challenge_id,
+            challenge,
+        }) => {
+            logs.push(format!(
+                "x402: verified challenge={challenge_id}; settlement remains required"
+            ));
+            return x402_error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "payment_verified_settlement_required",
+                "verified_pending_settlement",
+                X402PaymentContext {
+                    challenge_id: Some(&challenge_id),
+                    created_at: Some(challenge.created_at),
+                    expires_at: Some(challenge.expires_at),
+                    finalized_at: challenge.finalized_at,
+                },
+                logs,
+            );
+        }
+        Ok(X402PaymentVerification::Finalized {
+            challenge_id,
+            challenge,
+        }) => (
+            challenge_id,
+            challenge.created_at,
+            challenge.expires_at,
+            challenge.finalized_at.unwrap_or_else(now_unix_secs),
+            challenge.payment_state,
+        ),
+        Err(err) => {
+            logs.push(format!("x402: payment verification unavailable: {err}"));
+            return x402_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "x402_state_unavailable",
+                "state_unavailable",
+                X402PaymentContext::default(),
+                logs,
+            );
+        }
+    };
 
     logs.push(format!("x402: finalized challenge={challenge_id}"));
     let (_status, Json(resp)) = build_stellar_intent_plan_response(req, logs);

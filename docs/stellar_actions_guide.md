@@ -992,12 +992,15 @@ guardrails.
 
 Facilitator boundary:
 
-- the current verifier is still the local mock verifier
-- the public response envelope is already facilitator-shaped
-- server route code talks to a payment verifier adapter instead of hard-coding
-  the mock finalize logic directly in the route
-- future real x402 `verify` / `settle` / facilitator logic should replace the
-  verifier implementation, not the frontend/agent response contract
+- `NC_X402_STELLAR_VERIFIER=mock` keeps the local development-only
+  `paid:<challenge_id>` flow
+- `NC_X402_STELLAR_VERIFIER=facilitator` emits official Base64 x402 v2
+  `PAYMENT-REQUIRED` data and accepts bounded v2 `PAYMENT-SIGNATURE` data
+- facilitator mode performs authenticated `supported -> verify` only
+- accepted facilitator verification stops at
+  `payment_verified_settlement_required`; it does not finalize the challenge,
+  run guardrails, settle payment, or execute the ActionPlan
+- `/settle` remains disabled
 
 What stays stable for agents and frontends:
 
@@ -1008,12 +1011,24 @@ What stays stable for agents and frontends:
 - `logs`
 - finalized responses also include `plan`
 
-What is still mock-only today:
+What remains mock-only:
 
 - the payment proof format is `PAYMENT-SIGNATURE: paid:<challenge_id>`
-- challenge finalization is local store-backed, not a real facilitator proof
-- pricing, receiver account, auth boundary, and production settlement are still
-  later decisions
+- local challenge finalization into the planning pipeline
+
+Facilitator mode requires explicit runtime configuration:
+
+- `NC_X402_FACILITATOR_ENDPOINT`
+- `NC_X402_FACILITATOR_RESOURCE_URL`
+- `NC_X402_FACILITATOR_API_KEY` (read at request time; never store it in files)
+- `NC_X402_STELLAR_NETWORK`
+- `NC_X402_STELLAR_ASSET`
+- `NC_X402_STELLAR_AMOUNT`
+- `NC_X402_STELLAR_RECEIVER`
+- `NC_X402_STELLAR_STORE_PATH`
+- `NC_X402_STELLAR_AUDIT_PATH`
+- optional bounded `NC_X402_FACILITATOR_TIMEOUT_MS` and
+  `NC_X402_STELLAR_MAX_TIMEOUT_SECONDS`
 
 Unpaid request:
 
@@ -1033,7 +1048,9 @@ Expected unpaid behavior:
 - `payment.state = "payment_required"`
 - `decision.status = "not_evaluated"`
 - `guardrails.state = "not_run"`
-- response includes `challenge_id`, `expires_at`, amount/asset/network/receiver and a mock `PAYMENT-SIGNATURE` hint
+- mock mode includes a `paid:<challenge_id>` development hint
+- facilitator mode includes matching `PAYMENT-REQUIRED` header and
+  `payment_required` body data, while `mock_signature` is null
 
 Mock finalized request:
 
@@ -1297,15 +1314,20 @@ Optional x402 server environment variables:
 
 | Env var | Meaning | Default |
 | --- | --- | --- |
-| `NC_X402_STELLAR_AMOUNT` | Mock price amount | `0.01` |
-| `NC_X402_STELLAR_ASSET` | Mock payment asset | `USDC` |
-| `NC_X402_STELLAR_NETWORK` | Payment network label | `stellar:testnet` |
-| `NC_X402_STELLAR_RECEIVER` | Receiver label/account placeholder | `mock-receiver` |
+| `NC_X402_STELLAR_AMOUNT` | Mock amount or facilitator base-unit amount | `0.01` |
+| `NC_X402_STELLAR_ASSET` | Mock asset label or facilitator SEP-41 contract | `USDC` |
+| `NC_X402_STELLAR_NETWORK` | Payment network; facilitator accepts `stellar:testnet` or `stellar:pubnet` | `stellar:testnet` |
+| `NC_X402_STELLAR_RECEIVER` | Mock receiver label or facilitator Stellar StrKey | `mock-receiver` |
 | `NC_X402_STELLAR_TTL_SECS` | Challenge lifetime | `300` |
-| `NC_X402_STELLAR_VERIFIER` | Verifier boundary mode: `mock` for local development or `facilitator` for the explicit fail-closed verify/settle stub | `mock` |
+| `NC_X402_STELLAR_VERIFIER` | `mock` for local development or `facilitator` for authenticated verify-only runtime | `mock` |
+| `NC_X402_FACILITATOR_ENDPOINT` | Credential-free HTTPS facilitator base URL | required in facilitator mode |
+| `NC_X402_FACILITATOR_RESOURCE_URL` | Public HTTPS URL of the protected resource | required in facilitator mode |
+| `NC_X402_FACILITATOR_API_KEY` | Request-time bearer credential; never persist it | required for facilitator HTTP calls |
+| `NC_X402_FACILITATOR_TIMEOUT_MS` | Bounded facilitator HTTP timeout | `5000` |
+| `NC_X402_STELLAR_MAX_TIMEOUT_SECONDS` | x402 payment requirement timeout | `60` |
 | `NC_X402_STELLAR_AUDIT_PATH` | Optional safe JSONL audit output path | unset |
 | `NC_X402_STELLAR_STORE_PATH` | Optional file-backed challenge/replay store path | unset |
-| `NC_ENV` / `APP_ENV` / `RUST_ENV` | When set to `production`, disables the mock x402 verifier and fails closed until a real facilitator verifier is configured | unset |
+| `NC_ENV` / `APP_ENV` / `RUST_ENV` | When set to `production`, disables the mock x402 verifier | unset |
 
 When `NC_X402_STELLAR_AUDIT_PATH` is set, the server appends safe JSONL audit
 rows for payment-required, finalized, blocked, replay, expired, and invalid
@@ -1320,22 +1342,23 @@ block replay after later restarts. The store persists challenge ids and payment
 state, not the raw `PAYMENT-SIGNATURE` header or the mock `paid:<challenge_id>`
 signature. If a configured file store cannot be read or parsed, x402 requests
 fail closed with `state_unavailable` instead of silently falling back to
-in-memory state. This is a dev/production-shape bridge, not a real facilitator
-integration.
+in-memory state. Facilitator verify inspects this persistent challenge state
+without finalizing or consuming it.
 
 Implementation note:
 
 - `src/x402_facilitator.rs` owns the payment verifier boundary
-- current verifier kind: `mock` in development
-- current boundary kind: `mock_header_store`
-- `NC_X402_STELLAR_VERIFIER=facilitator` selects the explicit
-  `facilitator_verify_settle` boundary, but it currently returns
-  `state_unavailable` because the authenticated `/verify` transport is not
-  runtime-connected and `/settle` is not implemented
+- verifier kind `mock` uses boundary `mock_header_store` in development
+- verifier kind `facilitator` uses boundary
+  `facilitator_verify_only_pending_settlement`
+- facilitator mode runtime-connects authenticated `/supported` and read-only
+  `/verify` in a blocking worker
+- accepted verify returns `verified_pending_settlement` and
+  `underlying_action_submit_allowed=false`
 - production envs disable the mock verifier; production payment requests stay
-  fail closed until the facilitator integration and settlement path are
-  implemented, configured, and reviewed
-- future real facilitator support should be added behind that verifier boundary
+  fail closed after verification until settlement is implemented, configured,
+  and reviewed
+- settlement support must be added behind the same verifier boundary
   while keeping `payment`, `decision`, `guardrails`, `logs`, `audit_id`, and
   finalized `plan` stable for clients
 

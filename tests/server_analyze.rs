@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -61,6 +62,17 @@ fn http_post_json_with_headers(
     json_body: &str,
     headers: &[(&str, &str)],
 ) -> (u16, String) {
+    let (status, _response_headers, body) =
+        http_post_json_with_response_headers(addr, path, json_body, headers);
+    (status, body)
+}
+
+fn http_post_json_with_response_headers(
+    addr: SocketAddr,
+    path: &str,
+    json_body: &str,
+    headers: &[(&str, &str)],
+) -> (u16, String, String) {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
         .set_read_timeout(Some(Duration::from_secs(1)))
@@ -174,7 +186,7 @@ fn http_post_json_with_headers(
     }
 
     let body_str = String::from_utf8_lossy(&body).to_string();
-    (code, body_str)
+    (code, head_str.to_string(), body_str)
 }
 
 fn models_dir() -> PathBuf {
@@ -208,6 +220,7 @@ fn spawn_server(port: u16, extra_env: &[(&str, &str)]) -> Server {
         .env("NC_MODELS_DIR", models_dir())
         .env("NC_ENV", "development")
         .env("NC_X402_STELLAR_VERIFIER", "mock")
+        .env_remove("NC_X402_FACILITATOR_API_KEY")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
@@ -2867,11 +2880,41 @@ fn api_x402_stellar_mock_verifier_is_fenced_in_production_mode() {
 }
 
 #[test]
-fn api_x402_stellar_facilitator_mode_is_explicit_fail_closed_stub() {
+fn api_x402_stellar_facilitator_mode_emits_v2_challenge_and_remains_verify_only() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let store_path = temp.path().join("x402-store.json");
+    let audit_path = temp.path().join("x402-audit.jsonl");
+    let store_path_s = store_path.to_string_lossy().to_string();
+    let audit_path_s = audit_path.to_string_lossy().to_string();
     let port = find_free_port();
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let _server = spawn_server(port, &[("NC_X402_STELLAR_VERIFIER", "facilitator")]);
-    wait_for_listen(addr, Duration::from_secs(3));
+    let _server = spawn_server(
+        port,
+        &[
+            ("NC_X402_STELLAR_VERIFIER", "facilitator"),
+            (
+                "NC_X402_FACILITATOR_ENDPOINT",
+                "https://channels.openzeppelin.com/x402/testnet",
+            ),
+            (
+                "NC_X402_FACILITATOR_RESOURCE_URL",
+                "https://stellarzerolab.com/api/x402/stellar/intent-plan",
+            ),
+            ("NC_X402_STELLAR_NETWORK", "stellar:testnet"),
+            (
+                "NC_X402_STELLAR_ASSET",
+                "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+            ),
+            ("NC_X402_STELLAR_AMOUNT", "10000"),
+            (
+                "NC_X402_STELLAR_RECEIVER",
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ),
+            ("NC_X402_STELLAR_STORE_PATH", store_path_s.as_str()),
+            ("NC_X402_STELLAR_AUDIT_PATH", audit_path_s.as_str()),
+        ],
+    );
+    wait_for_listen(addr, Duration::from_secs(30));
 
     let body = json!({
         "model": "intent_stellar",
@@ -2879,12 +2922,37 @@ fn api_x402_stellar_facilitator_mode_is_explicit_fail_closed_stub() {
         "threshold": 0.0
     })
     .to_string();
-    let (status, resp_body) = http_post_json(addr, "/api/x402/stellar/intent-plan", &body);
-    assert_eq!(status, 500);
+    let (status, response_headers, resp_body) =
+        http_post_json_with_response_headers(addr, "/api/x402/stellar/intent-plan", &body, &[]);
+    assert_eq!(status, 402);
 
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
-    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
-    assert_eq!(resp["error"], "x402_state_unavailable");
+    assert_x402_response_contract(&resp, "payment_required", "not_evaluated", "not_run");
+    assert_eq!(resp["error"], "payment_required");
+    assert_eq!(resp["underlying_action_submit_allowed"], false);
+    assert!(resp["mock_signature"].is_null());
+    let encoded_required = response_headers
+        .lines()
+        .find_map(|line| {
+            line.split_once(':').and_then(|(name, value)| {
+                name.eq_ignore_ascii_case("payment-required")
+                    .then(|| value.trim().to_string())
+            })
+        })
+        .expect("PAYMENT-REQUIRED response header");
+    let decoded_required: Value = serde_json::from_slice(
+        &BASE64_STANDARD
+            .decode(encoded_required)
+            .expect("base64 PAYMENT-REQUIRED"),
+    )
+    .expect("payment required json");
+    assert_eq!(decoded_required, resp["payment_required"]);
+    assert_eq!(decoded_required["x402Version"], 2);
+    assert_eq!(decoded_required["accepts"][0]["network"], "stellar:testnet");
+    assert_eq!(
+        decoded_required["accepts"][0]["extra"]["neurochainChallengeId"],
+        resp["challenge_id"]
+    );
     let logs = resp["logs"].as_array().cloned().unwrap_or_default();
     assert!(
         logs.iter()
@@ -2893,16 +2961,16 @@ fn api_x402_stellar_facilitator_mode_is_explicit_fail_closed_stub() {
         "expected explicit facilitator verifier identity"
     );
     assert!(
-        logs.iter()
-            .filter_map(|v| v.as_str())
-            .any(|log| log == "x402_facilitator_boundary: facilitator_verify_settle"),
-        "expected explicit facilitator verify/settle boundary"
+        logs.iter().filter_map(|v| v.as_str()).any(|log| {
+            log == "x402_facilitator_boundary: facilitator_verify_only_pending_settlement"
+        }),
+        "expected explicit facilitator verify-only boundary"
     );
     assert!(
         logs.iter()
             .filter_map(|v| v.as_str())
-            .any(|log| log.contains("verify/settle transport is not implemented")),
-        "expected fail-closed facilitator stub log"
+            .any(|log| log == "x402_store: file"),
+        "expected persistent facilitator challenge store"
     );
 
     let (status, resp_body) = http_post_json_with_headers(
@@ -2911,10 +2979,11 @@ fn api_x402_stellar_facilitator_mode_is_explicit_fail_closed_stub() {
         &body,
         &[("PAYMENT-SIGNATURE", "paid:mock-proof-must-not-pass")],
     );
-    assert_eq!(status, 500);
+    assert_eq!(status, 402);
     let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
-    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
-    assert_eq!(resp["error"], "x402_state_unavailable");
+    assert_x402_response_contract(&resp, "invalid", "blocked", "not_run");
+    assert_eq!(resp["error"], "invalid_payment");
+    assert_eq!(resp["underlying_action_submit_allowed"], false);
     assert!(
         resp["logs"]
             .as_array()
@@ -2924,6 +2993,48 @@ fn api_x402_stellar_facilitator_mode_is_explicit_fail_closed_stub() {
             .any(|log| log == "x402_verifier: facilitator"),
         "facilitator mode must not interpret mock proof as a real payment"
     );
+
+    let payment_payload = json!({
+        "x402Version": 2,
+        "accepted": decoded_required["accepts"][0],
+        "payload": { "transaction": "offline-fixture-xdr" },
+        "resource": decoded_required["resource"],
+        "extensions": {}
+    });
+    let signature = BASE64_STANDARD.encode(serde_json::to_vec(&payment_payload).unwrap());
+    let (status, resp_body) = http_post_json_with_headers(
+        addr,
+        "/api/x402/stellar/intent-plan",
+        &body,
+        &[("PAYMENT-SIGNATURE", signature.as_str())],
+    );
+    assert_eq!(status, 500);
+    let resp: Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_x402_response_contract(&resp, "state_unavailable", "blocked", "not_run");
+    assert_eq!(resp["error"], "x402_state_unavailable");
+    assert_eq!(resp["underlying_action_submit_allowed"], false);
+    assert!(
+        resp["logs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|log| log.contains("facilitator_configuration_invalid")),
+        "missing runtime credential must fail before a network verify"
+    );
+
+    let stored: Value = serde_json::from_str(&fs::read_to_string(&store_path).unwrap()).unwrap();
+    assert!(stored["challenges"]
+        .as_object()
+        .unwrap()
+        .values()
+        .all(|challenge| challenge["finalized"] == false));
+    let audit_raw = fs::read_to_string(&audit_path).unwrap();
+    assert!(audit_raw.contains("payment_required"));
+    assert!(audit_raw.contains("invalid_payment"));
+    assert!(!audit_raw.contains("PAYMENT-SIGNATURE"));
+    assert!(!audit_raw.contains("paid:mock-proof-must-not-pass"));
+    assert!(!audit_raw.contains(&signature));
 }
 
 #[test]

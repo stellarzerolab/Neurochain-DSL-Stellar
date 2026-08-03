@@ -39,9 +39,18 @@ pub enum X402FinalizeOutcome {
     UnknownChallenge,
 }
 
+#[derive(Debug, Clone)]
+pub enum X402ChallengeInspection {
+    Available(X402StellarChallenge),
+    ReplayBlocked(X402StellarChallenge),
+    Expired(X402StellarChallenge),
+    UnknownChallenge,
+}
+
 pub trait X402ChallengeStore {
     fn store_kind(&self) -> &'static str;
     fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String>;
+    fn inspect_challenge(&self, challenge_id: &str) -> Result<X402ChallengeInspection, String>;
     fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String>;
 }
 
@@ -89,6 +98,24 @@ impl X402StellarState {
         self.used_challenges.insert(challenge_id.to_string());
         X402FinalizeOutcome::Finalized(challenge.clone())
     }
+
+    fn inspect_challenge(&self, challenge_id: &str) -> X402ChallengeInspection {
+        let Some(challenge) = self.challenges.get(challenge_id) else {
+            return X402ChallengeInspection::UnknownChallenge;
+        };
+        let mut challenge = challenge.clone();
+
+        if self.used_challenges.contains(challenge_id) || challenge.finalized {
+            challenge.payment_state = "replay_blocked".to_string();
+            return X402ChallengeInspection::ReplayBlocked(challenge);
+        }
+        if now_unix_secs() >= challenge.expires_at {
+            challenge.payment_state = "expired".to_string();
+            return X402ChallengeInspection::Expired(challenge);
+        }
+
+        X402ChallengeInspection::Available(challenge)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -110,6 +137,10 @@ impl X402ChallengeStore for InMemoryX402ChallengeStore {
         Ok(self.state.create_challenge())
     }
 
+    fn inspect_challenge(&self, challenge_id: &str) -> Result<X402ChallengeInspection, String> {
+        Ok(self.state.inspect_challenge(challenge_id))
+    }
+
     fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
         Ok(self.state.begin_finalize(challenge_id))
     }
@@ -121,6 +152,10 @@ impl X402ChallengeStore for UnavailableX402ChallengeStore {
     }
 
     fn create_challenge(&mut self) -> Result<X402ChallengeRecord, String> {
+        Err(self.error.clone())
+    }
+
+    fn inspect_challenge(&self, _challenge_id: &str) -> Result<X402ChallengeInspection, String> {
         Err(self.error.clone())
     }
 
@@ -199,6 +234,10 @@ impl X402ChallengeStore for FileX402ChallengeStore {
         let record = self.state.create_challenge();
         self.persist()?;
         Ok(record)
+    }
+
+    fn inspect_challenge(&self, challenge_id: &str) -> Result<X402ChallengeInspection, String> {
+        Ok(self.state.inspect_challenge(challenge_id))
     }
 
     fn begin_finalize(&mut self, challenge_id: &str) -> Result<X402FinalizeOutcome, String> {
