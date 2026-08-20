@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, env, fs, process::Command};
 
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
 
+use crate::action_plan_binding::canonical_action_plan_hash;
 use crate::actions::{validate_enforced_plan, validate_plan, Action, ActionPlan, Allowlist};
 use crate::intent_stellar::{
     build_action_plan, classify, has_intent_blocking_issue, resolve_model_path, IntentBuildConfig,
@@ -21,7 +21,6 @@ const EVALUATE_TOOL: &str = "evaluate_guardrails";
 const PROVE_TOOL: &str = "prove_guardrail_decision";
 const VERIFY_TOOL: &str = "verify_zk_on_stellar";
 const STATUS_TOOL: &str = "get_guardrail_status";
-const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 const MAX_INTENT_TEXT_BYTES: usize = 4096;
 const MAX_SOURCE_HINT_BYTES: usize = 64;
 const MAX_ACTION_PLAN_JSON_BYTES: usize = 65_536;
@@ -834,15 +833,6 @@ fn build_plan_response(
     });
     validate_no_submit_value("plan_stellar_action runtime", &response)?;
     Ok(response)
-}
-
-fn canonical_action_plan_hash(plan: &ActionPlan) -> Result<String, String> {
-    let encoded = serde_json::to_vec(plan)
-        .map_err(|err| format!("failed to serialize canonical ActionPlan: {err}"))?;
-    let mut hasher = Sha256::new();
-    hasher.update(PLAN_HASH_DOMAIN);
-    hasher.update(encoded);
-    Ok(hex::encode(hasher.finalize()))
 }
 
 fn validate_plan_arguments(arguments: &Map<String, Value>) -> Result<(), String> {

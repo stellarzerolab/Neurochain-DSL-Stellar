@@ -33,6 +33,19 @@ No npm dependency is added by this analysis. The package version and x402 spec
 revision must be selected and pinned only after the module boundary is
 approved.
 
+## Approved Offline Module Boundary
+
+The first post-analysis milestone now locks a versioned, offline data contract
+between the future TypeScript `@x402/stellar` facilitator/Bazaar service and
+the Rust NeuroChain guardrail/ZK runtime. See
+`docs/x402_service_boundary.md`, `src/x402_service_boundary.rs`, and
+`examples/x402_service_boundary/`.
+
+This approval covers types, fixtures, validation, and authority invariants
+only. It does not approve a Node.js runtime, npm dependency, HTTP endpoint,
+credential, settlement, pubnet operation, deployment, wallet signing, or
+ActionPlan submission.
+
 ## Status Vocabulary
 
 | Status | Meaning |

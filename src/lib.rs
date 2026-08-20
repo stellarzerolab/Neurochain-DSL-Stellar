@@ -1,3 +1,4 @@
+pub mod action_plan_binding;
 pub mod actions;
 pub mod ai;
 pub mod banner;
@@ -12,6 +13,7 @@ pub mod parser;
 pub mod soroban_deep;
 pub mod x402_audit;
 pub mod x402_facilitator;
+pub mod x402_service_boundary;
 pub mod x402_stellar;
 pub mod x402_store;
 pub mod zk_attestation;

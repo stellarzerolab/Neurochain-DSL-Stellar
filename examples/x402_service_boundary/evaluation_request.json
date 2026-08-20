@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "message_type": "evaluation_request",
+  "request_id": "req-bazaar-balance-001",
+  "resource_id": "stellarzerolab.neurochain.plan-evaluate",
+  "operation": "plan_and_evaluate",
+  "network": "stellar:testnet",
+  "intent_text": "Check the XLM balance for GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+}
