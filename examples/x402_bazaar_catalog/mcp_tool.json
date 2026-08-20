@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "x402Version": 2,
+  "resource": {
+    "url": "https://api.example.com/mcp",
+    "description": "Read-only Stellar guardrail tools",
+    "mimeType": "application/json",
+    "serviceName": "NeuroChain",
+    "tags": ["stellar", "guardrails", "agents"]
+  },
+  "input": {
+    "type": "mcp",
+    "toolName": "plan_stellar_action"
+  },
+  "payment": {
+    "scheme": "exact",
+    "network": "stellar:testnet",
+    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "x402Version": 2,
+  "resource": {
+    "url": "https://api.example.com/weather/fi/helsinki",
+    "description": "Current weather by country and city",
+    "mimeType": "application/json",
+    "serviceName": "Evil\nService",
+    "tags": ["weather", "WEATHER", "", "forecast", "123456789012345678901234567890123", "climate", "alerts", "hourly", "ignored"],
+    "iconUrl": "http://local%68ost/icon.png"
+  },
+  "input": {
+    "type": "http",
+    "method": "GET"
+  },
+  "routeTemplate": "/weather/%2e%2e/admin",
+  "payment": {
+    "scheme": "exact",
+    "network": "stellar:testnet",
+    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+  }
+}

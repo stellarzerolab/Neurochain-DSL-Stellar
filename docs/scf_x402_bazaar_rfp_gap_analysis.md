@@ -46,6 +46,12 @@ only. It does not approve a Node.js runtime, npm dependency, HTTP endpoint,
 credential, settlement, pubnet operation, deployment, wallet signing, or
 ActionPlan submission.
 
+The next offline milestone adds the first Bazaar catalog integrity core in
+`src/x402_bazaar.rs`, with HTTP/MCP resource identities, percent-decoded
+`routeTemplate` validation, service metadata soft-drop rules, and duplicate
+fail-closed behavior. It still does not expose discovery endpoints, validate
+seller-supplied JSON Schemas, perform ranking, or activate a payment runtime.
+
 ## Status Vocabulary
 
 | Status | Meaning |
