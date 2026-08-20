@@ -92,9 +92,11 @@ RustSec note: `RUSTSEC-2026-0190` was resolved by updating `anyhow 1.0.100 ->
 1.0.103`. `RUSTSEC-2026-0097` was resolved by updating the transitive
 `rand 0.8.5 -> 0.8.6` lockfile entry. `RUSTSEC-2026-0104` was resolved by
 updating `rustls-webpki 0.103.12 -> 0.103.13`. `RUSTSEC-2026-0185` was
-resolved by updating `quinn-proto 0.11.14 -> 0.11.15`. The temporary
+resolved by updating `quinn-proto 0.11.14 -> 0.11.15`. `RUSTSEC-2026-0217`
+was resolved by updating the `tract` dependency family from `0.21.13` to
+`0.22.3`. The temporary
 `RUSTSEC-2026-0186` ignore covers `memmap2 0.9.9`, which is transitive through
-`tract-onnx 0.21.13`; the advisory currently has no patched release. Keep the
+`tract-onnx 0.22.3`; the advisory currently has no patched release. Keep the
 ignore scoped to this advisory and remove it when the ONNX dependency can move
 to a fixed `memmap2` release.
 
