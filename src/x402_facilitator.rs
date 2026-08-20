@@ -301,7 +301,7 @@ fn update_json_digest(
             hasher.update([5]);
             update_digest_length(hasher, object.len())?;
             let mut fields: Vec<_> = object.iter().collect();
-            fields.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+            fields.sort_unstable_by_key(|(field, _)| *field);
             for (field, value) in fields {
                 update_digest_bytes(hasher, field.as_bytes());
                 update_json_digest(hasher, value)?;

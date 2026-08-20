@@ -12,6 +12,10 @@ const STDIO_CLIENT_DIR: &str = "examples/mcp_v0_stdio_client";
 const GUARDRAILS_SKILL_DIR: &str = "skills/neurochain-stellar-guardrails";
 const PLAN_HASH_DOMAIN: &[u8] = b"neurochain:mcp-v0:action-plan-json:v1\0";
 
+fn powershell_command() -> Command {
+    Command::new(if cfg!(windows) { "powershell" } else { "pwsh" })
+}
+
 const REQUIRED_FIELDS: &[&str] = &[
     "schema_version",
     "tool",
@@ -888,7 +892,7 @@ fn neurochain_guardrails_skill_package_check_is_bounded() {
         );
     }
 
-    let output = Command::new("powershell")
+    let output = powershell_command()
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
@@ -1339,7 +1343,7 @@ fn external_mcp_host_readiness_reports_the_exact_unvalidated_port() {
         );
     }
 
-    let output = Command::new("powershell")
+    let output = powershell_command()
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
