@@ -46,11 +46,13 @@ only. It does not approve a Node.js runtime, npm dependency, HTTP endpoint,
 credential, settlement, pubnet operation, deployment, wallet signing, or
 ActionPlan submission.
 
-The next offline milestone adds the first Bazaar catalog integrity core in
-`src/x402_bazaar.rs`, with HTTP/MCP resource identities, percent-decoded
-`routeTemplate` validation, service metadata soft-drop rules, and duplicate
-fail-closed behavior. It still does not expose discovery endpoints, validate
-seller-supplied JSON Schemas, perform ranking, or activate a payment runtime.
+The Bazaar work now includes an offline catalog integrity core and the typed
+data contract for `GET /discovery/resources` in `src/x402_bazaar.rs`, with
+HTTP/MCP resource identities, percent-decoded `routeTemplate` validation,
+service metadata soft-drop rules, duplicate fail-closed behavior, filters,
+bounded offset pagination, and deterministic ordering. It still does not
+register discovery endpoints, validate seller-supplied JSON Schemas, perform
+ranking, or activate a payment runtime.
 
 ## Status Vocabulary
 
@@ -147,19 +149,20 @@ RFP's numbered sections.
 
 ## 3.2 Bazaar Discovery Requirements
 
-No Bazaar or discovery implementation was found under `src/`, `tests/`,
-`docs/`, `examples/`, or the root manifest. All rows below are new RFP work.
+The repository has the first offline Bazaar catalog and resources-list
+contracts. They are foundations only; the hosted service, automatic cataloging,
+search, provenance, lifecycle, and interoperability work remains.
 
 | RFP requirement | Status | Gap / acceptance evidence needed |
 | --- | --- | --- |
-| `GET /discovery/resources` with `type`, `payTo`, `network`, `extensions`, `limit`, and `offset` filters | `missing` | Versioned response schema, deterministic pagination/filter semantics, fixtures, route tests, and stock-client interoperability. |
+| `GET /discovery/resources` with `type`, `payTo`, `scheme`, `network`, `extensions`, `limit`, and `offset` filters | `partial` | Offline versioned response, filters, deterministic bounded pagination, hostile-query tests, and fixtures exist. Add HTTP route tests and stock-client interoperability. |
 | `GET /discovery/search` with natural-language `query`, cursor pagination, and `partialResults` | `missing` | Retrieval/ranking design, deterministic API contract, evaluation corpus, relevance metrics, regression gate, and degraded/partial-result behavior. |
 | Automatic cataloging from a PaymentPayload discovery extension | `missing` | Validate `info` against supplied `schema`; catalog without a separate seller action; typed success/drop outcomes. |
-| Catalog HTTP endpoints and MCP tools | `missing` | Resource identity rules, HTTP/MCP schemas, MCP key tuple `resource.url + input.toolName`, deduplication, update, and deletion/expiry policy. |
-| Catalog-integrity trust boundary | `missing` | Seller ownership/provenance model, soft-drop validation, forged metadata/pricing tests, percent-decoded `routeTemplate` traversal tests, size/complexity limits. |
+| Catalog HTTP endpoints and MCP tools | `partial` | Offline HTTP/MCP identity schemas, MCP key tuple `resource.url + input.toolName`, and duplicate rejection exist. Add routes/tools plus authenticated update and deletion/expiry policy. |
+| Catalog-integrity trust boundary | `partial` | Bounded hard fields, optional-metadata soft-drop, percent-decoded traversal tests, and duplicate fail-close exist. Add seller ownership/provenance, schema-validation, forged pricing, and persistence boundaries. |
 | `EXTENSION-RESPONSES` cataloging outcome header | `missing` | Stable codes and non-null reasons for accepted, dropped, invalid, duplicate, and unavailable outcomes. |
 | Track evolving x402 discovery conventions | `missing` | Pin policy, upstream watcher, compatibility matrix, scheduled conformance run, migration/deprecation policy, and update SLA. |
-| Interoperate with wider x402 discovery catalogs | `missing` | Canonical item representation, import/export or federation plan, cross-facilitator fixtures, and interoperability tests. |
+| Interoperate with wider x402 discovery catalogs | `partial` | Offline x402 v2 list item and pagination fixture exist. Add stock-client, import/export or federation, and cross-facilitator interoperability tests. |
 | Seller-side discovery metadata helpers | `missing` | Minimal-boilerplate helpers, per-parameter descriptions, validation, generated examples, and package API tests. |
 | Off-chain index by default; optional Soroban registry only as a stretch | `decision needed` | Select storage/search backend and retention/abuse policy. Keep any optional on-chain registry off the payment hot path and document TTL/rent/cost ownership. |
 

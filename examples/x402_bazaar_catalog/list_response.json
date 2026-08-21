@@ -1,0 +1,42 @@
+{
+  "x402Version": 2,
+  "items": [
+    {
+      "resource": "https://api.example.com/weather/fi/helsinki",
+      "type": "http",
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "stellar:testnet",
+          "amount": "100000",
+          "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+          "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+          "maxTimeoutSeconds": 60
+        }
+      ],
+      "lastUpdated": 1723000000
+    },
+    {
+      "resource": "https://api.example.com/mcp",
+      "type": "mcp",
+      "x402Version": 2,
+      "accepts": [
+        {
+          "scheme": "exact",
+          "network": "stellar:testnet",
+          "amount": "100000",
+          "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+          "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+          "maxTimeoutSeconds": 60
+        }
+      ],
+      "lastUpdated": 1723000001
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "offset": 0,
+    "total": 2
+  }
+}

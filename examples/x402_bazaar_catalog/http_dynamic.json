@@ -17,6 +17,9 @@
   "payment": {
     "scheme": "exact",
     "network": "stellar:testnet",
-    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P"
+    "amount": "100000",
+    "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+    "maxTimeoutSeconds": 60
   }
 }

@@ -7,6 +7,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 pub const BAZAAR_CATALOG_SCHEMA_VERSION: u32 = 1;
+pub const BAZAAR_LIST_DEFAULT_LIMIT: usize = 20;
+pub const BAZAAR_LIST_MAX_LIMIT: usize = 100;
 const X402_VERSION: u32 = 2;
 const MAX_RESOURCE_URL_BYTES: usize = 2_048;
 const MAX_DESCRIPTION_BYTES: usize = 512;
@@ -16,6 +18,10 @@ const MAX_SERVICE_NAME_BYTES: usize = 32;
 const MAX_TAG_BYTES: usize = 32;
 const MAX_TAGS: usize = 5;
 const MAX_ICON_URL_BYTES: usize = 2_048;
+const MAX_AMOUNT_BYTES: usize = 64;
+const MAX_EXTENSION_FILTER_BYTES: usize = 64;
+const MAX_LIST_OFFSET: usize = 1_000_000;
+const BAZAAR_EXTENSION: &str = "bazaar";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
@@ -70,7 +76,10 @@ pub struct BazaarResourceDescriptor {
 pub struct BazaarPaymentSummary {
     pub scheme: String,
     pub network: String,
+    pub amount: String,
+    pub asset: String,
     pub pay_to: String,
+    pub max_timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -123,6 +132,52 @@ pub struct BazaarCatalogResource {
     pub last_updated: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarListQuery {
+    #[serde(rename = "type", default)]
+    pub resource_type: Option<BazaarResourceType>,
+    #[serde(default)]
+    pub pay_to: Option<String>,
+    #[serde(default)]
+    pub scheme: Option<String>,
+    #[serde(default)]
+    pub network: Option<String>,
+    #[serde(default)]
+    pub extensions: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarListItem {
+    pub resource: String,
+    #[serde(rename = "type")]
+    pub resource_type: BazaarResourceType,
+    pub x402_version: u32,
+    pub accepts: Vec<BazaarPaymentSummary>,
+    pub last_updated: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarOffsetPagination {
+    pub limit: usize,
+    pub offset: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarListResponse {
+    pub x402_version: u32,
+    pub items: Vec<BazaarListItem>,
+    pub pagination: BazaarOffsetPagination,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BazaarCatalogError {
     UnsupportedSchemaVersion,
@@ -134,6 +189,9 @@ pub enum BazaarCatalogError {
     UnexpectedMcpRouteTemplate,
     InvalidPaymentSummary,
     InvalidTimestamp,
+    InvalidListLimit,
+    InvalidListOffset,
+    InvalidListFilter,
     DuplicateResource(BazaarCatalogKey),
 }
 
@@ -149,6 +207,9 @@ impl BazaarCatalogError {
             Self::UnexpectedMcpRouteTemplate => "unexpected_mcp_route_template",
             Self::InvalidPaymentSummary => "invalid_payment_summary",
             Self::InvalidTimestamp => "invalid_timestamp",
+            Self::InvalidListLimit => "invalid_list_limit",
+            Self::InvalidListOffset => "invalid_list_offset",
+            Self::InvalidListFilter => "invalid_list_filter",
             Self::DuplicateResource(_) => "duplicate_resource",
         }
     }
@@ -191,6 +252,32 @@ impl BazaarCatalog {
         self.entries.get(key)
     }
 
+    pub fn list(&self, query: BazaarListQuery) -> Result<BazaarListResponse, BazaarCatalogError> {
+        let normalized = normalize_list_query(query)?;
+        let mut total = 0;
+        let mut items = Vec::with_capacity(normalized.limit.min(self.entries.len()));
+        for resource in self
+            .entries
+            .values()
+            .filter(|resource| normalized.matches(resource))
+        {
+            if total >= normalized.offset && items.len() < normalized.limit {
+                items.push(BazaarListItem::from(resource));
+            }
+            total += 1;
+        }
+
+        Ok(BazaarListResponse {
+            x402_version: X402_VERSION,
+            items,
+            pagination: BazaarOffsetPagination {
+                limit: normalized.limit,
+                offset: normalized.offset,
+                total,
+            },
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -198,6 +285,93 @@ impl BazaarCatalog {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+}
+
+#[derive(Debug)]
+struct NormalizedListQuery {
+    resource_type: Option<BazaarResourceType>,
+    pay_to: Option<String>,
+    scheme: Option<String>,
+    network: Option<String>,
+    extensions: Option<String>,
+    limit: usize,
+    offset: usize,
+}
+
+impl NormalizedListQuery {
+    fn matches(&self, resource: &BazaarCatalogResource) -> bool {
+        self.resource_type
+            .is_none_or(|value| value == resource.resource_type)
+            && self
+                .pay_to
+                .as_deref()
+                .is_none_or(|value| value == resource.payment.pay_to)
+            && self
+                .scheme
+                .as_deref()
+                .is_none_or(|value| value == resource.payment.scheme)
+            && self
+                .network
+                .as_deref()
+                .is_none_or(|value| value == resource.payment.network)
+            && self
+                .extensions
+                .as_deref()
+                .is_none_or(|value| value == BAZAAR_EXTENSION)
+    }
+}
+
+impl From<&BazaarCatalogResource> for BazaarListItem {
+    fn from(resource: &BazaarCatalogResource) -> Self {
+        Self {
+            resource: resource.resource_url.clone(),
+            resource_type: resource.resource_type,
+            x402_version: resource.x402_version,
+            accepts: vec![resource.payment.clone()],
+            last_updated: resource.last_updated,
+        }
+    }
+}
+
+fn normalize_list_query(query: BazaarListQuery) -> Result<NormalizedListQuery, BazaarCatalogError> {
+    let limit = query.limit.unwrap_or(BAZAAR_LIST_DEFAULT_LIMIT);
+    if !(1..=BAZAAR_LIST_MAX_LIMIT).contains(&limit) {
+        return Err(BazaarCatalogError::InvalidListLimit);
+    }
+    let offset = query.offset.unwrap_or(0);
+    if offset > MAX_LIST_OFFSET {
+        return Err(BazaarCatalogError::InvalidListOffset);
+    }
+
+    if query
+        .pay_to
+        .as_deref()
+        .is_some_and(|value| !is_stellar_strkey(value, &['G', 'C', 'M']))
+        || query
+            .scheme
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "exact" | "upto"))
+        || query
+            .network
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "stellar:testnet" | "stellar:pubnet"))
+        || query
+            .extensions
+            .as_deref()
+            .is_some_and(|value| !is_extension_identifier(value))
+    {
+        return Err(BazaarCatalogError::InvalidListFilter);
+    }
+
+    Ok(NormalizedListQuery {
+        resource_type: query.resource_type,
+        pay_to: query.pay_to,
+        scheme: query.scheme,
+        network: query.network,
+        extensions: query.extensions,
+        limit,
+        offset,
+    })
 }
 
 pub fn is_valid_route_template(value: &str) -> bool {
@@ -343,11 +517,25 @@ fn validate_payment_summary(payment: &BazaarPaymentSummary) -> Result<(), Bazaar
         payment.network.as_str(),
         "stellar:testnet" | "stellar:pubnet"
     ) || !matches!(payment.scheme.as_str(), "exact" | "upto")
+        || payment.amount.is_empty()
+        || payment.amount.len() > MAX_AMOUNT_BYTES
+        || payment.amount.bytes().any(|byte| !byte.is_ascii_digit())
+        || payment.amount.bytes().all(|byte| byte == b'0')
+        || !is_stellar_strkey(&payment.asset, &['C'])
         || !is_stellar_strkey(&payment.pay_to, &['G', 'C', 'M'])
+        || payment.max_timeout_seconds == 0
     {
         return Err(BazaarCatalogError::InvalidPaymentSummary);
     }
     Ok(())
+}
+
+fn is_extension_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_EXTENSION_FILTER_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn is_stellar_strkey(value: &str, prefixes: &[char]) -> bool {

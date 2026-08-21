@@ -10,6 +10,8 @@ extracted discovery candidates, not payment payloads and not HTTP requests.
   rejecting the otherwise valid resource.
 - `mcp_tool.json` proves MCP identity is the tuple of resource URL and tool
   name.
+- `list_response.json` locks the deterministic x402 v2 resources-list response,
+  validated `accepts` fields, and default offset pagination.
 
-No endpoint, search index, payment verification, settlement, wallet signing,
-or ActionPlan submission is active in this package.
+No HTTP endpoint, search index, payment verification, settlement, wallet
+signing, or ActionPlan submission is active in this package.

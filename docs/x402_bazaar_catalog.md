@@ -1,8 +1,8 @@
 # Offline x402 Bazaar catalog core
 
-Date: 2026-08-20
+Date: 2026-08-21
 
-Status: typed offline catalog core; no HTTP or MCP discovery runtime
+Status: typed offline catalog and resources-list contract; no HTTP or MCP discovery runtime
 
 ## Scope
 
@@ -13,9 +13,11 @@ discovery candidate, validates hard envelope fields, soft-drops hostile
 key, and rejects duplicates without overwriting the first entry.
 
 The hard envelope accepts x402 v2, `exact` or `upto`, the two Stellar CAIP-2
-network identifiers, and a Stellar account/contract/muxed-account-shaped
-`payTo`. Cryptographic recipient ownership still belongs to the later
-payment-verified automatic-cataloging adapter, not this offline type layer.
+network identifiers, a positive integer-string `amount`, a contract-shaped
+Stellar `asset`, a Stellar account/contract/muxed-account-shaped `payTo`, and
+a positive `maxTimeoutSeconds`. Cryptographic asset and recipient
+verification still belongs to the later payment-verified automatic-cataloging
+adapter, not this offline type layer.
 
 The module supports both resource identities required by the Bazaar spec:
 
@@ -38,14 +40,34 @@ Duplicate canonical keys fail closed. This milestone intentionally does not
 define update ownership or overwrite semantics; those need provenance and
 persistent-store rules first.
 
+## Offline resources-list contract
+
+`BazaarCatalog::list` defines the data contract later used by
+`GET /discovery/resources`; it does not register an HTTP route. The query
+supports `type`, `payTo`, `scheme`, `network`, `extensions`, `limit`, and
+`offset`. The response uses x402 v2 `items` and offset pagination, including
+the total number of filtered resources before pagination.
+
+- `limit=20` and `offset=0` are the defaults; `limit` must be 1-100.
+- The local defensive offset ceiling is 1,000,000.
+- Entries are listed in deterministic BTreeMap key order, independent of
+  insertion order.
+- The current catalog marks every accepted candidate as the `bazaar`
+  extension. An unknown but well-formed extension filter returns no matches;
+  malformed filters fail closed.
+- A list item includes the concrete resource URL, HTTP/MCP type, x402 version,
+  one validated accepted Stellar payment requirement, and observation time.
+  Optional extension response metadata is omitted until its exact payload and
+  provenance contract is implemented.
+
 ## Deliberate limits
 
 This module does not receive a `PaymentPayload`, validate payment signatures,
 resolve untrusted JSON Schema references, verify `info` against seller-supplied
-schemas, expose `GET /discovery/resources` or `GET /discovery/search`, perform
-natural-language ranking, make network calls, or provide paid-call, signing,
-settlement, or ActionPlan-submit authority. `stellar:pubnet` is a representable
-catalog value only and does not enable a pubnet operation.
+schemas, expose an HTTP route for `GET /discovery/resources`, define
+`GET /discovery/search`, perform natural-language ranking, make network calls,
+or provide paid-call, signing, settlement, or ActionPlan-submit authority.
+`stellar:pubnet` is a filterable catalog value only and does not enable a pubnet operation.
 
 The future automatic-cataloging adapter must validate `info` against its
 Draft 2020-12 schema without resolving external `$ref` or `$id` values before
