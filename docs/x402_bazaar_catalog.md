@@ -2,7 +2,7 @@
 
 Date: 2026-08-21
 
-Status: typed offline catalog and resources-list contract; no HTTP or MCP discovery runtime
+Status: typed offline catalog, resources-list, and deterministic search contracts; no HTTP or MCP discovery runtime
 
 ## Scope
 
@@ -60,13 +60,46 @@ the total number of filtered resources before pagination.
   Optional extension response metadata is omitted until its exact payload and
   provenance contract is implemented.
 
+## Offline search contract
+
+`BazaarCatalog::search` defines the data contract later used by
+`GET /discovery/search`; it does not register an HTTP route or activate a
+search service. The request requires `query` and accepts the same `type`,
+`payTo`, `scheme`, `network`, and `extensions` filters as the list contract,
+plus bounded `limit` and opaque `cursor` pagination. The response follows the
+current Bazaar extension shape: `resources`, `partialResults`, and
+`pagination` with `limit` and a nullable continuation cursor.
+
+- A query is 1-256 bytes and produces 1-16 unique lowercase alphanumeric
+  terms. Empty, control-character-only, and punctuation-only queries fail
+  closed.
+- `limit=20` is the default and the accepted range is 1-100.
+- Response `pagination.limit` reports the number of resources actually
+  returned on that page, as required by the Bazaar extension.
+- The deterministic lexical baseline ranks term coverage first, then matches
+  in tags, MCP tool name, service name, description, resource URL or route,
+  and MIME type. Equal scores use canonical BTreeMap key order.
+- A versioned query-bound cursor carries the next offset and a deterministic
+  fingerprint of the normalized query and filters. Mismatched, malformed, or
+  altered cursors fail closed. This checksum is not a cryptographic MAC and
+  grants no payment, signing, settlement, or submit authority.
+- `partialResults` is true only when another ranked local match exists.
+
+`examples/x402_bazaar_catalog/search_evaluation.json` is a checked-in ranking
+fixture. The test calculates mean reciprocal rank in integer milli-units and
+enforces its declared minimum. The current three-case corpus is a small
+regression baseline, not evidence of production natural-language search
+quality; it must grow with representative and adversarial queries.
+
 ## Deliberate limits
 
 This module does not receive a `PaymentPayload`, validate payment signatures,
 resolve untrusted JSON Schema references, verify `info` against seller-supplied
-schemas, expose an HTTP route for `GET /discovery/resources`, define
-`GET /discovery/search`, perform natural-language ranking, make network calls,
-or provide paid-call, signing, settlement, or ActionPlan-submit authority.
+schemas, expose HTTP routes for `GET /discovery/resources` or
+`GET /discovery/search`, run a search index or semantic/LLM retrieval service,
+make network calls, or provide paid-call, signing, settlement, or
+ActionPlan-submit authority. Its lexical ranking is only a deterministic
+offline baseline and does not claim production natural-language quality.
 `stellar:pubnet` is a filterable catalog value only and does not enable a pubnet operation.
 
 The future automatic-cataloging adapter must validate `info` against its

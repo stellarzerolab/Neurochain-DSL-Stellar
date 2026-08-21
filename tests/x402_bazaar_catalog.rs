@@ -3,8 +3,10 @@ use std::{fs, path::Path};
 use neurochain::x402_bazaar::{
     is_valid_route_template, sanitize_service_metadata, BazaarCatalog, BazaarCatalogCandidate,
     BazaarCatalogError, BazaarCatalogKey, BazaarListQuery, BazaarResourceInput, BazaarResourceType,
-    BazaarServiceMetadataInput, BAZAAR_LIST_DEFAULT_LIMIT,
+    BazaarSearchQuery, BazaarServiceMetadataInput, BAZAAR_LIST_DEFAULT_LIMIT,
+    BAZAAR_SEARCH_DEFAULT_LIMIT,
 };
+use serde::Deserialize;
 use serde_json::Value;
 
 const FIXTURE_DIR: &str = "examples/x402_bazaar_catalog";
@@ -25,6 +27,37 @@ fn two_resource_catalog() -> BazaarCatalog {
         .insert(read_candidate("http_dynamic.json"), 1_723_000_000)
         .expect("insert HTTP resource");
     catalog
+}
+
+fn three_resource_catalog() -> BazaarCatalog {
+    let mut catalog = two_resource_catalog();
+    catalog
+        .insert(read_candidate("market_data.json"), 1_723_000_002)
+        .expect("insert market resource");
+    catalog
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SearchEvaluation {
+    schema_version: u32,
+    candidate_files: Vec<String>,
+    minimum_mean_reciprocal_rank_milli: usize,
+    cases: Vec<SearchEvaluationCase>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SearchEvaluationCase {
+    query: String,
+    expected_resource: String,
+}
+
+fn read_search_evaluation() -> SearchEvaluation {
+    let path = Path::new(FIXTURE_DIR).join("search_evaluation.json");
+    let raw =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    serde_json::from_str(&raw).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
 }
 
 #[test]
@@ -431,6 +464,260 @@ fn invalid_list_envelope_fails_closed_with_stable_codes() {
 }
 
 #[test]
+fn search_evaluation_fixture_meets_measurable_mrr_gate() {
+    let evaluation = read_search_evaluation();
+    assert_eq!(evaluation.schema_version, 1);
+
+    let mut catalog = BazaarCatalog::default();
+    for (index, candidate_file) in evaluation.candidate_files.iter().enumerate() {
+        catalog
+            .insert(read_candidate(candidate_file), 1_723_000_000 + index as u64)
+            .unwrap_or_else(|err| panic!("insert {candidate_file}: {err}"));
+    }
+
+    let reciprocal_rank_sum = evaluation
+        .cases
+        .iter()
+        .map(|case| {
+            let response = catalog
+                .search(BazaarSearchQuery {
+                    query: case.query.clone(),
+                    limit: Some(100),
+                    ..BazaarSearchQuery::default()
+                })
+                .unwrap_or_else(|err| panic!("search {:?}: {err}", case.query));
+            let rank = response
+                .resources
+                .iter()
+                .position(|resource| resource.resource == case.expected_resource)
+                .unwrap_or_else(|| panic!("expected resource missing for {:?}", case.query));
+            1_000 / (rank + 1)
+        })
+        .sum::<usize>();
+    let mean_reciprocal_rank_milli = reciprocal_rank_sum / evaluation.cases.len();
+
+    assert!(
+        mean_reciprocal_rank_milli >= evaluation.minimum_mean_reciprocal_rank_milli,
+        "MRR milli {mean_reciprocal_rank_milli} below fixture gate {}",
+        evaluation.minimum_mean_reciprocal_rank_milli
+    );
+}
+
+#[test]
+fn search_cursor_is_query_bound_and_ties_use_catalog_key_order() {
+    let catalog = three_resource_catalog();
+    let first = catalog
+        .search(BazaarSearchQuery {
+            query: "api".to_string(),
+            limit: Some(1),
+            ..BazaarSearchQuery::default()
+        })
+        .expect("search first page");
+    assert_eq!(first.x402_version, 2);
+    assert_eq!(first.pagination.limit, 1);
+    assert_eq!(
+        first.resources[0].resource,
+        "https://api.example.com/markets/BTC"
+    );
+    assert!(first.partial_results);
+    let first_cursor = first.pagination.cursor.expect("first continuation cursor");
+
+    let second = catalog
+        .search(BazaarSearchQuery {
+            query: "api".to_string(),
+            limit: Some(1),
+            cursor: Some(first_cursor.clone()),
+            ..BazaarSearchQuery::default()
+        })
+        .expect("search second page");
+    assert_eq!(
+        second.resources[0].resource,
+        "https://api.example.com/weather/fi/helsinki"
+    );
+    assert!(second.partial_results);
+    let second_cursor = second
+        .pagination
+        .cursor
+        .expect("second continuation cursor");
+
+    let third = catalog
+        .search(BazaarSearchQuery {
+            query: "api".to_string(),
+            limit: Some(1),
+            cursor: Some(second_cursor),
+            ..BazaarSearchQuery::default()
+        })
+        .expect("search final page");
+    assert_eq!(third.resources[0].resource, "https://api.example.com/mcp");
+    assert!(!third.partial_results);
+    assert_eq!(third.pagination.cursor, None);
+
+    let mismatch = catalog
+        .search(BazaarSearchQuery {
+            query: "weather".to_string(),
+            cursor: Some(first_cursor.clone()),
+            ..BazaarSearchQuery::default()
+        })
+        .expect_err("cursor must be bound to normalized query and filters");
+    assert_eq!(mismatch.code(), "invalid_search_cursor");
+
+    let tampered = first_cursor.replacen("v1:", "v2:", 1);
+    let tamper = catalog
+        .search(BazaarSearchQuery {
+            query: "api".to_string(),
+            cursor: Some(tampered),
+            ..BazaarSearchQuery::default()
+        })
+        .expect_err("tampered cursor must fail closed");
+    assert_eq!(tamper.code(), "invalid_search_cursor");
+}
+
+#[test]
+fn search_filters_and_response_shape_preserve_offline_boundary() {
+    let mut catalog = BazaarCatalog::default();
+    catalog
+        .insert(read_candidate("http_dynamic.json"), 1_723_000_000)
+        .expect("insert HTTP resource");
+    let mut mcp = read_candidate("mcp_tool.json");
+    mcp.payment.scheme = "upto".to_string();
+    mcp.payment.network = "stellar:pubnet".to_string();
+    mcp.payment.pay_to = "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72Q".to_string();
+    catalog
+        .insert(mcp, 1_723_000_001)
+        .expect("insert MCP resource");
+
+    for query in [
+        BazaarSearchQuery {
+            query: "api".to_string(),
+            resource_type: Some(BazaarResourceType::Mcp),
+            ..BazaarSearchQuery::default()
+        },
+        BazaarSearchQuery {
+            query: "api".to_string(),
+            pay_to: Some("GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72Q".to_string()),
+            ..BazaarSearchQuery::default()
+        },
+        BazaarSearchQuery {
+            query: "api".to_string(),
+            scheme: Some("upto".to_string()),
+            ..BazaarSearchQuery::default()
+        },
+        BazaarSearchQuery {
+            query: "api".to_string(),
+            network: Some("stellar:pubnet".to_string()),
+            ..BazaarSearchQuery::default()
+        },
+    ] {
+        let response = catalog.search(query).expect("filtered search");
+        assert_eq!(response.resources.len(), 1);
+        assert_eq!(response.resources[0].resource_type, BazaarResourceType::Mcp);
+    }
+
+    let empty = catalog
+        .search(BazaarSearchQuery {
+            query: "api".to_string(),
+            extensions: Some("future-extension".to_string()),
+            ..BazaarSearchQuery::default()
+        })
+        .expect("unknown well-formed extension is an empty search");
+    assert!(empty.resources.is_empty());
+    assert!(!empty.partial_results);
+    assert_eq!(empty.pagination.cursor, None);
+
+    let serialized = serde_json::to_value(
+        catalog
+            .search(BazaarSearchQuery {
+                query: "weather".to_string(),
+                ..BazaarSearchQuery::default()
+            })
+            .expect("serialize search response"),
+    )
+    .expect("search response JSON");
+    assert!(serialized.get("resources").is_some());
+    assert!(serialized.get("items").is_none());
+    assert_eq!(BAZAAR_SEARCH_DEFAULT_LIMIT, 20);
+    assert_eq!(serialized["pagination"]["limit"], 1);
+}
+
+#[test]
+fn invalid_search_envelope_fails_closed_with_stable_codes() {
+    let catalog = three_resource_catalog();
+    let too_many_terms = (0..17)
+        .map(|index| format!("term{index}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    for (query, code) in [
+        (BazaarSearchQuery::default(), "invalid_search_query"),
+        (
+            BazaarSearchQuery {
+                query: "---".to_string(),
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_query",
+        ),
+        (
+            BazaarSearchQuery {
+                query: "x".repeat(257),
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_query",
+        ),
+        (
+            BazaarSearchQuery {
+                query: too_many_terms,
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_query",
+        ),
+        (
+            BazaarSearchQuery {
+                query: "weather".to_string(),
+                limit: Some(0),
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_limit",
+        ),
+        (
+            BazaarSearchQuery {
+                query: "weather".to_string(),
+                limit: Some(101),
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_limit",
+        ),
+        (
+            BazaarSearchQuery {
+                query: "weather".to_string(),
+                network: Some("stellar:futurenet".to_string()),
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_filter",
+        ),
+        (
+            BazaarSearchQuery {
+                query: "weather".to_string(),
+                cursor: Some("v1:not-a-fingerprint:1".to_string()),
+                ..BazaarSearchQuery::default()
+            },
+            "invalid_search_cursor",
+        ),
+    ] {
+        assert_eq!(
+            catalog.search(query).expect_err("search must fail").code(),
+            code
+        );
+    }
+
+    assert!(
+        serde_json::from_value::<BazaarSearchQuery>(
+            serde_json::json!({"query": "weather", "sign": true})
+        )
+        .is_err(),
+        "unknown authority-shaped search field must fail deserialization"
+    );
+}
+
+#[test]
 fn docs_and_fixtures_lock_offline_authority_boundary() {
     let docs = fs::read_to_string("docs/x402_bazaar_catalog.md").expect("read catalog docs");
     for required in [
@@ -440,6 +727,8 @@ fn docs_and_fixtures_lock_offline_authority_boundary() {
         "without resolving external `$ref` or `$id` values",
         "BTreeMap key order",
         "`limit=20`",
+        "mean reciprocal rank",
+        "query-bound cursor",
     ] {
         assert!(docs.contains(required), "docs missing boundary: {required}");
     }

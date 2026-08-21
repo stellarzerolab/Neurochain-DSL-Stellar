@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub const BAZAAR_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const BAZAAR_LIST_DEFAULT_LIMIT: usize = 20;
 pub const BAZAAR_LIST_MAX_LIMIT: usize = 100;
+pub const BAZAAR_SEARCH_DEFAULT_LIMIT: usize = 20;
+pub const BAZAAR_SEARCH_MAX_LIMIT: usize = 100;
 const X402_VERSION: u32 = 2;
 const MAX_RESOURCE_URL_BYTES: usize = 2_048;
 const MAX_DESCRIPTION_BYTES: usize = 512;
@@ -21,7 +23,11 @@ const MAX_ICON_URL_BYTES: usize = 2_048;
 const MAX_AMOUNT_BYTES: usize = 64;
 const MAX_EXTENSION_FILTER_BYTES: usize = 64;
 const MAX_LIST_OFFSET: usize = 1_000_000;
+const MAX_SEARCH_QUERY_BYTES: usize = 256;
+const MAX_SEARCH_QUERY_TERMS: usize = 16;
+const MAX_SEARCH_CURSOR_BYTES: usize = 64;
 const BAZAAR_EXTENSION: &str = "bazaar";
+const SEARCH_CURSOR_VERSION: &str = "v1";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
@@ -178,6 +184,42 @@ pub struct BazaarListResponse {
     pub pagination: BazaarOffsetPagination,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarSearchQuery {
+    pub query: String,
+    #[serde(rename = "type", default)]
+    pub resource_type: Option<BazaarResourceType>,
+    #[serde(default)]
+    pub pay_to: Option<String>,
+    #[serde(default)]
+    pub scheme: Option<String>,
+    #[serde(default)]
+    pub network: Option<String>,
+    #[serde(default)]
+    pub extensions: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarCursorPagination {
+    pub limit: usize,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BazaarSearchResponse {
+    pub x402_version: u32,
+    pub resources: Vec<BazaarListItem>,
+    pub partial_results: bool,
+    pub pagination: BazaarCursorPagination,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BazaarCatalogError {
     UnsupportedSchemaVersion,
@@ -192,6 +234,10 @@ pub enum BazaarCatalogError {
     InvalidListLimit,
     InvalidListOffset,
     InvalidListFilter,
+    InvalidSearchQuery,
+    InvalidSearchLimit,
+    InvalidSearchCursor,
+    InvalidSearchFilter,
     DuplicateResource(BazaarCatalogKey),
 }
 
@@ -210,6 +256,10 @@ impl BazaarCatalogError {
             Self::InvalidListLimit => "invalid_list_limit",
             Self::InvalidListOffset => "invalid_list_offset",
             Self::InvalidListFilter => "invalid_list_filter",
+            Self::InvalidSearchQuery => "invalid_search_query",
+            Self::InvalidSearchLimit => "invalid_search_limit",
+            Self::InvalidSearchCursor => "invalid_search_cursor",
+            Self::InvalidSearchFilter => "invalid_search_filter",
             Self::DuplicateResource(_) => "duplicate_resource",
         }
     }
@@ -259,7 +309,7 @@ impl BazaarCatalog {
         for resource in self
             .entries
             .values()
-            .filter(|resource| normalized.matches(resource))
+            .filter(|resource| normalized.filters.matches(resource))
         {
             if total >= normalized.offset && items.len() < normalized.limit {
                 items.push(BazaarListItem::from(resource));
@@ -278,6 +328,49 @@ impl BazaarCatalog {
         })
     }
 
+    pub fn search(
+        &self,
+        query: BazaarSearchQuery,
+    ) -> Result<BazaarSearchResponse, BazaarCatalogError> {
+        let normalized = normalize_search_query(query)?;
+        let mut ranked = self
+            .entries
+            .values()
+            .filter(|resource| normalized.filters.matches(resource))
+            .filter_map(|resource| {
+                let score = search_score(resource, &normalized.terms);
+                (score > 0).then_some((score, resource))
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_unstable_by(|(left_score, left), (right_score, right)| {
+            right_score
+                .cmp(left_score)
+                .then_with(|| left.key.cmp(&right.key))
+        });
+
+        let resources = ranked
+            .iter()
+            .skip(normalized.offset)
+            .take(normalized.limit)
+            .map(|(_, resource)| BazaarListItem::from(*resource))
+            .collect::<Vec<_>>();
+        let page_size = resources.len();
+        let next_offset = normalized.offset.saturating_add(resources.len());
+        let partial_results = next_offset < ranked.len();
+        let cursor =
+            partial_results.then(|| encode_search_cursor(normalized.fingerprint, next_offset));
+
+        Ok(BazaarSearchResponse {
+            x402_version: X402_VERSION,
+            resources,
+            partial_results,
+            pagination: BazaarCursorPagination {
+                limit: page_size,
+                cursor,
+            },
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -289,16 +382,21 @@ impl BazaarCatalog {
 
 #[derive(Debug)]
 struct NormalizedListQuery {
+    filters: NormalizedFilters,
+    limit: usize,
+    offset: usize,
+}
+
+#[derive(Debug)]
+struct NormalizedFilters {
     resource_type: Option<BazaarResourceType>,
     pay_to: Option<String>,
     scheme: Option<String>,
     network: Option<String>,
     extensions: Option<String>,
-    limit: usize,
-    offset: usize,
 }
 
-impl NormalizedListQuery {
+impl NormalizedFilters {
     fn matches(&self, resource: &BazaarCatalogResource) -> bool {
         self.resource_type
             .is_none_or(|value| value == resource.resource_type)
@@ -319,6 +417,26 @@ impl NormalizedListQuery {
                 .as_deref()
                 .is_none_or(|value| value == BAZAAR_EXTENSION)
     }
+
+    fn fingerprint_fragment(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            self.resource_type.map(resource_type_name).unwrap_or(""),
+            self.pay_to.as_deref().unwrap_or(""),
+            self.scheme.as_deref().unwrap_or(""),
+            self.network.as_deref().unwrap_or(""),
+            self.extensions.as_deref().unwrap_or("")
+        )
+    }
+}
+
+#[derive(Debug)]
+struct NormalizedSearchQuery {
+    terms: Vec<String>,
+    filters: NormalizedFilters,
+    limit: usize,
+    offset: usize,
+    fingerprint: u64,
 }
 
 impl From<&BazaarCatalogResource> for BazaarListItem {
@@ -343,35 +461,210 @@ fn normalize_list_query(query: BazaarListQuery) -> Result<NormalizedListQuery, B
         return Err(BazaarCatalogError::InvalidListOffset);
     }
 
-    if query
-        .pay_to
-        .as_deref()
-        .is_some_and(|value| !is_stellar_strkey(value, &['G', 'C', 'M']))
-        || query
-            .scheme
-            .as_deref()
-            .is_some_and(|value| !matches!(value, "exact" | "upto"))
-        || query
-            .network
-            .as_deref()
-            .is_some_and(|value| !matches!(value, "stellar:testnet" | "stellar:pubnet"))
-        || query
-            .extensions
-            .as_deref()
-            .is_some_and(|value| !is_extension_identifier(value))
-    {
-        return Err(BazaarCatalogError::InvalidListFilter);
-    }
+    let filters = normalize_filters(
+        query.resource_type,
+        query.pay_to,
+        query.scheme,
+        query.network,
+        query.extensions,
+        BazaarCatalogError::InvalidListFilter,
+    )?;
 
     Ok(NormalizedListQuery {
-        resource_type: query.resource_type,
-        pay_to: query.pay_to,
-        scheme: query.scheme,
-        network: query.network,
-        extensions: query.extensions,
+        filters,
         limit,
         offset,
     })
+}
+
+fn normalize_search_query(
+    query: BazaarSearchQuery,
+) -> Result<NormalizedSearchQuery, BazaarCatalogError> {
+    if query.query.trim().is_empty()
+        || query.query.len() > MAX_SEARCH_QUERY_BYTES
+        || query.query.chars().any(char::is_control)
+    {
+        return Err(BazaarCatalogError::InvalidSearchQuery);
+    }
+    let terms = normalized_terms(&query.query);
+    if terms.is_empty() || terms.len() > MAX_SEARCH_QUERY_TERMS {
+        return Err(BazaarCatalogError::InvalidSearchQuery);
+    }
+    let limit = query.limit.unwrap_or(BAZAAR_SEARCH_DEFAULT_LIMIT);
+    if !(1..=BAZAAR_SEARCH_MAX_LIMIT).contains(&limit) {
+        return Err(BazaarCatalogError::InvalidSearchLimit);
+    }
+    let filters = normalize_filters(
+        query.resource_type,
+        query.pay_to,
+        query.scheme,
+        query.network,
+        query.extensions,
+        BazaarCatalogError::InvalidSearchFilter,
+    )?;
+    let fingerprint = search_fingerprint(&terms, &filters);
+    let offset = query
+        .cursor
+        .as_deref()
+        .map_or(Ok(0), |cursor| decode_search_cursor(cursor, fingerprint))?;
+
+    Ok(NormalizedSearchQuery {
+        terms,
+        filters,
+        limit,
+        offset,
+        fingerprint,
+    })
+}
+
+fn normalize_filters(
+    resource_type: Option<BazaarResourceType>,
+    pay_to: Option<String>,
+    scheme: Option<String>,
+    network: Option<String>,
+    extensions: Option<String>,
+    invalid_error: BazaarCatalogError,
+) -> Result<NormalizedFilters, BazaarCatalogError> {
+    if pay_to
+        .as_deref()
+        .is_some_and(|value| !is_stellar_strkey(value, &['G', 'C', 'M']))
+        || scheme
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "exact" | "upto"))
+        || network
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "stellar:testnet" | "stellar:pubnet"))
+        || extensions
+            .as_deref()
+            .is_some_and(|value| !is_extension_identifier(value))
+    {
+        return Err(invalid_error);
+    }
+
+    Ok(NormalizedFilters {
+        resource_type,
+        pay_to,
+        scheme,
+        network,
+        extensions,
+    })
+}
+
+fn search_score(resource: &BazaarCatalogResource, query_terms: &[String]) -> u32 {
+    let tags = normalized_terms(&resource.service_metadata.tags.join(" "));
+    let service_name = resource
+        .service_metadata
+        .service_name
+        .as_deref()
+        .map(normalized_terms)
+        .unwrap_or_default();
+    let tool_name = match &resource.input {
+        BazaarResourceInput::Mcp { tool_name } => normalized_terms(tool_name),
+        BazaarResourceInput::Http { .. } => Vec::new(),
+    };
+    let description = normalized_terms(&resource.description);
+    let location = normalized_terms(&format!(
+        "{} {}",
+        resource.resource_url,
+        resource.route_template.as_deref().unwrap_or("")
+    ));
+    let mime_type = normalized_terms(&resource.mime_type);
+
+    let mut matched_terms = 0;
+    let mut field_weight = 0;
+    for term in query_terms {
+        let weight = if tags.binary_search(term).is_ok() {
+            10
+        } else if tool_name.binary_search(term).is_ok() {
+            9
+        } else if service_name.binary_search(term).is_ok() {
+            8
+        } else if description.binary_search(term).is_ok() {
+            6
+        } else if location.binary_search(term).is_ok() {
+            4
+        } else if mime_type.binary_search(term).is_ok() {
+            2
+        } else {
+            0
+        };
+        if weight > 0 {
+            matched_terms += 1;
+            field_weight += weight;
+        }
+    }
+    matched_terms * 1_000 + field_weight
+}
+
+fn normalized_terms(value: &str) -> Vec<String> {
+    value
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|term| !term.is_empty())
+        .map(str::to_lowercase)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn search_fingerprint(terms: &[String], filters: &NormalizedFilters) -> u64 {
+    let canonical = format!(
+        "{}|{}",
+        terms.join("\u{1f}"),
+        filters.fingerprint_fragment()
+    );
+    canonical.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
+}
+
+fn encode_search_cursor(fingerprint: u64, offset: usize) -> String {
+    format!("{SEARCH_CURSOR_VERSION}:{fingerprint:016x}:{offset}")
+}
+
+fn decode_search_cursor(cursor: &str, fingerprint: u64) -> Result<usize, BazaarCatalogError> {
+    if cursor.is_empty()
+        || cursor.len() > MAX_SEARCH_CURSOR_BYTES
+        || !cursor.is_ascii()
+        || cursor.chars().any(char::is_control)
+    {
+        return Err(BazaarCatalogError::InvalidSearchCursor);
+    }
+    let mut parts = cursor.split(':');
+    let version = parts.next();
+    let cursor_fingerprint = parts.next();
+    let offset = parts.next();
+    if version != Some(SEARCH_CURSOR_VERSION) || parts.next().is_some() {
+        return Err(BazaarCatalogError::InvalidSearchCursor);
+    }
+    let Some(cursor_fingerprint) = cursor_fingerprint else {
+        return Err(BazaarCatalogError::InvalidSearchCursor);
+    };
+    if cursor_fingerprint.len() != 16
+        || !cursor_fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        || u64::from_str_radix(cursor_fingerprint, 16).ok() != Some(fingerprint)
+    {
+        return Err(BazaarCatalogError::InvalidSearchCursor);
+    }
+    let Some(offset) = offset else {
+        return Err(BazaarCatalogError::InvalidSearchCursor);
+    };
+    if offset.is_empty() || !offset.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(BazaarCatalogError::InvalidSearchCursor);
+    }
+    offset
+        .parse::<usize>()
+        .ok()
+        .filter(|value| *value <= MAX_LIST_OFFSET)
+        .ok_or(BazaarCatalogError::InvalidSearchCursor)
+}
+
+const fn resource_type_name(value: BazaarResourceType) -> &'static str {
+    match value {
+        BazaarResourceType::Http => "http",
+        BazaarResourceType::Mcp => "mcp",
+    }
 }
 
 pub fn is_valid_route_template(value: &str) -> bool {

@@ -46,13 +46,15 @@ only. It does not approve a Node.js runtime, npm dependency, HTTP endpoint,
 credential, settlement, pubnet operation, deployment, wallet signing, or
 ActionPlan submission.
 
-The Bazaar work now includes an offline catalog integrity core and the typed
-data contract for `GET /discovery/resources` in `src/x402_bazaar.rs`, with
+The Bazaar work now includes an offline catalog integrity core and typed data
+contracts for `GET /discovery/resources` and `GET /discovery/search` in
+`src/x402_bazaar.rs`, with
 HTTP/MCP resource identities, percent-decoded `routeTemplate` validation,
 service metadata soft-drop rules, duplicate fail-closed behavior, filters,
-bounded offset pagination, and deterministic ordering. It still does not
-register discovery endpoints, validate seller-supplied JSON Schemas, perform
-ranking, or activate a payment runtime.
+bounded offset/cursor pagination, deterministic lexical ranking, and a small
+mean-reciprocal-rank regression fixture. It still does not register discovery
+endpoints, validate seller-supplied JSON Schemas, provide production search
+quality, or activate a payment runtime.
 
 ## Status Vocabulary
 
@@ -76,9 +78,11 @@ deliverable yet.
 - The server remains verify-only. It does not expose a production facilitator,
   does not runtime-dispatch settlement, and has no valid signed live payment or
   pubnet settlement evidence.
-- The repository has no Bazaar catalog, discovery endpoints, automatic
-  cataloging, natural-language ranking, MCP discovery server, paid-call proxy,
-  seller/buyer discovery SDK, or Stellar `upto` implementation.
+- The repository now has bounded offline Bazaar catalog, resources-list, and
+  deterministic lexical search foundations. It still has no hosted discovery
+  endpoints, payment-verified automatic cataloging, production search index,
+  MCP discovery server, paid-call proxy, seller/buyer discovery SDK, or Stellar
+  `upto` implementation.
 - The current Rust transport does not use `@x402/stellar`. The RFP explicitly
   requires building on that package rather than reimplementing verify and
   settle.
@@ -91,7 +95,7 @@ Current headline assessment:
 | --- | --- |
 | Existing NeuroChain guardrail/ZK foundation | `existing` |
 | RFP facilitator foundation | `partial` |
-| RFP Bazaar discovery layer | `missing` |
+| RFP Bazaar discovery layer | `partial` |
 | RFP MCP discovery and paid-call interface | `missing` |
 | RFP `upto` scheme and upstream contribution | `missing` |
 | Production operations, conformance, audit, and maintenance | `missing` / `decision needed` |
@@ -156,7 +160,7 @@ search, provenance, lifecycle, and interoperability work remains.
 | RFP requirement | Status | Gap / acceptance evidence needed |
 | --- | --- | --- |
 | `GET /discovery/resources` with `type`, `payTo`, `scheme`, `network`, `extensions`, `limit`, and `offset` filters | `partial` | Offline versioned response, filters, deterministic bounded pagination, hostile-query tests, and fixtures exist. Add HTTP route tests and stock-client interoperability. |
-| `GET /discovery/search` with natural-language `query`, cursor pagination, and `partialResults` | `missing` | Retrieval/ranking design, deterministic API contract, evaluation corpus, relevance metrics, regression gate, and degraded/partial-result behavior. |
+| `GET /discovery/search` with natural-language `query`, cursor pagination, and `partialResults` | `partial` | Offline typed request/response, bounded filters, query-bound cursor pagination, deterministic lexical ranking, stable failures, and a small MRR fixture exist. Add the HTTP route, broader representative/adversarial corpus, production retrieval/index strategy, quality evolution, latency evidence, and degraded-mode behavior. |
 | Automatic cataloging from a PaymentPayload discovery extension | `missing` | Validate `info` against supplied `schema`; catalog without a separate seller action; typed success/drop outcomes. |
 | Catalog HTTP endpoints and MCP tools | `partial` | Offline HTTP/MCP identity schemas, MCP key tuple `resource.url + input.toolName`, and duplicate rejection exist. Add routes/tools plus authenticated update and deletion/expiry policy. |
 | Catalog-integrity trust boundary | `partial` | Bounded hard fields, optional-metadata soft-drop, percent-decoded traversal tests, and duplicate fail-close exist. Add seller ownership/provenance, schema-validation, forged pricing, and persistence boundaries. |

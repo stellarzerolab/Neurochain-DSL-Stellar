@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "x402Version": 2,
+  "resource": {
+    "url": "https://api.example.com/markets/BTC",
+    "description": "Digital asset prices by symbol",
+    "mimeType": "application/json",
+    "serviceName": "Market Data",
+    "tags": ["markets", "prices", "finance"]
+  },
+  "input": {
+    "type": "http",
+    "method": "GET"
+  },
+  "routeTemplate": "/markets/:symbol",
+  "payment": {
+    "scheme": "exact",
+    "network": "stellar:testnet",
+    "amount": "200000",
+    "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+    "maxTimeoutSeconds": 60
+  }
+}

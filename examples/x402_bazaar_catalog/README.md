@@ -10,8 +10,12 @@ extracted discovery candidates, not payment payloads and not HTTP requests.
   rejecting the otherwise valid resource.
 - `mcp_tool.json` proves MCP identity is the tuple of resource URL and tool
   name.
+- `market_data.json` adds a third deterministic HTTP candidate for ranking and
+  pagination tests.
 - `list_response.json` locks the deterministic x402 v2 resources-list response,
   validated `accepts` fields, and default offset pagination.
+- `search_evaluation.json` declares the offline search candidates, expected
+  top result for each query, and the minimum mean reciprocal rank gate.
 
-No HTTP endpoint, search index, payment verification, settlement, wallet
-signing, or ActionPlan submission is active in this package.
+No HTTP endpoint, production search index, payment verification, settlement,
+wallet signing, or ActionPlan submission is active in this package.

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "candidateFiles": [
+    "mcp_tool.json",
+    "http_dynamic.json",
+    "market_data.json"
+  ],
+  "minimumMeanReciprocalRankMilli": 1000,
+  "cases": [
+    {
+      "query": "weather forecast",
+      "expectedResource": "https://api.example.com/weather/fi/helsinki"
+    },
+    {
+      "query": "stellar guardrails",
+      "expectedResource": "https://api.example.com/mcp"
+    },
+    {
+      "query": "digital asset prices",
+      "expectedResource": "https://api.example.com/markets/BTC"
+    }
+  ]
+}
