@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neurochain.local/schemas/x402-stellar-conformance-plan-v1.schema.json",
+  "title": "NeuroChain offline @x402/stellar conformance plan v1",
+  "description": "Coverage and source-drift contract only. A valid plan does not claim package, payment, network, or settlement conformance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceSnapshot", "dependencyBoundary", "cases"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "sourceSnapshot": {"$ref": "#/$defs/sourceSnapshot"},
+    "dependencyBoundary": {"$ref": "#/$defs/dependencyBoundary"},
+    "cases": {
+      "type": "array",
+      "minItems": 24,
+      "maxItems": 24,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "networks": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "stellar:testnet"},
+        {"const": "stellar:pubnet"}
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "url", "revision"],
+      "properties": {
+        "id": {
+          "enum": [
+            "scf_rfp",
+            "stellar_x402_docs",
+            "exact_stellar_spec",
+            "upto_generic_spec",
+            "x402_repo",
+            "stellar_reference_repo"
+          ]
+        },
+        "url": {"type": "string", "format": "uri"},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "sourceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkedAt",
+        "protocolVersion",
+        "exactStellarSpecPresent",
+        "uptoStellarSpecPresent",
+        "networks",
+        "sources"
+      ],
+      "properties": {
+        "checkedAt": {"type": "string", "format": "date"},
+        "protocolVersion": {"const": 2},
+        "exactStellarSpecPresent": {"const": true},
+        "uptoStellarSpecPresent": {"const": false},
+        "networks": {"$ref": "#/$defs/networks"},
+        "sources": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {"$ref": "#/$defs/source"}
+        }
+      }
+    },
+    "dependencyBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packageName",
+        "license",
+        "verifySettleOwner",
+        "packageSelectionStatus",
+        "packageInstalled",
+        "runtimeApproved"
+      ],
+      "properties": {
+        "packageName": {"const": "@x402/stellar"},
+        "license": {"const": "Apache-2.0"},
+        "verifySettleOwner": {"const": "upstream_package"},
+        "packageSelectionStatus": {"const": "approval_required"},
+        "packageInstalled": {"const": false},
+        "runtimeApproved": {"const": false}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "scheme",
+        "networks",
+        "mode",
+        "status",
+        "expected",
+        "evidence",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "standard_surface",
+            "supported_exact_both_networks",
+            "supported_are_fees_sponsored",
+            "wire_v2_payload_transaction",
+            "exact_canonical_client_e2e",
+            "exact_keypair_auth",
+            "exact_custom_check_auth",
+            "exact_sep41_seven_decimals",
+            "exact_tampered_signature_reject",
+            "exact_asset_mismatch_reject",
+            "exact_amount_mismatch_reject",
+            "exact_recipient_mismatch_reject",
+            "exact_expired_auth_reject",
+            "exact_replay_reject",
+            "exact_auth_structure_reject",
+            "exact_facilitator_non_custodial",
+            "exact_simulation_balance_change_reject",
+            "exact_missing_trustline_reject",
+            "rejections_non_null_reason",
+            "upto_stellar_upstream_spec",
+            "upto_single_use_time_bound_cap",
+            "spec_drift_gate",
+            "observability_and_audit",
+            "third_party_security_review"
+          ]
+        },
+        "scheme": {"enum": ["exact", "upto", "all"]},
+        "networks": {"$ref": "#/$defs/networks"},
+        "mode": {
+          "enum": [
+            "offline_fixture",
+            "canonical_client_live",
+            "upstream_contribution",
+            "external_review"
+          ]
+        },
+        "status": {"enum": ["ready", "approval_blocked", "upstream_blocked"]},
+        "expected": {"enum": ["advertise", "accept", "reject", "review"]},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "wire_fixture",
+              "package_e2e",
+              "transaction_hash",
+              "rejection_reason",
+              "spec_revision",
+              "auth_entry_matrix",
+              "simulation_assertion",
+              "metrics_contract",
+              "audit_contract",
+              "review_report",
+              "upto_spec_pr"
+            ]
+          }
+        },
+        "reason": {"type": "string", "minLength": 1, "maxLength": 512}
+      }
+    }
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "schemaVersion": 1,
+  "sourceSnapshot": {
+    "checkedAt": "2026-08-22",
+    "protocolVersion": 2,
+    "exactStellarSpecPresent": true,
+    "uptoStellarSpecPresent": false,
+    "networks": ["stellar:testnet", "stellar:pubnet"],
+    "sources": [
+      {
+        "id": "scf_rfp",
+        "url": "https://github.com/stellar/scf-handbook/blob/main/scf-awards/build-award/rfp-track.md",
+        "revision": "main checked 2026-08-22"
+      },
+      {
+        "id": "stellar_x402_docs",
+        "url": "https://developers.stellar.org/docs/build/agentic-payments/x402",
+        "revision": "page updated 2026-08-22"
+      },
+      {
+        "id": "exact_stellar_spec",
+        "url": "https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_stellar.md",
+        "revision": "main checked 2026-08-22"
+      },
+      {
+        "id": "upto_generic_spec",
+        "url": "https://github.com/x402-foundation/x402/blob/main/specs/schemes/upto/scheme_upto.md",
+        "revision": "main checked 2026-08-22"
+      },
+      {
+        "id": "x402_repo",
+        "url": "https://github.com/x402-foundation/x402",
+        "revision": "main checked 2026-08-22"
+      },
+      {
+        "id": "stellar_reference_repo",
+        "url": "https://github.com/stellar/x402-stellar",
+        "revision": "main checked 2026-08-22"
+      }
+    ]
+  },
+  "dependencyBoundary": {
+    "packageName": "@x402/stellar",
+    "license": "Apache-2.0",
+    "verifySettleOwner": "upstream_package",
+    "packageSelectionStatus": "approval_required",
+    "packageInstalled": false,
+    "runtimeApproved": false
+  },
+  "cases": [
+    {
+      "id": "standard_surface",
+      "scheme": "all",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "advertise",
+      "evidence": ["wire_fixture"],
+      "reason": "Pin the standard supported, verify, and settle surface for both Stellar CAIP-2 identifiers."
+    },
+    {
+      "id": "supported_exact_both_networks",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "advertise",
+      "evidence": ["wire_fixture"],
+      "reason": "The future supported response must advertise exact independently on both required networks."
+    },
+    {
+      "id": "supported_are_fees_sponsored",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "advertise",
+      "evidence": ["wire_fixture"],
+      "reason": "Every advertised Stellar exact kind must include extra.areFeesSponsored=true."
+    },
+    {
+      "id": "wire_v2_payload_transaction",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "accept",
+      "evidence": ["wire_fixture"],
+      "reason": "The canonical v2 payload object must preserve payload.transaction verbatim for the upstream package."
+    },
+    {
+      "id": "exact_canonical_client_e2e",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "accept",
+      "evidence": ["package_e2e", "transaction_hash"],
+      "reason": "An unmodified canonical client must later settle through the approved package runtime on both networks."
+    },
+    {
+      "id": "exact_keypair_auth",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "accept",
+      "evidence": ["package_e2e", "transaction_hash", "auth_entry_matrix"],
+      "reason": "Classic G-account auth-entry signing needs package E2E and per-network transaction evidence."
+    },
+    {
+      "id": "exact_custom_check_auth",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "accept",
+      "evidence": ["package_e2e", "transaction_hash", "auth_entry_matrix"],
+      "reason": "Custom account __check_auth support requires explicit package and ledger evidence."
+    },
+    {
+      "id": "exact_sep41_seven_decimals",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "accept",
+      "evidence": ["package_e2e", "transaction_hash"],
+      "reason": "Any SEP-41 asset and seven-decimal atomic amount handling require canonical package evidence."
+    },
+    {
+      "id": "exact_tampered_signature_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "rejection_reason"],
+      "reason": "A tampered authorization must be represented as a deterministic rejection with a non-empty reason."
+    },
+    {
+      "id": "exact_asset_mismatch_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "rejection_reason"],
+      "reason": "An invoked token contract that differs from requirements.asset must fail closed."
+    },
+    {
+      "id": "exact_amount_mismatch_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "rejection_reason"],
+      "reason": "The signed transfer amount must equal requirements.amount exactly."
+    },
+    {
+      "id": "exact_recipient_mismatch_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "rejection_reason"],
+      "reason": "The signed transfer recipient must equal requirements.payTo exactly."
+    },
+    {
+      "id": "exact_expired_auth_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "auth_entry_matrix", "rejection_reason"],
+      "reason": "Expired or overlong Soroban authorization entries must fail closed."
+    },
+    {
+      "id": "exact_replay_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "reject",
+      "evidence": ["package_e2e", "rejection_reason"],
+      "reason": "Replay rejection requires approved package E2E against actual ledger state."
+    },
+    {
+      "id": "exact_auth_structure_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "auth_entry_matrix", "rejection_reason"],
+      "reason": "Non-address credentials, extra operations, sub-invocations, or wrong transfer shape must be rejected."
+    },
+    {
+      "id": "exact_facilitator_non_custodial",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "auth_entry_matrix", "rejection_reason"],
+      "reason": "The facilitator address must not be the payer, transfer source, operation source, or auth-entry address."
+    },
+    {
+      "id": "exact_simulation_balance_change_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "reject",
+      "evidence": ["package_e2e", "simulation_assertion", "rejection_reason"],
+      "reason": "Unexpected balance changes require current-ledger simulation evidence and must fail closed."
+    },
+    {
+      "id": "exact_missing_trustline_reject",
+      "scheme": "exact",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "canonical_client_live",
+      "status": "approval_blocked",
+      "expected": "reject",
+      "evidence": ["package_e2e", "rejection_reason"],
+      "reason": "Missing trustline behavior for Stellar Asset Contract balances needs package and ledger evidence."
+    },
+    {
+      "id": "rejections_non_null_reason",
+      "scheme": "all",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "reject",
+      "evidence": ["wire_fixture", "rejection_reason"],
+      "reason": "Every conformance rejection must expose a non-empty actionable reason."
+    },
+    {
+      "id": "upto_stellar_upstream_spec",
+      "scheme": "upto",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "upstream_contribution",
+      "status": "upstream_blocked",
+      "expected": "review",
+      "evidence": ["spec_revision", "upto_spec_pr"],
+      "reason": "The generic upto scheme exists, but no upstream Stellar network specification was present in the checked snapshot."
+    },
+    {
+      "id": "upto_single_use_time_bound_cap",
+      "scheme": "upto",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "upstream_contribution",
+      "status": "upstream_blocked",
+      "expected": "review",
+      "evidence": ["spec_revision", "upto_spec_pr"],
+      "reason": "Stellar upto must upstream single-use, start/end time, recipient binding, and actual amount not above the authorized cap."
+    },
+    {
+      "id": "spec_drift_gate",
+      "scheme": "all",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "review",
+      "evidence": ["spec_revision"],
+      "reason": "Any protocol, source, network, license, or Stellar upto status change must stop automatic conformance claims for review."
+    },
+    {
+      "id": "observability_and_audit",
+      "scheme": "all",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "offline_fixture",
+      "status": "ready",
+      "expected": "review",
+      "evidence": ["metrics_contract", "audit_contract"],
+      "reason": "The future runtime needs latency, availability, rejection, settlement, and secret-free audit evidence."
+    },
+    {
+      "id": "third_party_security_review",
+      "scheme": "all",
+      "networks": ["stellar:testnet", "stellar:pubnet"],
+      "mode": "external_review",
+      "status": "approval_blocked",
+      "expected": "review",
+      "evidence": ["review_report"],
+      "reason": "Independent review remains mandatory before any mainnet production tag."
+    }
+  ]
+}

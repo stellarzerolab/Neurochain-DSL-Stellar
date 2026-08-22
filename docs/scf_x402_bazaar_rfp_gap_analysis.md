@@ -60,6 +60,12 @@ trusted gate atomically consumes matching settled access; it performs no
 dispatch. None of these contracts register endpoints, provide a production
 search index or MCP runtime, or activate a payment runtime.
 
+Offline facilitator-conformance preparation now pins a 24-case machine-
+readable coverage plan, current official source assumptions, a source-drift
+gate, adversarial mutations, evidence classes, and approval/upstream blockers.
+It does not install `@x402/stellar`, implement verify/settle, run a canonical
+client, use credentials, or claim network conformance.
+
 ## Status Vocabulary
 
 | Status | Meaning |
@@ -226,7 +232,7 @@ hosted service, payment-verified wiring, provenance, lifecycle, and interoperabi
 | Both-network conformance report | `missing` | Canonical client/E2E results and transaction hashes for `exact` and `upto`. |
 | Role-based Stellar developer guide with live examples | `missing` | Seller, buyer/agent, and operator paths contributed to Stellar Developer Docs. |
 | Two end-to-end example integrations | `missing` | Discoverable paid API and MCP-driven discovering/paying agent without pre-baked integration. |
-| Full verification/settlement/discovery/MCP test suite | `partial` | Existing x402/MCP safety tests plus new official-package, Bazaar, `upto`, E2E, adversarial, and drift suites. |
+| Full verification/settlement/discovery/MCP test suite | `partial` | Existing x402/MCP safety tests plus an offline 24-case official-package coverage contract and adversarial/spec-drift gate. Add actual `@x402/stellar`, Bazaar, `upto`, canonical-client E2E, both-network, and upstream suites. |
 | Security review with remediated findings | `missing` | Independent report and closed findings before mainnet tag. |
 | Production service, runbook, and monitoring | `missing` | Reviewed deploy, operator runbook, telemetry, alerts, backup/recovery, SLO evidence. |
 
@@ -293,8 +299,10 @@ flowchart LR
    - Offline search and paid-call authorization contracts are complete. Runtime
      hosting, discover-pay-retry wiring, and dispatch remain approval-gated.
 5. **Official-package exact facilitator conformance**
-   - Build on `@x402/stellar`, start with fake/offline transports and testnet
-     opt-in. Do not activate live settlement without separate approval.
+   - Offline coverage, drift, adversarial, evidence, and approval gates are
+     prepared. Install and pin `@x402/stellar` only after dependency approval;
+     start with offline package tests. Do not activate live settlement without
+     separate approval.
 6. **`upto` design and upstream contribution**
    - Resolve the contract decision, spec, implementation, and maintainer review.
 7. **Production readiness**
@@ -333,10 +341,15 @@ Local checks:
 | `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 paid-call milestone) | PASS |
 | Bazaar catalog/cataloging/MCP/paid-call focused tests (2026-08-22) | PASS: 37 passed |
 | `cargo +1.97.0 test --all-targets --all-features` (2026-08-22 paid-call milestone) | PASS; two explicit credential-bearing live probes remained ignored |
+| `cargo +1.97.0 test --test x402_stellar_conformance` (2026-08-22 conformance-preparation milestone) | PASS: 10 passed |
+| `cargo +1.97.0 fmt --all -- --check` (2026-08-22 conformance-preparation milestone) | PASS |
+| `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 conformance-preparation milestone) | PASS |
+| `cargo +1.97.0 test --all-targets --all-features` (2026-08-22 conformance-preparation milestone) | PASS; two explicit credential-bearing live probes remained ignored |
 
 ## Smallest Next Decision
 
-Prepare an offline `@x402/stellar` conformance matrix and adversarial fixtures
-against the approved boundary. Before installing the TypeScript runtime or any
-new package, present the exact dependency, license, workspace, and execution
-proposal for explicit approval.
+Review the dependency proposal in `docs/x402_stellar_conformance.md`. Before
+creating the TypeScript workspace or installing any package, approve the
+official-package runtime boundary, exact stable package versions, license
+closure, and offline-only first execution. Live testnet settlement, pubnet,
+credentials, deployment, signing, and submission remain separate gates.

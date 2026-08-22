@@ -92,6 +92,11 @@ No endpoint or transport is wired in this milestone. A later implementation
 may place the TypeScript service in front of Rust only after dependency,
 runtime, authentication, and deployment choices receive explicit approval.
 
+The offline conformance preparation in `docs/x402_stellar_conformance.md`
+adds a source-drift and evidence-coverage gate for that future service. It does
+not install `@x402/stellar`, approve a runtime, or move verify/settle ownership
+into Rust.
+
 ## Primary sources
 
 - SCF RFP: <https://github.com/stellar/scf-handbook/blob/main/scf-awards/build-award/rfp-track.md#x402-facilitator-with-bazaar-discovery-support>

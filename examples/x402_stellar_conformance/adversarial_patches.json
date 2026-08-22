@@ -1,0 +1,47 @@
+[
+  {
+    "name": "protocol_version_drift",
+    "patch": {"sourceSnapshot": {"protocolVersion": 3}},
+    "expectedCode": "spec_drift_detected"
+  },
+  {
+    "name": "snapshot_date_without_full_refresh",
+    "patch": {"sourceSnapshot": {"checkedAt": "2026-08-23"}},
+    "expectedCode": "spec_drift_detected"
+  },
+  {
+    "name": "upto_stellar_spec_appeared",
+    "patch": {"sourceSnapshot": {"uptoStellarSpecPresent": true}},
+    "expectedCode": "spec_drift_detected"
+  },
+  {
+    "name": "package_license_drift",
+    "patch": {"dependencyBoundary": {"license": "UNKNOWN"}},
+    "expectedCode": "invalid_dependency_boundary"
+  },
+  {
+    "name": "runtime_claim_without_approval",
+    "patch": {"dependencyBoundary": {"packageInstalled": true}},
+    "expectedCode": "invalid_dependency_boundary"
+  },
+  {
+    "name": "missing_required_case",
+    "operation": "remove_last_case",
+    "expectedCode": "missing_conformance_case"
+  },
+  {
+    "name": "duplicate_required_case",
+    "operation": "duplicate_first_case",
+    "expectedCode": "duplicate_conformance_case"
+  },
+  {
+    "name": "upto_premature_ready_claim",
+    "operation": "mark_upto_ready",
+    "expectedCode": "conformance_case_mismatch"
+  },
+  {
+    "name": "live_case_without_approval_gate",
+    "operation": "mark_live_ready",
+    "expectedCode": "conformance_case_mismatch"
+  }
+]
