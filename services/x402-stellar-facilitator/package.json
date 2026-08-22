@@ -1,0 +1,28 @@
+{
+  "name": "@neurochain/x402-stellar-facilitator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first Stellar x402 facilitator conformance workspace for NeuroChain",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test \"dist/test/**/*.test.js\"",
+    "check:supply-chain": "node scripts/check-supply-chain.mjs --check",
+    "update:supply-chain": "node scripts/check-supply-chain.mjs --write",
+    "check": "pnpm run check:supply-chain && pnpm run typecheck && pnpm test"
+  },
+  "dependencies": {
+    "@x402/core": "2.23.0",
+    "@x402/stellar": "2.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.3"
+  }
+}

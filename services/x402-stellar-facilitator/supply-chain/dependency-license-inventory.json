@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "source": "pnpm licenses list --json",
+  "packageManager": "pnpm@11.19.0",
+  "lockfileSha256": "c7f8306ef8af65f56b5d251c4b8ae0e00cea8537732660d31b3236957334a49e",
+  "policy": {
+    "prohibitedLicenseFamilies": [
+      "AGPL",
+      "GPL",
+      "LGPL",
+      "SSPL"
+    ],
+    "unknownRuntimeLicenseAllowed": false,
+    "installScriptsExecuted": false
+  },
+  "directDependencies": {
+    "dependencies": {
+      "@x402/core": "2.23.0",
+      "@x402/stellar": "2.23.0"
+    },
+    "devDependencies": {
+      "@types/node": "24.13.3",
+      "typescript": "5.9.3"
+    }
+  },
+  "packageCount": 49,
+  "licenseCounts": {
+    "Apache-2.0": 5,
+    "BSD-3-Clause": 2,
+    "MIT": 42
+  },
+  "packages": [
+    {
+      "name": "@noble/ed25519",
+      "version": "3.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "@noble/hashes",
+      "version": "2.3.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "@stellar/js-xdr",
+      "version": "4.0.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "@stellar/stellar-sdk",
+      "version": "16.2.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "@types/node",
+      "version": "24.13.3",
+      "license": "MIT",
+      "scope": "development",
+      "direct": "development"
+    },
+    {
+      "name": "@x402/core",
+      "version": "2.23.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "direct": "runtime"
+    },
+    {
+      "name": "@x402/stellar",
+      "version": "2.23.0",
+      "license": "Apache-2.0",
+      "scope": "runtime",
+      "direct": "runtime"
+    },
+    {
+      "name": "agent-base",
+      "version": "6.0.2",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "asynckit",
+      "version": "0.4.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "axios",
+      "version": "1.18.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "base32.js",
+      "version": "0.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "base64-js",
+      "version": "1.5.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "bignumber.js",
+      "version": "11.1.5",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "buffer",
+      "version": "6.0.3",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "combined-stream",
+      "version": "1.0.8",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "commander",
+      "version": "14.0.3",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "debug",
+      "version": "4.4.3",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "delayed-stream",
+      "version": "1.0.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "es-errors",
+      "version": "1.3.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "es-set-tostringtag",
+      "version": "2.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "eventsource",
+      "version": "4.1.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "eventsource-parser",
+      "version": "3.1.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "feaxios",
+      "version": "0.0.23",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "follow-redirects",
+      "version": "1.16.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "form-data",
+      "version": "4.0.6",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "function-bind",
+      "version": "1.1.2",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "get-proto",
+      "version": "1.0.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "gopd",
+      "version": "1.2.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "has-tostringtag",
+      "version": "1.0.2",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "hasown",
+      "version": "2.0.4",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "https-proxy-agent",
+      "version": "5.0.1",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "ieee754",
+      "version": "1.2.1",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "is-retry-allowed",
+      "version": "3.0.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "mime-db",
+      "version": "1.52.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "mime-types",
+      "version": "2.1.35",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "ms",
+      "version": "2.1.3",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "proxy-from-env",
+      "version": "2.1.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "smol-toml",
+      "version": "1.8.0",
+      "license": "BSD-3-Clause",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "typescript",
+      "version": "5.9.3",
+      "license": "Apache-2.0",
+      "scope": "development",
+      "direct": "development"
+    },
+    {
+      "name": "uint8array-extras",
+      "version": "1.5.0",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    },
+    {
+      "name": "undici-types",
+      "version": "7.18.2",
+      "license": "MIT",
+      "scope": "development",
+      "direct": false
+    },
+    {
+      "name": "zod",
+      "version": "3.25.76",
+      "license": "MIT",
+      "scope": "runtime",
+      "direct": false
+    }
+  ]
+}

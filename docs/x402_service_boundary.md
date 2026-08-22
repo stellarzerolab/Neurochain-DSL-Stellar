@@ -88,14 +88,17 @@ does not enable a pubnet call. Pubnet operation remains a separate user confirma
    MCP service call only after trusted settled access is atomically consumed.
    It cannot infer payment or execution authority from this response.
 
-No endpoint or transport is wired in this milestone. A later implementation
-may place the TypeScript service in front of Rust only after dependency,
-runtime, authentication, and deployment choices receive explicit approval.
+No endpoint or transport is wired in this milestone. The exact-version
+TypeScript workspace and offline package smoke are now approved and present.
+A later implementation may place the TypeScript service in front of Rust only
+after authentication, listener/runtime, network, and deployment choices
+receive explicit approval.
 
 The offline conformance preparation in `docs/x402_stellar_conformance.md`
 adds a source-drift and evidence-coverage gate for that future service. It does
-not install `@x402/stellar`, approve a runtime, or move verify/settle ownership
-into Rust.
+not move verify/settle ownership into Rust. The package-bootstrap workspace at
+`services/x402-stellar-facilitator/` imports the canonical APIs without a
+signer, listener, network call, verification, settlement, or submit.
 
 ## Primary sources
 

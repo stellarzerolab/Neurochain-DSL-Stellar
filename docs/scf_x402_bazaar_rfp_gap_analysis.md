@@ -144,14 +144,14 @@ RFP's numbered sections.
 | Explain infrastructure | `decision needed` | Current OCI host runs the bounded NeuroChain demo only and is not sized or approved for the RFP service. | Select environments, data stores, network topology, secrets boundary, backups, scaling, regions, SLOs, and cost model. |
 | Explain user tracking and user protection | `decision needed` | Current audit events intentionally omit credentials and signed payment material. | Define minimal telemetry, privacy/retention/deletion policy, abuse prevention, PII boundaries, consent/disclosure, and access controls. |
 | Regular community updates | `missing` | Public repositories and website exist; no RFP update cadence is committed. | Choose update channel and cadence, publish milestones/conformance status, and define incident/security communication. |
-| Use the most recent stable Stellar stack | `decision needed` | Existing Rust and Soroban components are pinned independently; observed `@x402/stellar` is not installed. | At implementation start, record and pin stable Stellar SDK/RPC, Soroban, x402 spec, and package versions; define upgrade/conformance policy. |
+| Use the most recent stable Stellar stack | `partial` | The approved offline workspace pins `@x402/stellar@2.23.0`, `@x402/core@2.23.0`, TypeScript 5.9.3, Node 24.19.0 and pnpm 11.19.0 with a deterministic lockfile. | Define the reviewed upgrade policy and separately validate the selected network/RPC stack before live conformance. |
 | Build in the open under a compatible license | `partial` | Current code is Apache-2.0 and public. | Confirm the new service license, dependency closure, contribution process, public roadmap, and release artifacts. |
 
 ## 3.1 Facilitator Requirements
 
 | RFP requirement | Status | Current evidence | Gap / acceptance evidence still needed |
 | --- | --- | --- | --- |
-| Build on `@x402/stellar`; do not reimplement verify/settle | `missing` | Current implementation is Rust and the repository has no `package.json` or npm dependency. | Approve a TypeScript package/service boundary, pin `@x402/stellar`, and prove calls use its canonical APIs. Preserve Rust only as the NeuroChain guardrail/ZK service boundary. |
+| Build on `@x402/stellar`; do not reimplement verify/settle | `partial` | `services/x402-stellar-facilitator` pins the official package and imports `ExactStellarScheme` plus `x402Facilitator` in an offline smoke. Rust remains the guardrail/ZK boundary. | Complete offline supported/verify/settle conformance through the upstream APIs, then add separately approved canonical-client network evidence. |
 | Production facilitator on `stellar:testnet` and `stellar:pubnet` | `partial` | Rust config accepts both identifiers; approved live probes covered testnet `/supported` and rejected `/verify`. | Hosted and self-hosted service, valid exact payment E2E, and settled transaction hashes on both networks. Pubnet activity requires separate user approval. |
 | Expose `supported`, `verify`, and `settle` | `partial` | Current Rust code is an outbound client transport for all three operations. Server runtime exposes paid intent ingress but stops after verify. | Implement the canonical facilitator server surface using `@x402/stellar`; wire-level tests with stock clients. |
 | Strict Soroban auth-entry validation; classic keypairs and custom `__check_auth` | `missing` | Current transport delegates verification to an external facilitator and does not implement the canonical auth-entry verifier. | Use official package behavior, add positive/negative fixtures, expiry/replay/tamper cases, classic and custom-account E2E. |
@@ -212,7 +212,7 @@ hosted service, payment-verified wiring, provenance, lifecycle, and interoperabi
 
 | RFP requirement | Status | Current evidence | Gap / acceptance evidence still needed |
 | --- | --- | --- | --- |
-| Permissive OSI license and dependency closure; no AGPL path | `partial` | NeuroChain and observed `@x402/stellar` package are Apache-2.0. | Generate dependency/license inventory for the future TypeScript service; reject AGPL/strong-copyleft runtime dependencies, including prohibited relayer paths. |
+| Permissive OSI license and dependency closure; no AGPL path | `partial` | The bootstrap closure has a deterministic inventory of 49 packages: 42 MIT, 5 Apache-2.0 and 2 BSD-3-Clause; the gate rejects AGPL/GPL/LGPL/SSPL and unknown runtime licenses. | Re-run the gate for every dependency change and audit the final deployment/relayer closure before production. |
 | Wire-level conformance with unmodified canonical client | `partial` | Offline Rust wire/parser tests and one authenticated malformed live `/verify` rejection exist. | Stock client completes payments on both networks; `areFeesSponsored`; canonical `payload: {transaction}`; upstream E2E both networks; non-null rejection reasons; transaction hashes per network and scheme. |
 | Security: strict verification, replay/front-running resistance, discovery anti-spoofing | `partial` | Exact request binding, persistent replay/idempotency state, uncertain-outcome fail-close, bounded audit, no-submit invariants. | Auth-entry cryptographic boundary, front-running analysis/tests, Bazaar ownership and poisoning defenses, key/relayer boundary, threat model, incident response. |
 | Third-party security review before mainnet production tag | `missing` | Internal security hardening and test evidence exist; no external audit is claimed. | Audit scope, budget, independent reviewer, findings/remediation report, release gate. Mainnet remains approval-gated. |
@@ -336,7 +336,7 @@ Local checks:
 | `cargo test --test server_analyze x402` | PASS: 13 passed |
 | `cargo test --test mcp_v0_contract` | PASS: 53 passed |
 | Bazaar/discovery implementation search | No implementation hits in `src/`, `tests/`, `docs/`, `examples/`, `README.md`, or `Cargo.toml` before this analysis document |
-| TypeScript package manifest search | No project `package.json`; `@x402/stellar` is not installed |
+| TypeScript package bootstrap (2026-08-22) | PASS: exact manifest and lockfile, 49-package permissive inventory, offline frozen install, strict workspace typecheck/build and 3 Node built-in tests |
 | `cargo +1.97.0 fmt --all -- --check` (2026-08-22 paid-call milestone) | PASS |
 | `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 paid-call milestone) | PASS |
 | Bazaar catalog/cataloging/MCP/paid-call focused tests (2026-08-22) | PASS: 37 passed |
@@ -348,8 +348,10 @@ Local checks:
 
 ## Smallest Next Decision
 
-Review the dependency proposal in `docs/x402_stellar_conformance.md`. Before
-creating the TypeScript workspace or installing any package, approve the
-official-package runtime boundary, exact stable package versions, license
-closure, and offline-only first execution. Live testnet settlement, pubnet,
-credentials, deployment, signing, and submission remain separate gates.
+The exact package workspace and offline bootstrap are approved and complete.
+The next smallest milestone is canonical offline `/supported` conformance by
+registering the upstream Stellar exact scheme in-process with a non-secret,
+non-signing test boundary. It must not create a keypair, call RPC, verify or
+settle a payment, open a listener, or imply network/runtime approval. Live
+testnet settlement, pubnet, credentials, deployment, signing, and submission
+remain separate gates.

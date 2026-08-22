@@ -8,6 +8,9 @@
 /demo_contracts/**/target
 /logs
 /dist
+/services/**/dist/
+/services/**/node_modules/
+/services/**/.pnpm-store/
 macro_raw_latest.log
 macro_run_latest.log
 
