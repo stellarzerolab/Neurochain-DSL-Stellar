@@ -11,14 +11,22 @@ verification or settlement semantics.
 - machine-readable dependency and license inventory;
 - offline import/build/smoke proving the upstream Stellar scheme and
   facilitator APIs are the integration owners;
+- canonical in-process Stellar exact `/supported` conformance for
+  `stellar:testnet` and `stellar:pubnet`, including
+  `areFeesSponsored: true` and deterministic signer-family output;
 - Node built-in tests only.
 
 ## Authority boundary
 
 This workspace currently has no HTTP or MCP listener, network adapter,
-credential, keypair, signer, wallet, settlement runtime, service dispatch, RPC
-submit, transaction submit, or ActionPlan submit. Importing an upstream API is
-not permission to invoke a live payment path.
+credential, keypair, credential-backed signer, wallet, settlement runtime,
+service dispatch, RPC submit, transaction submit, or ActionPlan submit.
+Importing an upstream API is not permission to invoke a live payment path.
+
+The `/supported` fixture uses the canonical all-zero public Ed25519 address and
+an inert signer adapter whose methods throw if called. No corresponding secret
+or keypair exists in the workspace. The upstream response only reads the public
+address; tests prove that no signer, verify, settle, or `fetch` call occurs.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived

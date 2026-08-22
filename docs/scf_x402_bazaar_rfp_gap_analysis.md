@@ -153,7 +153,7 @@ RFP's numbered sections.
 | --- | --- | --- | --- |
 | Build on `@x402/stellar`; do not reimplement verify/settle | `partial` | `services/x402-stellar-facilitator` pins the official package and imports `ExactStellarScheme` plus `x402Facilitator` in an offline smoke. Rust remains the guardrail/ZK boundary. | Complete offline supported/verify/settle conformance through the upstream APIs, then add separately approved canonical-client network evidence. |
 | Production facilitator on `stellar:testnet` and `stellar:pubnet` | `partial` | Rust config accepts both identifiers; approved live probes covered testnet `/supported` and rejected `/verify`. | Hosted and self-hosted service, valid exact payment E2E, and settled transaction hashes on both networks. Pubnet activity requires separate user approval. |
-| Expose `supported`, `verify`, and `settle` | `partial` | Current Rust code is an outbound client transport for all three operations. Server runtime exposes paid intent ingress but stops after verify. | Implement the canonical facilitator server surface using `@x402/stellar`; wire-level tests with stock clients. |
+| Expose `supported`, `verify`, and `settle` | `partial` | The TypeScript workspace now proves canonical upstream in-process `/supported` output for Stellar testnet/pubnet and exact, while current Rust remains an outbound transport. | Complete offline upstream verify/settle rejection and service-handler conformance, then separately approve listener and stock-client network tests. |
 | Strict Soroban auth-entry validation; classic keypairs and custom `__check_auth` | `missing` | Current transport delegates verification to an external facilitator and does not implement the canonical auth-entry verifier. | Use official package behavior, add positive/negative fixtures, expiry/replay/tamper cases, classic and custom-account E2E. |
 | Any SEP-41 token, USDC default, seven-decimal handling | `partial` | Config validates a C-address asset and positive base-unit amount. | Token metadata/decimal policy, USDC defaults per network, seven-decimal conversion tests, receiver trustline/onboarding behavior, arbitrary SEP-41 conformance. |
 | Sponsored network fees and `extra.areFeesSponsored` | `partial` | Payment requirements and `/supported` fixture carry `areFeesSponsored: true`. | Actual fee sponsorship implementation, funding/sequence strategy, operator controls, and E2E proof that the buyer needs no XLM. |
@@ -348,10 +348,10 @@ Local checks:
 
 ## Smallest Next Decision
 
-The exact package workspace and offline bootstrap are approved and complete.
-The next smallest milestone is canonical offline `/supported` conformance by
-registering the upstream Stellar exact scheme in-process with a non-secret,
-non-signing test boundary. It must not create a keypair, call RPC, verify or
-settle a payment, open a listener, or imply network/runtime approval. Live
-testnet settlement, pubnet, credentials, deployment, signing, and submission
-remain separate gates.
+The exact package workspace, supply-chain gate and canonical offline
+`/supported` conformance are complete. The next smallest milestone is upstream
+offline verify-rejection and auth-entry conformance with network-failing
+adapters. Cover only cases the public API permits without a credential, keypair
+or signing. Mark cases `approval_blocked` instead of fabricating cryptographic
+evidence or reimplementing the upstream validator. Live testnet settlement,
+pubnet, listeners, deployment, signing, and submission remain separate gates.

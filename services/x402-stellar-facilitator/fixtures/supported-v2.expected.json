@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sourcePackages": {
+    "@x402/core": "2.23.0",
+    "@x402/stellar": "2.23.0"
+  },
+  "response": {
+    "kinds": [
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "stellar:testnet",
+        "extra": {
+          "areFeesSponsored": true
+        }
+      },
+      {
+        "x402Version": 2,
+        "scheme": "exact",
+        "network": "stellar:pubnet",
+        "extra": {
+          "areFeesSponsored": true
+        }
+      }
+    ],
+    "extensions": [],
+    "signers": {
+      "stellar:*": [
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      ]
+    }
+  },
+  "authorityBoundary": {
+    "networkAccessAllowed": false,
+    "credentialUseAllowed": false,
+    "keypairCreated": false,
+    "signingAllowed": false,
+    "verifyAllowed": false,
+    "settlementAllowed": false,
+    "transactionSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false,
+    "signerMethodCalls": 0,
+    "verifyMethodCalls": 0,
+    "settleMethodCalls": 0
+  }
+}

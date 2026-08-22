@@ -3,7 +3,8 @@
 Date: 2026-08-22
 
 Status: versioned offline coverage plan plus approved exact-version package
-bootstrap, supply-chain gate, and upstream API smoke; no live runtime
+bootstrap, supply-chain gate, upstream API smoke, and canonical offline
+Stellar exact `/supported` conformance; no live runtime
 
 ## Outcome
 
@@ -90,9 +91,17 @@ The user approved this exact offline-only package boundary on 2026-08-22:
   a signer or call verify/settle.
 
 The upstream package remains the owner of verify and settle, never the Rust
-guardrail runtime. Credentials, a signer, any RPC/Horizon/facilitator call,
-live settlement, pubnet, deployment, wallet signing, transaction submit, and
-ActionPlan submit remain separate approval gates.
+guardrail runtime. Credentials, a credential-backed signer, any
+RPC/Horizon/facilitator call, live settlement, pubnet, deployment, wallet
+signing, transaction submit, and ActionPlan submit remain separate approval
+gates.
+
+The offline `/supported` fixture registers `ExactStellarScheme` in the upstream
+`x402Facilitator` for `stellar:testnet` and `stellar:pubnet`. It uses only the
+canonical all-zero public Ed25519 address and an inert adapter whose signing
+methods throw if invoked. `getSupported()` reads the public address and returns
+`exact`, x402 version 2 and `areFeesSponsored: true` for both networks without
+calling signing, verify, settle, RPC, Horizon, facilitator transport or submit.
 
 ## Authority boundary
 
@@ -120,6 +129,9 @@ does not replace the canonical package or upstream E2E suite.
 - Offline upstream API smoke:
   `services/x402-stellar-facilitator/src/upstream-api-smoke.ts` and its Node
   built-in tests.
+- Canonical `/supported` fixture and drift gate:
+  `services/x402-stellar-facilitator/fixtures/supported-v2.expected.json`,
+  `src/supported-conformance.ts` and its Node built-in tests.
 - Stable result codes include `conformance_plan_ready`,
   `spec_drift_detected`, `invalid_dependency_boundary`,
   `missing_conformance_case`, `duplicate_conformance_case`, and
