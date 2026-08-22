@@ -2,7 +2,7 @@
 
 Date: 2026-08-21
 
-Status: typed offline catalog, resources-list, and deterministic search contracts; no HTTP or MCP discovery runtime
+Status: typed offline catalog, resources-list, and deterministic search contracts; automatic cataloging is a separate offline adapter; no HTTP or MCP discovery runtime
 
 ## Scope
 
@@ -102,9 +102,10 @@ ActionPlan-submit authority. Its lexical ranking is only a deterministic
 offline baseline and does not claim production natural-language quality.
 `stellar:pubnet` is a filterable catalog value only and does not enable a pubnet operation.
 
-The future automatic-cataloging adapter must validate `info` against its
-Draft 2020-12 schema without resolving external `$ref` or `$id` values before
-creating this extracted candidate.
+`src/x402_bazaar_cataloging.rs` now provides the bounded offline adapter that
+validates `info` against a safe Draft 2020-12 profile without resolving external `$ref` or `$id` values before creating this extracted candidate. See
+`docs/x402_bazaar_cataloging.md`. Full maintained schema conformance and the
+payment-verified TypeScript runtime handoff remain future work.
 
 ## Primary sources
 

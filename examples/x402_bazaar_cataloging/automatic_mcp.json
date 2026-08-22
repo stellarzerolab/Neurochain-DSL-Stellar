@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "x402Version": 2,
+  "resource": {
+    "url": "https://api.example.com/mcp",
+    "description": "Read-only Stellar guardrail tools",
+    "mimeType": "application/json",
+    "serviceName": "NeuroChain",
+    "tags": ["stellar", "guardrails", "agents"]
+  },
+  "payment": {
+    "scheme": "exact",
+    "network": "stellar:testnet",
+    "amount": "100000",
+    "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+    "maxTimeoutSeconds": 60
+  },
+  "bazaar": {
+    "info": {
+      "input": {
+        "type": "mcp",
+        "toolName": "plan_stellar_action",
+        "description": "Create a bounded read-only ActionPlan",
+        "transport": "streamable-http",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "intent": { "type": "string" }
+          },
+          "required": ["intent"]
+        },
+        "example": {
+          "intent": "swap 5 USDC to XLM"
+        }
+      },
+      "output": {
+        "type": "json"
+      }
+    },
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "mcp" },
+            "toolName": { "type": "string" },
+            "description": { "type": "string" },
+            "transport": { "type": "string", "enum": ["streamable-http", "sse"] },
+            "inputSchema": { "type": "object" },
+            "example": { "type": "object" }
+          },
+          "required": ["type", "toolName", "inputSchema"],
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["input"],
+      "additionalProperties": false
+    }
+  }
+}

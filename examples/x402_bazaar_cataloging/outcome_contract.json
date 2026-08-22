@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "outcomes": {
+    "accepted": {
+      "code": "cataloged",
+      "headerStatus": "success"
+    },
+    "dropped": {
+      "code": "bazaar_extension_missing",
+      "headerStatus": null
+    },
+    "invalid": {
+      "code": "schema_info_mismatch",
+      "headerStatus": "rejected"
+    },
+    "duplicate": {
+      "code": "duplicate_resource",
+      "headerStatus": "rejected"
+    },
+    "unavailable": {
+      "code": "catalog_unavailable",
+      "headerStatus": "rejected"
+    }
+  }
+}

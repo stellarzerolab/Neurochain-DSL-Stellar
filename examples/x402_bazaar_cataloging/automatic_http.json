@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "x402Version": 2,
+  "resource": {
+    "url": "https://api.example.com/weather/fi/helsinki",
+    "description": "Current weather by country and city",
+    "mimeType": "application/json",
+    "serviceName": "Example Weather",
+    "tags": ["weather", "forecast"],
+    "iconUrl": "https://cdn.example.com/weather.png"
+  },
+  "payment": {
+    "scheme": "exact",
+    "network": "stellar:testnet",
+    "amount": "100000",
+    "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+    "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+    "maxTimeoutSeconds": 60
+  },
+  "bazaar": {
+    "info": {
+      "input": {
+        "type": "http",
+        "method": "GET",
+        "queryParams": {
+          "country": "fi",
+          "city": "helsinki"
+        },
+        "pathParams": {
+          "country": "fi",
+          "city": "helsinki"
+        }
+      },
+      "output": {
+        "type": "json",
+        "example": {
+          "temperature": 12
+        }
+      }
+    },
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "http" },
+            "method": { "type": "string", "enum": ["GET", "HEAD", "DELETE"] },
+            "queryParams": {
+              "type": "object",
+              "properties": {
+                "country": { "type": "string" },
+                "city": { "type": "string" }
+              },
+              "required": ["country", "city"],
+              "additionalProperties": false
+            },
+            "pathParams": {
+              "type": "object",
+              "properties": {
+                "country": { "type": "string" },
+                "city": { "type": "string" }
+              },
+              "required": ["country", "city"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["type", "method"],
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "example": { "type": "object" }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["input"],
+      "additionalProperties": false
+    },
+    "routeTemplate": "/weather/:country/:city"
+  }
+}

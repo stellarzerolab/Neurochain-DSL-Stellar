@@ -78,9 +78,9 @@ deliverable yet.
 - The server remains verify-only. It does not expose a production facilitator,
   does not runtime-dispatch settlement, and has no valid signed live payment or
   pubnet settlement evidence.
-- The repository now has bounded offline Bazaar catalog, resources-list, and
-  deterministic lexical search foundations. It still has no hosted discovery
-  endpoints, payment-verified automatic cataloging, production search index,
+- The repository now has bounded offline Bazaar catalog, resources-list,
+  deterministic lexical search, automatic-cataloging, and outcome foundations.
+  It still has no hosted discovery endpoints, payment-verified runtime wiring, production search index,
   MCP discovery server, paid-call proxy, seller/buyer discovery SDK, or Stellar
   `upto` implementation.
 - The current Rust transport does not use `@x402/stellar`. The RFP explicitly
@@ -153,18 +153,18 @@ RFP's numbered sections.
 
 ## 3.2 Bazaar Discovery Requirements
 
-The repository has the first offline Bazaar catalog and resources-list
-contracts. They are foundations only; the hosted service, automatic cataloging,
-search, provenance, lifecycle, and interoperability work remains.
+The repository has offline Bazaar catalog, resources-list, search, bounded
+automatic-cataloging, and outcome contracts. They are foundations only; the
+hosted service, payment-verified wiring, provenance, lifecycle, and interoperability work remains.
 
 | RFP requirement | Status | Gap / acceptance evidence needed |
 | --- | --- | --- |
 | `GET /discovery/resources` with `type`, `payTo`, `scheme`, `network`, `extensions`, `limit`, and `offset` filters | `partial` | Offline versioned response, filters, deterministic bounded pagination, hostile-query tests, and fixtures exist. Add HTTP route tests and stock-client interoperability. |
 | `GET /discovery/search` with natural-language `query`, cursor pagination, and `partialResults` | `partial` | Offline typed request/response, bounded filters, query-bound cursor pagination, deterministic lexical ranking, stable failures, and a small MRR fixture exist. Add the HTTP route, broader representative/adversarial corpus, production retrieval/index strategy, quality evolution, latency evidence, and degraded-mode behavior. |
-| Automatic cataloging from a PaymentPayload discovery extension | `missing` | Validate `info` against supplied `schema`; catalog without a separate seller action; typed success/drop outcomes. |
+| Automatic cataloging from a PaymentPayload discovery extension | `partial` | Offline verified-handoff adapter, bounded Draft 2020-12 profile, HTTP/MCP extraction, catalog insertion, and fail-closed outcome matrix exist. Add full maintained TypeScript schema validation, payment-verified runtime wiring, provenance, persistence, and conformance. |
 | Catalog HTTP endpoints and MCP tools | `partial` | Offline HTTP/MCP identity schemas, MCP key tuple `resource.url + input.toolName`, and duplicate rejection exist. Add routes/tools plus authenticated update and deletion/expiry policy. |
-| Catalog-integrity trust boundary | `partial` | Bounded hard fields, optional-metadata soft-drop, percent-decoded traversal tests, and duplicate fail-close exist. Add seller ownership/provenance, schema-validation, forged pricing, and persistence boundaries. |
-| `EXTENSION-RESPONSES` cataloging outcome header | `missing` | Stable codes and non-null reasons for accepted, dropped, invalid, duplicate, and unavailable outcomes. |
+| Catalog-integrity trust boundary | `partial` | Bounded hard fields, optional-metadata soft-drop, percent-decoded traversal tests, duplicate fail-close, and a bounded schema-validation profile exist. Add full maintained validation, seller ownership/provenance, forged-pricing checks, and persistence boundaries. |
+| `EXTENSION-RESPONSES` cataloging outcome header | `partial` | Stable internal codes/non-null reasons and spec-compatible base64 JSON for `success`/`rejected` exist offline. Add actual verify/settle response-header wiring and stock-client interoperability tests. |
 | Track evolving x402 discovery conventions | `missing` | Pin policy, upstream watcher, compatibility matrix, scheduled conformance run, migration/deprecation policy, and update SLA. |
 | Interoperate with wider x402 discovery catalogs | `partial` | Offline x402 v2 list item and pagination fixture exist. Add stock-client, import/export or federation, and cross-facilitator interoperability tests. |
 | Seller-side discovery metadata helpers | `missing` | Minimal-boilerplate helpers, per-parameter descriptions, validation, generated examples, and package API tests. |
@@ -214,7 +214,7 @@ search, provenance, lifecycle, and interoperability work remains.
 | Expected RFP deliverable | Status now | Completion evidence required |
 | --- | --- | --- |
 | Self-hostable and managed facilitator on both networks | `missing` | Public package/service, permissive dependency closure, deployment artifacts, canonical E2E, both network hashes. |
-| Stellar Bazaar resources/search/automatic cataloging | `missing` | All 3.2 API, integrity, ranking, and interoperability gates. |
+| Stellar Bazaar resources/search/automatic cataloging | `partial` | Offline contracts, integrity bounds, lexical ranking gate, and automatic-cataloging outcomes exist. Add hosted APIs, full schema conformance, provenance/persistence, production retrieval, and interoperability evidence. |
 | MCP discovery search and paid-call tools | `missing` | Versioned schemas, host evidence, discover-pay-retry test, no implicit ActionPlan authority. |
 | `upto` spec and implementation merged upstream | `missing` | Merged `scheme_upto_stellar.md`, implementation, upstream tests, both-network evidence. |
 | Seller, buyer, and agent SDK/helper libraries | `missing` | Published or vendorable packages, examples, API docs, compatibility tests. |
