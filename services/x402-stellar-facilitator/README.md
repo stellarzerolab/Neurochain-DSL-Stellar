@@ -20,6 +20,11 @@ verification or settlement semantics.
 - upstream `ExactStellarScheme.settle` rejection conformance for 12 invalid
   cases plus `x402Facilitator.onBeforeSettle` admission rejection for
   unverified, duplicate and replay states;
+- pure in-process `/supported`, `/verify` and `/settle` handlers that preserve
+  upstream results, map exceptions to stable fail-closed codes, and never
+  create transport or execution authority;
+- a strict TypeScript consumer for the same versioned NeuroChain
+  `evaluation_request` and `evaluation_response` fixtures validated by Rust;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -47,10 +52,32 @@ The settle-rejection fixture proves that invalid payloads return before any
 network, signer or submit call. Separate upstream core admission hooks reject
 unverified, duplicate and replay states before the Stellar scheme is invoked.
 This is an in-memory contract fixture, not a production replay store or a live
-settlement claim. Persistent idempotency, restart/outcome-unknown recovery and
-unknown-network exception mapping remain `service_boundary_pending` for the
-versioned TypeScript/Rust handler boundary. Valid exact settlement, fee bump
-and canonical-client round trips remain explicitly `approval_blocked`.
+settlement claim. The pure handler now maps unknown networks and
+outcome-unknown states fail-closed and defines the persistent-state port;
+production persistence and restart recovery remain `service_boundary_pending`.
+Valid exact settlement, fee bump and canonical-client round trips remain
+explicitly `approval_blocked`.
+
+`src/service-handlers.ts` is a listener-free dependency-injected module. The
+facilitator port owns `/supported`, `/verify` and `/settle` through upstream
+`@x402/core` and `@x402/stellar`; the handler only validates the endpoint
+envelope, preserves upstream response bodies and maps exceptions without
+leaking raw diagnostics. Unknown networks fail closed before a facilitator
+call. Every result carries an explicit all-false authority boundary.
+
+Settlement additionally requires a `SettlementStatePort` reservation before
+the upstream port can be called. No implementation is provided in this
+milestone: without an atomic persistent adapter the handler returns
+`settlement_state_unavailable`. Duplicate, replay, unverified and
+outcome-unknown decisions remain stable service states, and an outcome that
+cannot be durably recorded is never exposed as successful. This is an
+interface contract, not a persistent database or settlement runtime.
+
+The evaluation handler consumes the shared fixtures under
+`examples/x402_service_boundary/`. TypeScript checks strict envelope,
+decision/exit correlation, request correlation and all-false authority fields;
+Rust remains the owner of typed `ActionPlan` construction and canonical hash
+validation. No Rust transport or process adapter is activated here.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived

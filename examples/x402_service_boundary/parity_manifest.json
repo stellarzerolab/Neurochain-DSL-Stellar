@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "request_fixture": "evaluation_request.json",
+  "response_fixtures": [
+    {
+      "file": "evaluation_approved.json",
+      "decision": "approved",
+      "exit_code": null,
+      "reason_code": "approved"
+    },
+    {
+      "file": "evaluation_requires_approval.json",
+      "decision": "requires_approval",
+      "exit_code": null,
+      "reason_code": "approval_required"
+    },
+    {
+      "file": "evaluation_blocked_exit_4.json",
+      "decision": "blocked",
+      "exit_code": 4,
+      "reason_code": "contract_policy"
+    }
+  ],
+  "authority_grants": {
+    "payment_verification": false,
+    "payment_settlement": false,
+    "guardrail_override": false,
+    "wallet_signing": false,
+    "stellar_submission": false
+  },
+  "underlying_action_submit_allowed": false
+}

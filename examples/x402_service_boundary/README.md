@@ -11,8 +11,10 @@ guardrail runtime.
   `blocked` decision semantics to the existing typed ActionPlan hash.
 - every response explicitly grants no payment, settlement, override, signing,
   or Stellar submission authority.
+- `parity_manifest.json` is the shared versioned fixture index consumed by
+  both Rust and the listener-free TypeScript service-handler tests.
 
-The package is offline contract evidence. It does not expose an HTTP route,
-install `@x402/stellar`, run settlement, or enable pubnet.
+This fixture set is offline contract evidence. It does not expose an HTTP
+route, run settlement, or enable pubnet.
 
 See `docs/x402_service_boundary.md` for ownership and trust boundaries.

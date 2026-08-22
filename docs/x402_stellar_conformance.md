@@ -3,8 +3,8 @@
 Date: 2026-08-22
 
 Status: versioned offline coverage plan plus approved exact-version package
-bootstrap, supply-chain gate, upstream API smoke, and canonical offline
-Stellar exact `/supported` conformance; no live runtime
+bootstrap, supply-chain gate, upstream API smoke, canonical offline Stellar
+exact conformance, and pure service-boundary handlers; no live runtime
 
 ## Outcome
 
@@ -96,6 +96,19 @@ RPC/Horizon/facilitator call, live settlement, pubnet, deployment, wallet
 signing, transaction submit, and ActionPlan submit remain separate approval
 gates.
 
+The pure service-handler milestone adds no protocol reimplementation. It
+delegates standard results to an injected upstream facilitator port, maps
+unknown-network and upstream-exception cases to stable fail-closed codes, and
+requires a separate atomic persistent-state port before settlement can be
+attempted. The state port is only an interface in this milestone, so no
+database, listener, network route, signer or live settlement is activated.
+
+The same handler consumes the versioned Rust evaluation fixtures through an
+in-process port. The shared parity manifest covers approved,
+requires-approval and blocked responses. TypeScript rejects authority and
+correlation drift; Rust continues to validate the typed ActionPlan and its
+domain-separated canonical hash.
+
 The offline `/supported` fixture registers `ExactStellarScheme` in the upstream
 `x402Facilitator` for `stellar:testnet` and `stellar:pubnet`. It uses only the
 canonical all-zero public Ed25519 address and an inert adapter whose signing
@@ -136,6 +149,10 @@ does not replace the canonical package or upstream E2E suite.
   `spec_drift_detected`, `invalid_dependency_boundary`,
   `missing_conformance_case`, `duplicate_conformance_case`, and
   `conformance_case_mismatch`.
+- Pure handler and Rust-boundary parity:
+  `services/x402-stellar-facilitator/src/service-handlers.ts`,
+  `services/x402-stellar-facilitator/test/service-handlers.test.ts` and
+  `examples/x402_service_boundary/parity_manifest.json`.
 
 ## Primary sources
 

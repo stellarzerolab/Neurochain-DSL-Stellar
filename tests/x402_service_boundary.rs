@@ -69,6 +69,48 @@ fn response_matrix_binds_action_plan_and_grants_no_authority() {
 }
 
 #[test]
+fn parity_manifest_is_shared_with_the_typescript_service() {
+    let manifest = read_json("parity_manifest.json");
+    assert_eq!(manifest["schema_version"], 1);
+    assert_eq!(manifest["request_fixture"], "evaluation_request.json");
+    assert_eq!(manifest["authority_grants"]["payment_verification"], false);
+    assert_eq!(manifest["authority_grants"]["payment_settlement"], false);
+    assert_eq!(manifest["authority_grants"]["guardrail_override"], false);
+    assert_eq!(manifest["authority_grants"]["wallet_signing"], false);
+    assert_eq!(manifest["authority_grants"]["stellar_submission"], false);
+    assert_eq!(manifest["underlying_action_submit_allowed"], false);
+
+    let request: X402ServiceEvaluationRequest =
+        serde_json::from_value(read_json(manifest["request_fixture"].as_str().unwrap()))
+            .expect("deserialize manifest request fixture");
+    request
+        .validate()
+        .expect("validate manifest request fixture");
+
+    let responses = manifest["response_fixtures"]
+        .as_array()
+        .expect("response_fixtures array");
+    assert_eq!(responses.len(), 3);
+    for entry in responses {
+        let name = entry["file"].as_str().expect("response fixture file");
+        let response: X402ServiceEvaluationResponse =
+            serde_json::from_value(read_json(name)).expect("deserialize response fixture");
+        response
+            .validate()
+            .unwrap_or_else(|err| panic!("validate {name}: {err}"));
+        assert_eq!(
+            serde_json::to_value(response.decision).expect("serialize decision"),
+            entry["decision"]
+        );
+        assert_eq!(
+            response.exit_code.map(Value::from).unwrap_or(Value::Null),
+            entry["exit_code"]
+        );
+        assert_eq!(response.reason_code, entry["reason_code"]);
+    }
+}
+
+#[test]
 fn response_rejects_hash_decision_and_authority_escalation() {
     let value = read_json("evaluation_approved.json");
 

@@ -90,6 +90,26 @@ does not enable a pubnet call. Pubnet operation remains a separate user confirma
 
 No endpoint or transport is wired in this milestone. The exact-version
 TypeScript workspace and offline package smoke are now approved and present.
+The workspace now also contains pure in-process `/supported`, `/verify` and
+`/settle` handlers. They accept injected ports, preserve canonical upstream
+results, map exceptions to stable fail-closed states, and attach only
+all-false authority metadata. They do not create an HTTP/MCP listener,
+credential, signer, RPC client, service dispatcher or submit path.
+
+`/settle` requires a separate atomic `SettlementStatePort` reservation before
+calling the upstream facilitator port. The current milestone defines and tests
+that interface but deliberately provides no persistent implementation. A
+missing state adapter, unknown outcome, unverified state, duplicate or replay
+stops closed. The handler does not activate the existing Rust settle transport
+or claim restart-safe production persistence.
+
+The TypeScript evaluation handler consumes the same schema-v1 request,
+response and parity manifest fixtures as the Rust tests. It rejects unknown
+fields, request-correlation drift, decision/exit drift and every authority
+escalation. Rust remains the owner of canonical ActionPlan construction and
+hash validation; the TypeScript layer does not reimplement that algorithm.
+An authenticated Rust process adapter remains a later runtime decision.
+
 A later implementation may place the TypeScript service in front of Rust only
 after authentication, listener/runtime, network, and deployment choices
 receive explicit approval.
