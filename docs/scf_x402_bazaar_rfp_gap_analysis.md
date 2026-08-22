@@ -336,7 +336,7 @@ Local checks:
 | `cargo test --test server_analyze x402` | PASS: 13 passed |
 | `cargo test --test mcp_v0_contract` | PASS: 53 passed |
 | Bazaar/discovery implementation search | No implementation hits in `src/`, `tests/`, `docs/`, `examples/`, `README.md`, or `Cargo.toml` before this analysis document |
-| TypeScript package bootstrap (2026-08-22) | PASS: exact manifest and lockfile, 49-package permissive inventory, offline frozen install, strict workspace typecheck/build and 3 Node built-in tests |
+| TypeScript package/conformance workspace (2026-08-22) | PASS: exact manifest and lockfile, 49-package permissive inventory, canonical `/supported`, 13 upstream pre-network verify rejections, five explicit auth/RPC `approval_blocked` cases, strict typecheck/build and 7 Node built-in tests |
 | `cargo +1.97.0 fmt --all -- --check` (2026-08-22 paid-call milestone) | PASS |
 | `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 paid-call milestone) | PASS |
 | Bazaar catalog/cataloging/MCP/paid-call focused tests (2026-08-22) | PASS: 37 passed |
@@ -348,10 +348,16 @@ Local checks:
 
 ## Smallest Next Decision
 
-The exact package workspace, supply-chain gate and canonical offline
-`/supported` conformance are complete. The next smallest milestone is upstream
-offline verify-rejection and auth-entry conformance with network-failing
-adapters. Cover only cases the public API permits without a credential, keypair
-or signing. Mark cases `approval_blocked` instead of fabricating cryptographic
-evidence or reimplementing the upstream validator. Live testnet settlement,
-pubnet, listeners, deployment, signing, and submission remain separate gates.
+The exact package workspace, supply-chain gate, canonical offline `/supported`
+and safe upstream verify-rejection conformance are complete. Thirteen malformed,
+mismatched or unsafe cases now fail through `ExactStellarScheme.verify` before
+network access or signing. Auth-entry structure, expiration, sub-invocations,
+signature status and custom `__check_auth` stay explicitly `approval_blocked`
+because upstream validates them only after RPC simulation.
+
+The next smallest milestone is offline settle-rejection, replay/idempotency and
+the non-custodial authority boundary. Cover only states that upstream rejects
+before network or signer use; mark every RPC/credential-dependent case
+`approval_blocked` rather than fabricating settlement evidence or
+reimplementing upstream semantics. Live testnet settlement, pubnet, listeners,
+deployment, signing and submission remain separate gates.

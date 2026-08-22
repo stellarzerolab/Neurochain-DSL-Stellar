@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "sourcePackages": {
+    "@x402/core": "2.23.0",
+    "@x402/stellar": "2.23.0"
+  },
+  "upstreamApi": "ExactStellarScheme.verify",
+  "cases": [
+    {
+      "id": "invalid_x402_version",
+      "expectedInvalidReason": "invalid_x402_version",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_x402_version"
+      }
+    },
+    {
+      "id": "unsupported_scheme",
+      "expectedInvalidReason": "unsupported_scheme",
+      "response": {
+        "isValid": false,
+        "invalidReason": "unsupported_scheme"
+      }
+    },
+    {
+      "id": "network_mismatch",
+      "expectedInvalidReason": "network_mismatch",
+      "response": {
+        "isValid": false,
+        "invalidReason": "network_mismatch"
+      }
+    },
+    {
+      "id": "invalid_network",
+      "expectedInvalidReason": "invalid_network",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_network"
+      }
+    },
+    {
+      "id": "missing_transaction",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_malformed",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_malformed"
+      }
+    },
+    {
+      "id": "malformed_transaction_xdr",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_malformed",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_malformed"
+      }
+    },
+    {
+      "id": "wrong_operation",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_wrong_operation",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_wrong_operation"
+      }
+    },
+    {
+      "id": "unsafe_transaction_source",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_unsafe_tx_or_op_source",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_unsafe_tx_or_op_source"
+      }
+    },
+    {
+      "id": "wrong_asset",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_wrong_asset",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_wrong_asset"
+      }
+    },
+    {
+      "id": "wrong_function_name",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_wrong_function_name",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_wrong_function_name"
+      }
+    },
+    {
+      "id": "facilitator_is_payer",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_facilitator_is_payer",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_facilitator_is_payer"
+      }
+    },
+    {
+      "id": "wrong_recipient",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_wrong_recipient",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_wrong_recipient",
+        "payer": "GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H"
+      }
+    },
+    {
+      "id": "wrong_amount",
+      "expectedInvalidReason": "invalid_exact_stellar_payload_wrong_amount",
+      "response": {
+        "isValid": false,
+        "invalidReason": "invalid_exact_stellar_payload_wrong_amount",
+        "payer": "GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H"
+      }
+    }
+  ],
+  "approvalBlocked": [
+    {
+      "id": "auth_entry_structure",
+      "code": "approval_blocked",
+      "reason": "upstream validates auth-entry structure only after Stellar RPC simulation"
+    },
+    {
+      "id": "auth_entry_expiration",
+      "code": "approval_blocked",
+      "reason": "upstream derives the expiration boundary from live ledger state after simulation"
+    },
+    {
+      "id": "auth_entry_sub_invocation",
+      "code": "approval_blocked",
+      "reason": "upstream validates auth-entry sub-invocations only after Stellar RPC simulation"
+    },
+    {
+      "id": "auth_signature_status",
+      "code": "approval_blocked",
+      "reason": "signature-status conformance requires simulated auth entries and a separately approved signer fixture"
+    },
+    {
+      "id": "custom_check_auth",
+      "code": "approval_blocked",
+      "reason": "custom __check_auth conformance requires approved contract-account credentials and RPC simulation"
+    }
+  ],
+  "authorityBoundary": {
+    "networkAccessAllowed": false,
+    "credentialUseAllowed": false,
+    "keypairCreated": false,
+    "signingAllowed": false,
+    "settlementAllowed": false,
+    "transactionSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false,
+    "verifyMethodCalls": 13,
+    "signerMethodCalls": 0,
+    "networkFetchCalls": 0,
+    "settleMethodCalls": 0
+  }
+}

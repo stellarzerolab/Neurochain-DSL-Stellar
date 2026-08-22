@@ -14,6 +14,9 @@ verification or settlement semantics.
 - canonical in-process Stellar exact `/supported` conformance for
   `stellar:testnet` and `stellar:pubnet`, including
   `areFeesSponsored: true` and deterministic signer-family output;
+- upstream `ExactStellarScheme.verify` rejection conformance for 13 malformed,
+  mismatched or unsafe cases that fail before simulation, signing or network
+  access;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -27,6 +30,15 @@ The `/supported` fixture uses the canonical all-zero public Ed25519 address and
 an inert signer adapter whose methods throw if called. No corresponding secret
 or keypair exists in the workspace. The upstream response only reads the public
 address; tests prove that no signer, verify, settle, or `fetch` call occurs.
+
+The verify-rejection fixture calls the upstream Stellar scheme directly with
+deterministic unsigned transaction envelopes. The fixture covers version,
+scheme, network, malformed XDR, operation, source, asset, function, payer,
+recipient and amount rejection. A blocked `fetch` sentinel and inert signer
+prove that these cases stop before network access or signing. Auth-entry
+structure, expiration, sub-invocations, signature status and custom
+`__check_auth` remain explicitly `approval_blocked`: upstream validates those
+only after RPC simulation and they are not emulated locally.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived
