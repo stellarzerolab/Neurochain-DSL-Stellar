@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use crate::x402_bazaar::{
     BazaarCatalog, BazaarResourceType, BazaarSearchQuery, BazaarSearchResponse,
 };
+use crate::x402_bazaar_paid_call::bazaar_mcp_paid_call_tool;
 
 pub const BAZAAR_MCP_SCHEMA_VERSION: u32 = 1;
 pub const BAZAAR_MCP_PROTOCOL_VERSION: &str = "2026-07-28";
@@ -110,7 +111,7 @@ impl BazaarMcpSearchResult {
 pub fn bazaar_mcp_tools_list() -> Value {
     json!({
         "resultType": "complete",
-        "tools": [bazaar_mcp_search_tool()],
+        "tools": [bazaar_mcp_search_tool(), bazaar_mcp_paid_call_tool()],
         "ttlMs": 300_000,
         "cacheScope": "public"
     })

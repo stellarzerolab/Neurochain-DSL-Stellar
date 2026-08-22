@@ -69,7 +69,8 @@ does not enable a pubnet call. Pubnet operation remains a separate user confirma
 | --- | --- | --- | --- |
 | `/supported`, `/verify`, `/settle` | Owns through `@x402/stellar` | Does not implement | None |
 | Payment signatures and auth entries | Validates/forwards inside the payment module | Must not receive | None |
-| Bazaar catalog/search | Owns | May expose a separately versioned read-only consumer later | None |
+| Bazaar catalog/search | Owns runtime and hosting | Exposes versioned offline catalog/search contracts | Discovery data only |
+| Paid service call | Owns x402 retry, verify, settle, and dispatch | Exposes an offline exact-call binding and trusted settled-access gate | One named service call only after atomic grant consumption |
 | Intent -> typed ActionPlan | Requests | Owns | Result data only |
 | Guardrail decision and exit semantics | Must preserve | Owns | Result data only |
 | ZK proof and Soroban read-only verification | May display bounded public evidence | Owns | Evidence is not authority |
@@ -83,8 +84,9 @@ does not enable a pubnet call. Pubnet operation remains a separate user confirma
 3. Rust creates and evaluates the typed ActionPlan without payment input.
 4. The response is informational and fail-closed. The caller must stop on
    `requires_approval` or `blocked`.
-5. Any future execution service requires a new reviewed capability contract;
-   it cannot infer authority from this response.
+5. The separate offline paid-call contract may authorize one exact cataloged
+   MCP service call only after trusted settled access is atomically consumed.
+   It cannot infer payment or execution authority from this response.
 
 No endpoint or transport is wired in this milestone. A later implementation
 may place the TypeScript service in front of Rust only after dependency,

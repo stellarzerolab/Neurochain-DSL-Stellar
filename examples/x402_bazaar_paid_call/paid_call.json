@@ -1,0 +1,25 @@
+{
+  "jsonrpc": "2.0",
+  "id": "paid-call-1",
+  "method": "tools/call",
+  "params": {
+    "name": "proxy_paid_stellar_call",
+    "arguments": {
+      "schemaVersion": 1,
+      "requestId": "paid-call-1",
+      "resourceKey": "mcp:https://api.example.com/mcp#plan_stellar_action",
+      "arguments": {
+        "intent": "show the bounded Stellar ActionPlan",
+        "network": "stellar:testnet"
+      }
+    },
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "offline-paid-call-fixture",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  }
+}

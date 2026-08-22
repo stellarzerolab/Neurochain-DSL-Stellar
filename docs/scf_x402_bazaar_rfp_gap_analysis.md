@@ -52,9 +52,13 @@ contracts for `GET /discovery/resources` and `GET /discovery/search` in
 HTTP/MCP resource identities, percent-decoded `routeTemplate` validation,
 service metadata soft-drop rules, duplicate fail-closed behavior, filters,
 bounded offset/cursor pagination, deterministic lexical ranking, and a small
-mean-reciprocal-rank regression fixture. It still does not register discovery
-endpoints, validate seller-supplied JSON Schemas, provide production search
-quality, or activate a payment runtime.
+mean-reciprocal-rank regression fixture. Offline automatic cataloging validates
+bounded seller metadata and produces stable `EXTENSION-RESPONSES` outcomes.
+The MCP surface now includes versioned offline search and paid-call schemas.
+Paid-call can authorize one exact cataloged MCP service call only after a
+trusted gate atomically consumes matching settled access; it performs no
+dispatch. None of these contracts register endpoints, provide a production
+search index or MCP runtime, or activate a payment runtime.
 
 ## Status Vocabulary
 
@@ -79,10 +83,11 @@ deliverable yet.
   does not runtime-dispatch settlement, and has no valid signed live payment or
   pubnet settlement evidence.
 - The repository now has bounded offline Bazaar catalog, resources-list,
-  deterministic lexical search, automatic-cataloging, and outcome foundations.
-  It still has no hosted discovery endpoints, payment-verified runtime wiring, production search index,
-  MCP discovery server, paid-call proxy, seller/buyer discovery SDK, or Stellar
-  `upto` implementation.
+  deterministic lexical search, automatic cataloging, stable extension
+  outcomes, MCP search, and a single-use paid-call authorization contract. It
+  still has no hosted discovery endpoints, payment-verified runtime wiring,
+  production search index, MCP discovery server or dispatching proxy,
+  seller/buyer discovery SDK, or Stellar `upto` implementation.
 - The current Rust transport does not use `@x402/stellar`. The RFP explicitly
   requires building on that package rather than reimplementing verify and
   settle.
@@ -96,7 +101,7 @@ Current headline assessment:
 | Existing NeuroChain guardrail/ZK foundation | `existing` |
 | RFP facilitator foundation | `partial` |
 | RFP Bazaar discovery layer | `partial` |
-| RFP MCP discovery and paid-call interface | `missing` |
+| RFP MCP discovery and paid-call interface | `partial` |
 | RFP `upto` scheme and upstream contribution | `missing` |
 | Production operations, conformance, audit, and maintenance | `missing` / `decision needed` |
 
@@ -174,8 +179,8 @@ hosted service, payment-verified wiring, provenance, lifecycle, and interoperabi
 
 | RFP requirement | Status | Current evidence | Gap / acceptance evidence still needed |
 | --- | --- | --- | --- |
-| MCP discovery server with resource search and paid-call proxy | `partial` | A separate offline `search_stellar_bazaar` contract now reuses the Bazaar search core with strict MCP 2026-07-28 schemas and all-false authority output. The production-shaped guardrail MCP v0 remains unchanged. | Add the separate discovery MCP runtime, transport/authentication, `server/discover`, and a bounded discover-pay-retry/paid-call tool. Do not add implicit signing or submit authority. |
-| Structured deterministic inputs/outputs and non-null rejection reasons | `partial` | The offline search tool now has bounded inputs, deterministic output schema, stable codes, retryability, non-empty reasons, cursor/partial-result parity, fixtures, and fail-closed tests. | Add paid-call schemas, JSON-RPC/stock-host conformance, transport errors, observability, and end-to-end retry evidence. |
+| MCP discovery server with resource search and paid-call proxy | `partial` | Separate offline `search_stellar_bazaar` and `proxy_paid_stellar_call` contracts use strict MCP 2026-07-28 schemas. Paid-call binds one exact MCP call to trusted single-use settled access without dispatch or authority escalation. The production-shaped guardrail MCP v0 remains unchanged. | Add the separate discovery MCP runtime, transport/authentication, `server/discover`, `@x402/stellar` discover-pay-retry wiring, and actual service dispatch. Do not add implicit signing or submit authority. |
+| Structured deterministic inputs/outputs and non-null rejection reasons | `partial` | Search and paid-call have bounded inputs, deterministic output schemas, stable codes, retryability, non-empty reasons, structured/text parity, fixtures, and fail-closed tests. | Add JSON-RPC/stock-host conformance, transport errors, observability, durable access consumption, and end-to-end retry evidence. |
 
 ## 3.4 Settlement Schemes
 
@@ -215,7 +220,7 @@ hosted service, payment-verified wiring, provenance, lifecycle, and interoperabi
 | --- | --- | --- |
 | Self-hostable and managed facilitator on both networks | `missing` | Public package/service, permissive dependency closure, deployment artifacts, canonical E2E, both network hashes. |
 | Stellar Bazaar resources/search/automatic cataloging | `partial` | Offline contracts, integrity bounds, lexical ranking gate, and automatic-cataloging outcomes exist. Add hosted APIs, full schema conformance, provenance/persistence, production retrieval, and interoperability evidence. |
-| MCP discovery search and paid-call tools | `partial` | Offline versioned search tool schemas, fixtures, deterministic results, and no-authority tests exist. Add the MCP runtime/host evidence and separately bounded paid-call discover-pay-retry path. |
+| MCP discovery search and paid-call tools | `partial` | Offline versioned search and exact-call schemas, fixtures, deterministic results, settled-access binding, single-use/replay handling, and no-escalation tests exist. Add the MCP runtime/host, `@x402/stellar` discover-pay-retry wiring, and actual service dispatch evidence. |
 | `upto` spec and implementation merged upstream | `missing` | Merged `scheme_upto_stellar.md`, implementation, upstream tests, both-network evidence. |
 | Seller, buyer, and agent SDK/helper libraries | `missing` | Published or vendorable packages, examples, API docs, compatibility tests. |
 | Both-network conformance report | `missing` | Canonical client/E2E results and transaction hashes for `exact` and `upto`. |
@@ -237,10 +242,10 @@ These decisions are intentionally not made by this gap analysis.
    - Decide repository/workspace location, process boundary, API contract, and
      ownership before adding npm dependencies.
 2. **Authority contract**
-   - Decide exactly what a settled payment authorizes: access to one bounded
-     service operation, never signing or underlying ActionPlan submission.
-   - Define idempotency, audit correlation, approval, retry, and failure
-     semantics across TypeScript and Rust.
+   - The offline contract now limits settled access to one exact cataloged MCP
+     service call and never grants signing or underlying ActionPlan submission.
+   - Runtime ownership, durable atomic consumption, audit correlation, and
+     cross-process retry semantics remain dependency/architecture decisions.
 3. **Bazaar storage and search**
    - Choose off-chain catalog store, indexing strategy, ranking approach,
      evaluation dataset, abuse policy, retention, and federation model.
@@ -285,8 +290,8 @@ flowchart LR
    - Catalog storage, filters, search, automatic HTTP/MCP cataloging, integrity,
      and seller helpers without payments or network submit.
 4. **MCP discovery implementation**
-   - Search tool first; paid-call proxy only after wallet/authorization and
-     settled-access semantics are approved.
+   - Offline search and paid-call authorization contracts are complete. Runtime
+     hosting, discover-pay-retry wiring, and dispatch remain approval-gated.
 5. **Official-package exact facilitator conformance**
    - Build on `@x402/stellar`, start with fake/offline transports and testnet
      opt-in. Do not activate live settlement without separate approval.
@@ -309,12 +314,13 @@ Stop and request explicit user approval before any of the following:
 - signing, broadcasting, consuming an owner nullifier, or submitting an
   underlying ActionPlan
 
-## Validation Evidence For This Analysis
+## Validation Evidence For This Analysis And Offline Milestones
 
-The analysis is documentation-only. No dependency, runtime, flow, exit code,
-network call, credential, deployment, or submit path was added.
+The original analysis was documentation-only. The later Bazaar milestones add
+offline Rust contracts, fixtures, and tests without a new dependency, runtime,
+flow or exit-code change, network call, credential, deployment, or submit path.
 
-Local checks on 2026-08-20:
+Local checks:
 
 | Check | Result |
 | --- | --- |
@@ -323,10 +329,14 @@ Local checks on 2026-08-20:
 | `cargo test --test mcp_v0_contract` | PASS: 53 passed |
 | Bazaar/discovery implementation search | No implementation hits in `src/`, `tests/`, `docs/`, `examples/`, `README.md`, or `Cargo.toml` before this analysis document |
 | TypeScript package manifest search | No project `package.json`; `@x402/stellar` is not installed |
+| `cargo +1.97.0 fmt --all -- --check` (2026-08-22 paid-call milestone) | PASS |
+| `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 paid-call milestone) | PASS |
+| Bazaar catalog/cataloging/MCP/paid-call focused tests (2026-08-22) | PASS: 37 passed |
+| `cargo +1.97.0 test --all-targets --all-features` (2026-08-22 paid-call milestone) | PASS; two explicit credential-bearing live probes remained ignored |
 
 ## Smallest Next Decision
 
-Approve or revise the **service/module boundary**: a TypeScript
-`@x402/stellar` facilitator + Bazaar + MCP discovery service in front of the
-existing Rust NeuroChain guardrail/ZK runtime, with a versioned settled-access
-contract and no automatic submit authority.
+Prepare an offline `@x402/stellar` conformance matrix and adversarial fixtures
+against the approved boundary. Before installing the TypeScript runtime or any
+new package, present the exact dependency, license, workspace, and execution
+proposal for explicit approval.

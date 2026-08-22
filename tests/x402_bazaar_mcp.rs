@@ -7,6 +7,7 @@ use neurochain::{
         BazaarMcpAuthority, BazaarMcpSearchResult, BAZAAR_MCP_PROTOCOL_VERSION,
         BAZAAR_MCP_SCHEMA_VERSION, BAZAAR_MCP_SEARCH_TOOL,
     },
+    x402_bazaar_paid_call::BAZAAR_MCP_PAID_CALL_TOOL,
 };
 use serde_json::{json, Value};
 
@@ -52,11 +53,11 @@ fn assert_no_authority(result: &BazaarMcpSearchResult) {
 }
 
 #[test]
-fn tools_list_is_deterministic_and_search_only() {
+fn tools_list_is_deterministic_and_bounded() {
     let actual = bazaar_mcp_tools_list();
     assert_eq!(actual, bazaar_mcp_tools_list());
     assert_eq!(actual["resultType"], "complete");
-    assert_eq!(actual["tools"].as_array().map(Vec::len), Some(1));
+    assert_eq!(actual["tools"].as_array().map(Vec::len), Some(2));
     let tool = &actual["tools"][0];
     assert_eq!(tool["name"], BAZAAR_MCP_SEARCH_TOOL);
     assert_eq!(tool["annotations"]["readOnlyHint"], true);
@@ -74,8 +75,15 @@ fn tools_list_is_deterministic_and_search_only() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
+    assert_eq!(
+        tool_names,
+        [BAZAAR_MCP_SEARCH_TOOL, BAZAAR_MCP_PAID_CALL_TOOL]
+    );
+    let paid_call = &actual["tools"][1];
+    assert_eq!(paid_call["annotations"]["readOnlyHint"], false);
+    assert_eq!(paid_call["annotations"]["destructiveHint"], true);
+    assert_eq!(paid_call["annotations"]["idempotentHint"], false);
     for forbidden in [
-        "paid_call",
         "settle",
         "sign_transaction",
         "wallet",
@@ -215,7 +223,7 @@ fn unavailable_catalog_is_retryable_but_never_escalates_authority() {
 }
 
 #[test]
-fn fixture_and_docs_preserve_the_offline_no_paid_call_boundary() {
+fn fixture_and_docs_preserve_the_offline_search_authority_boundary() {
     let call = read_value(MCP_FIXTURE_DIR, "search_call.json");
     assert_eq!(call["jsonrpc"], "2.0");
     assert_eq!(call["method"], "tools/call");

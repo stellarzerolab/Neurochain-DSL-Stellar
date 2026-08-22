@@ -2,17 +2,20 @@
 
 Date: 2026-08-22
 
-Status: versioned read-only contract, schemas, fixtures, and fail-closed tests;
-no MCP server runtime and no paid-call proxy
+Status: versioned offline read-only search contract, schemas, fixtures, and
+fail-closed tests; no MCP server runtime
 
 ## Scope
 
 `src/x402_bazaar_mcp.rs` adapts the existing offline
-`BazaarCatalog::search` contract into one MCP tool named
+`BazaarCatalog::search` contract into the MCP tool
 `search_stellar_bazaar`. The module generates deterministic `tools/list`
 metadata, strict Draft 2020-12 input and output schemas, a typed result with
 stable codes and non-empty reasons, and the `tools/call` result envelope used
-by the checked-in fixtures.
+by the checked-in fixtures. The list also exposes the separately versioned
+offline `proxy_paid_stellar_call` contract defined in
+`src/x402_bazaar_paid_call.rs` and documented in
+`docs/x402_bazaar_paid_call.md`.
 
 This is a separate future discovery-service contract. It does not modify or
 extend the existing five-tool NeuroChain guardrail MCP v0 stdio runtime. It
@@ -64,12 +67,13 @@ failure:
 - wallet and shell access;
 - RPC submit and ActionPlan submit.
 
-Discovery returns catalog information only. It cannot turn a discovered
-resource into payment permission or execution permission. A later paid-call
-milestone must define one bounded named-service access grant while keeping
-payment, proof, approval, settlement, signing, execution, and submission as
-separate authorities. That future work still cannot add live payment, wallet
-signing, or ActionPlan submission without explicit approval.
+Search returns catalog information only. It cannot turn a discovered resource
+into payment permission or execution permission. The separate offline
+paid-call contract can grant one exact named-service call only after a trusted
+gate consumes matching settled access. Payment, proof, approval, settlement,
+signing, underlying execution, and submission remain separate authorities.
+Live payment, wallet signing, dispatch, or ActionPlan submission still require
+explicit approval.
 
 ## Evidence and deliberate limits
 
@@ -81,9 +85,10 @@ and the all-false authority invariant. Fixtures live in
 
 This milestone does not implement `server/discover`, JSON-RPC dispatch,
 transport authentication, catalog persistence, payment discovery/retry,
-paid-call, network access, settlement, signing, wallet access, shell access,
-RPC submission, or ActionPlan submission. It does not claim a production MCP
-server or complete the RFP agent-facing deliverable.
+network access, settlement, signing, wallet access, shell access, RPC
+submission, or ActionPlan submission. The paid-call module remains an offline
+authorization contract with no service dispatch. This does not claim a
+production MCP server or complete the RFP agent-facing deliverable.
 
 ## Primary sources
 

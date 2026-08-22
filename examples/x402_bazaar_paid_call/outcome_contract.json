@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "outcomes": {
+    "authorized": {
+      "code": "service_call_authorized",
+      "retryable": false,
+      "serviceCallAllowed": true
+    },
+    "paymentRequired": {
+      "code": "payment_required",
+      "retryable": true,
+      "serviceCallAllowed": false
+    },
+    "settlementPending": {
+      "code": "settlement_pending",
+      "retryable": true,
+      "serviceCallAllowed": false
+    },
+    "settlementRejected": {
+      "code": "settlement_rejected",
+      "retryable": false,
+      "serviceCallAllowed": false
+    },
+    "settlementOutcomeUnknown": {
+      "code": "settlement_outcome_unknown",
+      "retryable": false,
+      "serviceCallAllowed": false
+    },
+    "replayBlocked": {
+      "code": "access_replay_blocked",
+      "retryable": false,
+      "serviceCallAllowed": false
+    },
+    "unavailable": {
+      "code": "access_gate_unavailable",
+      "retryable": true,
+      "serviceCallAllowed": false
+    }
+  }
+}
