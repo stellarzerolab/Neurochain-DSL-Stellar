@@ -25,6 +25,9 @@ verification or settlement semantics.
   create transport or execution authority;
 - a strict TypeScript consumer for the same versioned NeuroChain
   `evaluation_request` and `evaluation_response` fixtures validated by Rust;
+- a pure upstream `extensions` to Rust automatic-cataloging adapter that
+  consumes the shared HTTP/MCP/outcome fixtures and emits deterministic
+  `EXTENSION-RESPONSES` base64 without re-verifying payment;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -78,6 +81,16 @@ The evaluation handler consumes the shared fixtures under
 decision/exit correlation, request correlation and all-false authority fields;
 Rust remains the owner of typed `ActionPlan` construction and canonical hash
 validation. No Rust transport or process adapter is activated here.
+
+`src/bazaar-automatic-cataloging.ts` accepts only an upstream verify/settle
+result's `extensions` field plus a strict public resource/payment summary. It
+rejects raw payload, signer, settlement, and submit fields; bounds the Bazaar
+`info` and `schema`; and delegates the actual schema/catalog outcome to an
+injected Rust port. Missing metadata is dropped, malformed metadata is
+rejected, and unavailable or malformed ports fail closed. Accepted, dropped,
+invalid, duplicate, and unavailable outcomes use the shared Rust fixture
+contract and deterministic `EXTENSION-RESPONSES` encoding. There is no catalog
+database or runtime port implementation in this workspace.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived
