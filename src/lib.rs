@@ -14,6 +14,7 @@ pub mod soroban_deep;
 pub mod x402_audit;
 pub mod x402_bazaar;
 pub mod x402_bazaar_cataloging;
+pub mod x402_bazaar_mcp;
 pub mod x402_facilitator;
 pub mod x402_service_boundary;
 pub mod x402_stellar;

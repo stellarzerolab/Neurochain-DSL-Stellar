@@ -1,0 +1,56 @@
+{
+  "content": [
+    {
+      "text": "{\"authority\":{\"actionPlanSubmitAllowed\":false,\"approvalAllowed\":false,\"paymentAllowed\":false,\"proofAllowed\":false,\"rpcSubmitAllowed\":false,\"settlementAllowed\":false,\"shellAccessAllowed\":false,\"signingAllowed\":false,\"walletAccessAllowed\":false},\"code\":\"search_completed\",\"data\":{\"pagination\":{\"cursor\":null,\"limit\":1},\"partialResults\":false,\"resources\":[{\"accepts\":[{\"amount\":\"100000\",\"asset\":\"CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ\",\"maxTimeoutSeconds\":60,\"network\":\"stellar:testnet\",\"payTo\":\"GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\",\"scheme\":\"exact\"}],\"lastUpdated\":1723000001,\"resource\":\"https://api.example.com/mcp\",\"type\":\"mcp\",\"x402Version\":2}],\"x402Version\":2},\"ok\":true,\"protocolVersion\":\"2026-07-28\",\"reason\":\"Bazaar search completed with read-only discovery authority.\",\"retryable\":false,\"schemaVersion\":1,\"tool\":\"search_stellar_bazaar\"}",
+      "type": "text"
+    }
+  ],
+  "isError": false,
+  "resultType": "complete",
+  "structuredContent": {
+    "authority": {
+      "actionPlanSubmitAllowed": false,
+      "approvalAllowed": false,
+      "paymentAllowed": false,
+      "proofAllowed": false,
+      "rpcSubmitAllowed": false,
+      "settlementAllowed": false,
+      "shellAccessAllowed": false,
+      "signingAllowed": false,
+      "walletAccessAllowed": false
+    },
+    "code": "search_completed",
+    "data": {
+      "pagination": {
+        "cursor": null,
+        "limit": 1
+      },
+      "partialResults": false,
+      "resources": [
+        {
+          "accepts": [
+            {
+              "amount": "100000",
+              "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+              "maxTimeoutSeconds": 60,
+              "network": "stellar:testnet",
+              "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+              "scheme": "exact"
+            }
+          ],
+          "lastUpdated": 1723000001,
+          "resource": "https://api.example.com/mcp",
+          "type": "mcp",
+          "x402Version": 2
+        }
+      ],
+      "x402Version": 2
+    },
+    "ok": true,
+    "protocolVersion": "2026-07-28",
+    "reason": "Bazaar search completed with read-only discovery authority.",
+    "retryable": false,
+    "schemaVersion": 1,
+    "tool": "search_stellar_bazaar"
+  }
+}

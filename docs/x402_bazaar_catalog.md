@@ -102,6 +102,11 @@ ActionPlan-submit authority. Its lexical ranking is only a deterministic
 offline baseline and does not claim production natural-language quality.
 `stellar:pubnet` is a filterable catalog value only and does not enable a pubnet operation.
 
+`src/x402_bazaar_mcp.rs` now exposes this same local search core through a
+separately versioned offline MCP tool contract. It is still not an MCP server
+runtime and provides no paid-call, wallet, signing, settlement, RPC-submit, or
+ActionPlan-submit authority. See `docs/x402_bazaar_mcp.md`.
+
 `src/x402_bazaar_cataloging.rs` now provides the bounded offline adapter that
 validates `info` against a safe Draft 2020-12 profile without resolving external `$ref` or `$id` values before creating this extracted candidate. See
 `docs/x402_bazaar_cataloging.md`. Full maintained schema conformance and the

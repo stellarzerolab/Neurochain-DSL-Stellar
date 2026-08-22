@@ -1,0 +1,24 @@
+{
+  "jsonrpc": "2.0",
+  "id": "bazaar-search-1",
+  "method": "tools/call",
+  "params": {
+    "name": "search_stellar_bazaar",
+    "arguments": {
+      "schemaVersion": 1,
+      "query": "stellar guardrails",
+      "type": "mcp",
+      "network": "stellar:testnet",
+      "extensions": "bazaar",
+      "limit": 10
+    },
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "offline-contract-fixture",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    }
+  }
+}

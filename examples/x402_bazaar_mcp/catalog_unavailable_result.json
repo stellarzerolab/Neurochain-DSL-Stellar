@@ -1,0 +1,30 @@
+{
+  "content": [
+    {
+      "text": "{\"authority\":{\"actionPlanSubmitAllowed\":false,\"approvalAllowed\":false,\"paymentAllowed\":false,\"proofAllowed\":false,\"rpcSubmitAllowed\":false,\"settlementAllowed\":false,\"shellAccessAllowed\":false,\"signingAllowed\":false,\"walletAccessAllowed\":false},\"code\":\"catalog_unavailable\",\"ok\":false,\"protocolVersion\":\"2026-07-28\",\"reason\":\"The local Bazaar catalog is unavailable; no payment or external fallback was attempted.\",\"retryable\":true,\"schemaVersion\":1,\"tool\":\"search_stellar_bazaar\"}",
+      "type": "text"
+    }
+  ],
+  "isError": true,
+  "resultType": "complete",
+  "structuredContent": {
+    "authority": {
+      "actionPlanSubmitAllowed": false,
+      "approvalAllowed": false,
+      "paymentAllowed": false,
+      "proofAllowed": false,
+      "rpcSubmitAllowed": false,
+      "settlementAllowed": false,
+      "shellAccessAllowed": false,
+      "signingAllowed": false,
+      "walletAccessAllowed": false
+    },
+    "code": "catalog_unavailable",
+    "ok": false,
+    "protocolVersion": "2026-07-28",
+    "reason": "The local Bazaar catalog is unavailable; no payment or external fallback was attempted.",
+    "retryable": true,
+    "schemaVersion": 1,
+    "tool": "search_stellar_bazaar"
+  }
+}

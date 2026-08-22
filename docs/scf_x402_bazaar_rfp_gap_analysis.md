@@ -174,8 +174,8 @@ hosted service, payment-verified wiring, provenance, lifecycle, and interoperabi
 
 | RFP requirement | Status | Current evidence | Gap / acceptance evidence still needed |
 | --- | --- | --- | --- |
-| MCP discovery server with resource search and paid-call proxy | `partial` | A production-shaped MCP v0 stdio server and five read-only guardrail tools already exist. | Add a separate discovery MCP service or clearly versioned tool group for Bazaar search and discover-pay-retry. Define wallet/authorization ownership; do not add implicit signing to guardrail MCP v0. |
-| Structured deterministic inputs/outputs and non-null rejection reasons | `partial` | MCP v0 schemas, bounded inputs, fail-closed codes, and no-submit invariants provide a reusable pattern. | Define RFP discovery/payment schemas, stable error taxonomy, retryability, partial-result semantics, conformance fixtures, and stock-host evidence. |
+| MCP discovery server with resource search and paid-call proxy | `partial` | A separate offline `search_stellar_bazaar` contract now reuses the Bazaar search core with strict MCP 2026-07-28 schemas and all-false authority output. The production-shaped guardrail MCP v0 remains unchanged. | Add the separate discovery MCP runtime, transport/authentication, `server/discover`, and a bounded discover-pay-retry/paid-call tool. Do not add implicit signing or submit authority. |
+| Structured deterministic inputs/outputs and non-null rejection reasons | `partial` | The offline search tool now has bounded inputs, deterministic output schema, stable codes, retryability, non-empty reasons, cursor/partial-result parity, fixtures, and fail-closed tests. | Add paid-call schemas, JSON-RPC/stock-host conformance, transport errors, observability, and end-to-end retry evidence. |
 
 ## 3.4 Settlement Schemes
 
@@ -215,7 +215,7 @@ hosted service, payment-verified wiring, provenance, lifecycle, and interoperabi
 | --- | --- | --- |
 | Self-hostable and managed facilitator on both networks | `missing` | Public package/service, permissive dependency closure, deployment artifacts, canonical E2E, both network hashes. |
 | Stellar Bazaar resources/search/automatic cataloging | `partial` | Offline contracts, integrity bounds, lexical ranking gate, and automatic-cataloging outcomes exist. Add hosted APIs, full schema conformance, provenance/persistence, production retrieval, and interoperability evidence. |
-| MCP discovery search and paid-call tools | `missing` | Versioned schemas, host evidence, discover-pay-retry test, no implicit ActionPlan authority. |
+| MCP discovery search and paid-call tools | `partial` | Offline versioned search tool schemas, fixtures, deterministic results, and no-authority tests exist. Add the MCP runtime/host evidence and separately bounded paid-call discover-pay-retry path. |
 | `upto` spec and implementation merged upstream | `missing` | Merged `scheme_upto_stellar.md`, implementation, upstream tests, both-network evidence. |
 | Seller, buyer, and agent SDK/helper libraries | `missing` | Published or vendorable packages, examples, API docs, compatibility tests. |
 | Both-network conformance report | `missing` | Canonical client/E2E results and transaction hashes for `exact` and `upto`. |
