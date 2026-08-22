@@ -60,7 +60,8 @@ export const VERIFY_APPROVAL_BLOCKED_CASES = Object.freeze([
   }),
 ] as const);
 
-type VerifyRejectionCaseId = (typeof VERIFY_REJECTION_CASE_IDS)[number];
+export type VerifyRejectionCaseId =
+  (typeof VERIFY_REJECTION_CASE_IDS)[number];
 
 const TEST_NETWORK = "stellar:testnet" as const;
 const INVALID_NETWORK = "stellar:unknown" as PaymentRequirements["network"];
@@ -95,8 +96,9 @@ const TRANSACTION_XDR = Object.freeze({
     "AAAAAgAAAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAGQAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAABqidt9AAAAAAAAAAEAAAAAAAAAGAAAAAAAAAABAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMAAAAIdHJhbnNmZXIAAAADAAAAEgAAAAAAAAAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAASAAAAAAAAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgAAAAoAAAAAAAAAAAAAAAAAmJaBAAAAAAAAAAAAAAAA",
 });
 
-const EXPECTED_INVALID_REASON: Readonly<Record<VerifyRejectionCaseId, string>> =
-  Object.freeze({
+export const VERIFY_EXPECTED_INVALID_REASON: Readonly<
+  Record<VerifyRejectionCaseId, string>
+> = Object.freeze({
     invalid_x402_version: "invalid_x402_version",
     unsupported_scheme: "unsupported_scheme",
     network_mismatch: "network_mismatch",
@@ -241,7 +243,7 @@ function normalizeVerifyResponse(response: VerifyResponse): VerifyResponse {
   ) as VerifyResponse;
 }
 
-function buildCase(
+export function buildVerifyRejectionCase(
   id: VerifyRejectionCaseId,
 ): readonly [PaymentPayload, PaymentRequirements] {
   const requirements = createRequirements();
@@ -321,13 +323,13 @@ export async function buildVerifyRejectionConformanceSnapshot(): Promise<VerifyR
   try {
     const cases = [];
     for (const id of VERIFY_REJECTION_CASE_IDS) {
-      const [payload, requirements] = buildCase(id);
+      const [payload, requirements] = buildVerifyRejectionCase(id);
       verifyMethodCalls += 1;
       const response = await scheme.verify(payload, requirements);
       cases.push(
         Object.freeze({
           id,
-          expectedInvalidReason: EXPECTED_INVALID_REASON[id],
+          expectedInvalidReason: VERIFY_EXPECTED_INVALID_REASON[id],
           response: normalizeVerifyResponse(response),
         }),
       );

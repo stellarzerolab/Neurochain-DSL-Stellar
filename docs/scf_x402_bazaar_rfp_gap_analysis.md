@@ -336,7 +336,7 @@ Local checks:
 | `cargo test --test server_analyze x402` | PASS: 13 passed |
 | `cargo test --test mcp_v0_contract` | PASS: 53 passed |
 | Bazaar/discovery implementation search | No implementation hits in `src/`, `tests/`, `docs/`, `examples/`, `README.md`, or `Cargo.toml` before this analysis document |
-| TypeScript package/conformance workspace (2026-08-22) | PASS: exact manifest and lockfile, 49-package permissive inventory, canonical `/supported`, 13 upstream pre-network verify rejections, five explicit auth/RPC `approval_blocked` cases, strict typecheck/build and 7 Node built-in tests |
+| TypeScript package/conformance workspace (2026-08-22) | PASS: exact manifest and lockfile, 49-package permissive inventory, canonical `/supported`, 13 upstream verify rejections, 12 upstream settle rejections, three pre-scheme admission rejections and strict typecheck/build with 9 Node built-in tests |
 | `cargo +1.97.0 fmt --all -- --check` (2026-08-22 paid-call milestone) | PASS |
 | `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 paid-call milestone) | PASS |
 | Bazaar catalog/cataloging/MCP/paid-call focused tests (2026-08-22) | PASS: 37 passed |
@@ -349,15 +349,16 @@ Local checks:
 ## Smallest Next Decision
 
 The exact package workspace, supply-chain gate, canonical offline `/supported`
-and safe upstream verify-rejection conformance are complete. Thirteen malformed,
-mismatched or unsafe cases now fail through `ExactStellarScheme.verify` before
-network access or signing. Auth-entry structure, expiration, sub-invocations,
-signature status and custom `__check_auth` stay explicitly `approval_blocked`
-because upstream validates them only after RPC simulation.
+and safe upstream verify/settle rejection conformance are complete. Twelve
+invalid cases now return through `ExactStellarScheme.settle` before network,
+signer or submit use. Upstream core admission hooks reject unverified,
+duplicate and replay states before the Stellar scheme is invoked. This is an
+in-memory contract fixture, not a production replay store or settlement claim.
 
-The next smallest milestone is offline settle-rejection, replay/idempotency and
-the non-custodial authority boundary. Cover only states that upstream rejects
-before network or signer use; mark every RPC/credential-dependent case
-`approval_blocked` rather than fabricating settlement evidence or
-reimplementing upstream semantics. Live testnet settlement, pubnet, listeners,
-deployment, signing and submission remain separate gates.
+The next smallest milestone is the pure TypeScript service module and
+NeuroChain Rust-boundary parity for `/supported`, `/verify` and `/settle`.
+Persistent idempotency, restart/outcome-unknown recovery and unknown-network
+exception mapping remain `service_boundary_pending`; valid settlement, RPC,
+credentials, signing and submission remain `approval_blocked`. The handler
+must preserve separate payment, proof, approval, settlement, service-call,
+signing and submission authorities without adding a listener.

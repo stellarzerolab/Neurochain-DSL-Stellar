@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "sourcePackages": {
+    "@x402/core": "2.23.0",
+    "@x402/stellar": "2.23.0"
+  },
+  "upstreamApis": [
+    "ExactStellarScheme.settle",
+    "x402Facilitator.onBeforeSettle"
+  ],
+  "upstreamRejections": [
+    {
+      "id": "invalid_x402_version",
+      "expectedErrorReason": "invalid_x402_version",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_x402_version"
+      }
+    },
+    {
+      "id": "unsupported_scheme",
+      "expectedErrorReason": "unsupported_scheme",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "unsupported_scheme"
+      }
+    },
+    {
+      "id": "network_mismatch",
+      "expectedErrorReason": "network_mismatch",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "network_mismatch"
+      }
+    },
+    {
+      "id": "missing_transaction",
+      "expectedErrorReason": "invalid_exact_stellar_payload_malformed",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_malformed"
+      }
+    },
+    {
+      "id": "malformed_transaction_xdr",
+      "expectedErrorReason": "invalid_exact_stellar_payload_malformed",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_malformed"
+      }
+    },
+    {
+      "id": "wrong_operation",
+      "expectedErrorReason": "invalid_exact_stellar_payload_wrong_operation",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_wrong_operation"
+      }
+    },
+    {
+      "id": "unsafe_transaction_source",
+      "expectedErrorReason": "invalid_exact_stellar_payload_unsafe_tx_or_op_source",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_unsafe_tx_or_op_source"
+      }
+    },
+    {
+      "id": "wrong_asset",
+      "expectedErrorReason": "invalid_exact_stellar_payload_wrong_asset",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_wrong_asset"
+      }
+    },
+    {
+      "id": "wrong_function_name",
+      "expectedErrorReason": "invalid_exact_stellar_payload_wrong_function_name",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_wrong_function_name"
+      }
+    },
+    {
+      "id": "facilitator_is_payer",
+      "expectedErrorReason": "invalid_exact_stellar_payload_facilitator_is_payer",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_facilitator_is_payer"
+      }
+    },
+    {
+      "id": "wrong_recipient",
+      "expectedErrorReason": "invalid_exact_stellar_payload_wrong_recipient",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_wrong_recipient",
+        "payer": "GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H"
+      }
+    },
+    {
+      "id": "wrong_amount",
+      "expectedErrorReason": "invalid_exact_stellar_payload_wrong_amount",
+      "response": {
+        "success": false,
+        "network": "stellar:testnet",
+        "transaction": "",
+        "errorReason": "invalid_exact_stellar_payload_wrong_amount",
+        "payer": "GAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQDZ7H"
+      }
+    }
+  ],
+  "admissionRejections": [
+    {
+      "id": "unverified",
+      "code": "settlement_unverified",
+      "reason": "a payment without a separately established verification state cannot enter settlement",
+      "upstreamError": "Settlement aborted: settlement_unverified"
+    },
+    {
+      "id": "duplicate",
+      "code": "settlement_duplicate",
+      "reason": "an idempotency key already reserved by the service boundary cannot enter settlement again",
+      "upstreamError": "Settlement aborted: settlement_duplicate"
+    },
+    {
+      "id": "replay",
+      "code": "settlement_replay",
+      "reason": "a consumed payment digest cannot enter settlement again under a new request id",
+      "upstreamError": "Settlement aborted: settlement_replay"
+    }
+  ],
+  "approvalBlocked": [
+    {
+      "id": "valid_exact_settlement",
+      "code": "approval_blocked",
+      "reason": "a valid exact settlement requires Stellar RPC simulation, an approved signer and transaction submission"
+    },
+    {
+      "id": "fee_bump_settlement",
+      "code": "approval_blocked",
+      "reason": "fee-bump settlement requires approved signer credentials, RPC state and transaction submission"
+    },
+    {
+      "id": "canonical_client_roundtrip",
+      "code": "approval_blocked",
+      "reason": "canonical-client settlement conformance requires an explicitly approved network and credential test"
+    }
+  ],
+  "serviceBoundaryPending": [
+    {
+      "id": "persistent_idempotency_recovery",
+      "code": "service_boundary_pending",
+      "reason": "the upstream scheme exposes no persistent replay store; restart recovery belongs to the versioned TypeScript and Rust service boundary"
+    },
+    {
+      "id": "unknown_outcome_recovery",
+      "code": "service_boundary_pending",
+      "reason": "outcome-unknown recovery requires durable service state and must not be inferred from an in-memory conformance fixture"
+    },
+    {
+      "id": "invalid_network_exception_mapping",
+      "code": "service_boundary_pending",
+      "reason": "upstream settle rejects an unknown network before its internal result mapping; the pure service handler must map that exception fail-closed"
+    }
+  ],
+  "authorityBoundary": {
+    "networkAccessAllowed": false,
+    "credentialUseAllowed": false,
+    "keypairCreated": false,
+    "custodyAllowed": false,
+    "signingAllowed": false,
+    "liveSettlementAllowed": false,
+    "transactionSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false,
+    "exactSettleMethodCalls": 12,
+    "admissionHookCalls": 3,
+    "guardedSchemeSettleCalls": 0,
+    "signerMethodCalls": 0,
+    "networkFetchCalls": 0
+  }
+}

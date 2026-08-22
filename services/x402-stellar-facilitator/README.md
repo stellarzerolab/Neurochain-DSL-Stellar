@@ -17,6 +17,9 @@ verification or settlement semantics.
 - upstream `ExactStellarScheme.verify` rejection conformance for 13 malformed,
   mismatched or unsafe cases that fail before simulation, signing or network
   access;
+- upstream `ExactStellarScheme.settle` rejection conformance for 12 invalid
+  cases plus `x402Facilitator.onBeforeSettle` admission rejection for
+  unverified, duplicate and replay states;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -39,6 +42,15 @@ prove that these cases stop before network access or signing. Auth-entry
 structure, expiration, sub-invocations, signature status and custom
 `__check_auth` remain explicitly `approval_blocked`: upstream validates those
 only after RPC simulation and they are not emulated locally.
+
+The settle-rejection fixture proves that invalid payloads return before any
+network, signer or submit call. Separate upstream core admission hooks reject
+unverified, duplicate and replay states before the Stellar scheme is invoked.
+This is an in-memory contract fixture, not a production replay store or a live
+settlement claim. Persistent idempotency, restart/outcome-unknown recovery and
+unknown-network exception mapping remain `service_boundary_pending` for the
+versioned TypeScript/Rust handler boundary. Valid exact settlement, fee bump
+and canonical-client round trips remain explicitly `approval_blocked`.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived
