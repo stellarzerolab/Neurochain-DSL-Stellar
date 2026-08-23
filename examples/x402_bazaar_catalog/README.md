@@ -16,6 +16,9 @@ extracted discovery candidates, not payment payloads and not HTTP requests.
   validated `accepts` fields, and default offset pagination.
 - `search_evaluation.json` declares the offline search candidates, expected
   top result for each query, and the minimum mean reciprocal rank gate.
+- `search_pages.json` locks the full three-page `api` ranking, query-bound
+  cursors, pagination flags, and x402 v2 response wire consumed by both Rust
+  and the pure TypeScript resources/search adapter.
 
 No HTTP endpoint, production search index, payment verification, settlement,
 wallet signing, or ActionPlan submission is active in this package.

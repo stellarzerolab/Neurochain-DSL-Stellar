@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "candidates": [
+    { "file": "mcp_tool.json", "observedAt": 1723000001 },
+    { "file": "http_dynamic.json", "observedAt": 1723000000 },
+    { "file": "market_data.json", "observedAt": 1723000002 }
+  ],
+  "pages": [
+    {
+      "request": { "query": "api", "limit": 1 },
+      "response": {
+        "x402Version": 2,
+        "resources": [
+          {
+            "resource": "https://api.example.com/markets/BTC",
+            "type": "http",
+            "x402Version": 2,
+            "accepts": [
+              {
+                "scheme": "exact",
+                "network": "stellar:testnet",
+                "amount": "200000",
+                "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+                "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+                "maxTimeoutSeconds": 60
+              }
+            ],
+            "lastUpdated": 1723000002
+          }
+        ],
+        "partialResults": true,
+        "pagination": { "limit": 1, "cursor": "v1:bac4c63f77d8b7c1:1" }
+      }
+    },
+    {
+      "request": { "query": "api", "limit": 1, "cursor": "v1:bac4c63f77d8b7c1:1" },
+      "response": {
+        "x402Version": 2,
+        "resources": [
+          {
+            "resource": "https://api.example.com/weather/fi/helsinki",
+            "type": "http",
+            "x402Version": 2,
+            "accepts": [
+              {
+                "scheme": "exact",
+                "network": "stellar:testnet",
+                "amount": "100000",
+                "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+                "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+                "maxTimeoutSeconds": 60
+              }
+            ],
+            "lastUpdated": 1723000000
+          }
+        ],
+        "partialResults": true,
+        "pagination": { "limit": 1, "cursor": "v1:bac4c63f77d8b7c1:2" }
+      }
+    },
+    {
+      "request": { "query": "api", "limit": 1, "cursor": "v1:bac4c63f77d8b7c1:2" },
+      "response": {
+        "x402Version": 2,
+        "resources": [
+          {
+            "resource": "https://api.example.com/mcp",
+            "type": "mcp",
+            "x402Version": 2,
+            "accepts": [
+              {
+                "scheme": "exact",
+                "network": "stellar:testnet",
+                "amount": "100000",
+                "asset": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+                "payTo": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+                "maxTimeoutSeconds": 60
+              }
+            ],
+            "lastUpdated": 1723000001
+          }
+        ],
+        "partialResults": false,
+        "pagination": { "limit": 1, "cursor": null }
+      }
+    }
+  ]
+}

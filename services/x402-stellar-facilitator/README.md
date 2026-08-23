@@ -28,6 +28,9 @@ verification or settlement semantics.
 - a pure upstream `extensions` to Rust automatic-cataloging adapter that
   consumes the shared HTTP/MCP/outcome fixtures and emits deterministic
   `EXTENSION-RESPONSES` base64 without re-verifying payment;
+- pure resources/search handlers that consume the same list and three-page
+  ranking/cursor fixtures as Rust while leaving catalog order, ranking, and
+  cursor ownership behind an injected Rust port;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -91,6 +94,14 @@ rejected, and unavailable or malformed ports fail closed. Accepted, dropped,
 invalid, duplicate, and unavailable outcomes use the shared Rust fixture
 contract and deterministic `EXTENSION-RESPONSES` encoding. There is no catalog
 database or runtime port implementation in this workspace.
+
+`src/bazaar-resources-search.ts` validates strict list/search request
+envelopes, stable Rust port outcomes, x402 v2 list items, offset pagination,
+query-bound cursor envelopes, and `partialResults` correlation. The shared
+`examples/x402_bazaar_catalog/search_pages.json` fixture proves exact ranking
+and cursor parity in both languages. TypeScript does not implement a second
+ranking engine, database, HTTP route, or search service; every result preserves
+the all-false authority boundary.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived

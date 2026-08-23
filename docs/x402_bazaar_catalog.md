@@ -2,7 +2,7 @@
 
 Date: 2026-08-21
 
-Status: typed offline catalog, resources-list, and deterministic search contracts; automatic cataloging is a separate offline adapter; no HTTP or MCP discovery runtime
+Status: typed offline catalog, resources-list, deterministic search, and pure TypeScript wire parity; automatic cataloging is a separate offline adapter; no HTTP or MCP discovery runtime
 
 ## Scope
 
@@ -90,6 +90,28 @@ fixture. The test calculates mean reciprocal rank in integer milli-units and
 enforces its declared minimum. The current three-case corpus is a small
 regression baseline, not evidence of production natural-language search
 quality; it must grow with representative and adversarial queries.
+
+## TypeScript resources/search parity
+
+`services/x402-stellar-facilitator/src/bazaar-resources-search.ts` is a pure,
+listener-free adapter for the future service boundary. It validates strict
+resources/search request envelopes, delegates catalog ordering, ranking, and
+query-bound cursor semantics to an injected Rust port, and validates the
+returned x402 v2 wire response before exposing it. It deliberately does not
+copy the ranking algorithm into TypeScript.
+
+The shared `search_pages.json` fixture locks all three `api` result pages,
+their canonical-key tie order, exact cursor fingerprint, `partialResults`, and
+payment summaries. A Rust test produces those pages from the real catalog;
+TypeScript consumes the same responses through the pure port contract.
+`list_response.json` similarly remains the shared deterministic resources-list
+wire fixture. Port errors keep Rust's stable list/search codes, while malformed
+port outcomes or authority-shaped response fields fail closed.
+
+Every TypeScript result carries the same all-false authority boundary as the
+facilitator service handlers. Discovery results do not grant payment,
+settlement, service dispatch, wallet signing, transaction submit, or
+ActionPlan-submit authority.
 
 ## Deliberate limits
 

@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use neurochain::x402_bazaar::{
     is_valid_route_template, sanitize_service_metadata, BazaarCatalog, BazaarCatalogCandidate,
     BazaarCatalogError, BazaarCatalogKey, BazaarListQuery, BazaarResourceInput, BazaarResourceType,
-    BazaarSearchQuery, BazaarServiceMetadataInput, BAZAAR_LIST_DEFAULT_LIMIT,
+    BazaarSearchQuery, BazaarSearchResponse, BazaarServiceMetadataInput, BAZAAR_LIST_DEFAULT_LIMIT,
     BAZAAR_SEARCH_DEFAULT_LIMIT,
 };
 use serde::Deserialize;
@@ -53,8 +53,37 @@ struct SearchEvaluationCase {
     expected_resource: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SearchPagesFixture {
+    schema_version: u32,
+    candidates: Vec<SearchCandidateFixture>,
+    pages: Vec<SearchPageFixture>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SearchCandidateFixture {
+    file: String,
+    observed_at: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SearchPageFixture {
+    request: BazaarSearchQuery,
+    response: BazaarSearchResponse,
+}
+
 fn read_search_evaluation() -> SearchEvaluation {
     let path = Path::new(FIXTURE_DIR).join("search_evaluation.json");
+    let raw =
+        fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    serde_json::from_str(&raw).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
+}
+
+fn read_search_pages() -> SearchPagesFixture {
+    let path = Path::new(FIXTURE_DIR).join("search_pages.json");
     let raw =
         fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
     serde_json::from_str(&raw).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
@@ -570,6 +599,23 @@ fn search_cursor_is_query_bound_and_ties_use_catalog_key_order() {
         })
         .expect_err("tampered cursor must fail closed");
     assert_eq!(tamper.code(), "invalid_search_cursor");
+}
+
+#[test]
+fn search_pages_fixture_locks_ranking_cursor_and_wire_parity() {
+    let fixture = read_search_pages();
+    assert_eq!(fixture.schema_version, 1);
+    let mut catalog = BazaarCatalog::default();
+    for candidate in fixture.candidates {
+        catalog
+            .insert(read_candidate(&candidate.file), candidate.observed_at)
+            .unwrap_or_else(|err| panic!("insert {}: {err}", candidate.file));
+    }
+
+    for page in fixture.pages {
+        let actual = catalog.search(page.request).expect("search fixture page");
+        assert_eq!(actual, page.response);
+    }
 }
 
 #[test]
