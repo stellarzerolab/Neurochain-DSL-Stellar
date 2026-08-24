@@ -31,6 +31,10 @@ verification or settlement semantics.
 - pure resources/search handlers that consume the same list and three-page
   ranking/cursor fixtures as Rust while leaving catalog order, ranking, and
   cursor ownership behind an injected Rust port;
+- a pure MCP search/paid-call parity adapter that consumes the shared Rust call
+  and result fixtures, preserves canonical structured/text output, and leaves
+  exact binding plus single-use access decisions behind the Rust port without
+  dispatching the service call;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -102,6 +106,14 @@ query-bound cursor envelopes, and `partialResults` correlation. The shared
 and cursor parity in both languages. TypeScript does not implement a second
 ranking engine, database, HTTP route, or search service; every result preserves
 the all-false authority boundary.
+
+`src/bazaar-mcp-paid-call.ts` validates strict MCP `tools/call` envelopes and
+the existing Rust structured-result contracts. Search remains read-only.
+Paid-call can preserve a Rust-issued `serviceCallAllowed=true` grant only for
+the exact returned binding; all payment, proof, approval, settlement, signing,
+underlying execution, wallet, RPC, transaction-submit and ActionPlan-submit
+flags remain false. The module exposes no listener or dispatch method and does
+not reproduce the Rust access gate or digest algorithm.
 
 The separately approved follow-up milestones add only offline conformance.
 Any credential, Stellar network call, signing, real settlement, long-lived

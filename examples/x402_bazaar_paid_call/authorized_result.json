@@ -1,0 +1,42 @@
+{
+  "content": [
+    {
+      "text": "{\"authority\":{\"actionPlanSubmitAllowed\":false,\"approvalAllowed\":false,\"paymentAllowed\":false,\"proofAllowed\":false,\"rpcSubmitAllowed\":false,\"serviceCallAllowed\":true,\"settlementAllowed\":false,\"shellAccessAllowed\":false,\"signingAllowed\":false,\"underlyingExecutionAllowed\":false,\"walletAccessAllowed\":false},\"code\":\"service_call_authorized\",\"data\":{\"argumentsDigest\":\"0377e88e19db7a52d04b947fc61345d28faa7cddeefca246530af6e9bbb7539a\",\"callDigest\":\"bf8eb31bcde11702427f0c53e06f0a210243e1c6e7d7843bb8f87bf9e2a90781\",\"network\":\"stellar:testnet\",\"requestId\":\"paid-call-1\",\"resourceKey\":\"mcp:https://api.example.com/mcp#plan_stellar_action\",\"resourceUrl\":\"https://api.example.com/mcp\",\"schemaVersion\":1,\"toolName\":\"plan_stellar_action\"},\"ok\":true,\"protocolVersion\":\"2026-07-28\",\"reason\":\"Settled access was consumed for this exact named service call.\",\"retryable\":false,\"schemaVersion\":1,\"tool\":\"proxy_paid_stellar_call\"}",
+      "type": "text"
+    }
+  ],
+  "isError": false,
+  "resultType": "complete",
+  "structuredContent": {
+    "authority": {
+      "actionPlanSubmitAllowed": false,
+      "approvalAllowed": false,
+      "paymentAllowed": false,
+      "proofAllowed": false,
+      "rpcSubmitAllowed": false,
+      "serviceCallAllowed": true,
+      "settlementAllowed": false,
+      "shellAccessAllowed": false,
+      "signingAllowed": false,
+      "underlyingExecutionAllowed": false,
+      "walletAccessAllowed": false
+    },
+    "code": "service_call_authorized",
+    "data": {
+      "argumentsDigest": "0377e88e19db7a52d04b947fc61345d28faa7cddeefca246530af6e9bbb7539a",
+      "callDigest": "bf8eb31bcde11702427f0c53e06f0a210243e1c6e7d7843bb8f87bf9e2a90781",
+      "network": "stellar:testnet",
+      "requestId": "paid-call-1",
+      "resourceKey": "mcp:https://api.example.com/mcp#plan_stellar_action",
+      "resourceUrl": "https://api.example.com/mcp",
+      "schemaVersion": 1,
+      "toolName": "plan_stellar_action"
+    },
+    "ok": true,
+    "protocolVersion": "2026-07-28",
+    "reason": "Settled access was consumed for this exact named service call.",
+    "retryable": false,
+    "schemaVersion": 1,
+    "tool": "proxy_paid_stellar_call"
+  }
+}

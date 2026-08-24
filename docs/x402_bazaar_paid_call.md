@@ -3,7 +3,8 @@
 Date: 2026-08-22
 
 Status: versioned offline authorization contract, fixtures, and fail-closed
-tests; no dispatch, payment handling, settlement runtime, or service proxy
+Rust/TypeScript parity tests; no dispatch, payment handling, settlement
+runtime, or service proxy
 
 ## Scope
 
@@ -83,6 +84,14 @@ a non-empty reason and deterministic structured/text parity.
 hashing, one-shot consumption, replay blocking, all settlement states,
 untrusted authority injection, bounded hostile input, unavailable dependencies,
 and MCP result parity. Fixtures live in `examples/x402_bazaar_paid_call/`.
+
+The TypeScript parity adapter accepts the same strict MCP call fixture and
+delegates the exact binding and single-use access decision to an injected Rust
+port. Shared `authorized_result.json` and `replay_result.json` fixtures prove
+that TypeScript preserves the Rust digests, stable codes, retryability, and
+canonical text/structured result. The adapter validates correlation and
+authority fields but never recomputes the binding, consumes settled state, or
+dispatches the authorized service call.
 
 There is no dispatch, MCP server runtime, network access, payment verification,
 settlement, wallet signing, service execution, HTTP proxy, RPC submission, or

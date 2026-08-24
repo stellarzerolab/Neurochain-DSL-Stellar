@@ -9,11 +9,17 @@ method, or submit an ActionPlan.
 - `search_result.json` is the deterministic successful MCP result envelope.
 - `catalog_unavailable_result.json` proves a retryable fail-closed outcome.
 
+The same fixtures are consumed by the listener-free TypeScript parity adapter.
+Only the strict call arguments are handed to the injected Rust port; MCP
+client metadata never becomes payment, wallet, settlement, or dispatch
+authority.
+
 The `tools/list` schema is generated and asserted directly by the Rust contract
-tests. It exposes only `search_stellar_bazaar` in deterministic order.
+tests. It exposes `search_stellar_bazaar` followed by the separately guarded
+`proxy_paid_stellar_call` in deterministic order.
 
 The MCP annotations are usability hints only. The serialized `authority`
 object is the explicit contract: every payment, proof, approval, settlement,
 signing, wallet, shell, RPC-submit, and ActionPlan-submit capability remains
-false. A separate paid-call milestone must define any service-access grant;
-paid-call is intentionally absent here.
+false. The separate paid-call contract is the only place that can preserve an
+exact single-use service-access grant, and it still performs no dispatch.

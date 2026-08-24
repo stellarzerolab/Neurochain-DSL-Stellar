@@ -3,7 +3,7 @@
 Date: 2026-08-22
 
 Status: versioned offline read-only search contract, schemas, fixtures, and
-fail-closed tests; no MCP server runtime
+fail-closed Rust/TypeScript parity tests; no MCP server runtime
 
 ## Scope
 
@@ -82,6 +82,13 @@ structured output, text/structured parity, filters and cursor delegation,
 unknown/hostile/oversized arguments, catalog unavailability, stable reasons,
 and the all-false authority invariant. Fixtures live in
 `examples/x402_bazaar_mcp/`.
+
+The listener-free TypeScript module
+`services/x402-stellar-facilitator/src/bazaar-mcp-paid-call.ts` consumes the
+same MCP call and result fixtures through an injected Rust port. It validates
+the strict `tools/call` envelope and Rust structured result, then reproduces
+the canonical text/structured MCP response. It does not implement search,
+ranking, cursor handling, transport dispatch, or an external fallback.
 
 This milestone does not implement `server/discover`, JSON-RPC dispatch,
 transport authentication, catalog persistence, payment discovery/retry,

@@ -1,0 +1,32 @@
+{
+  "content": [
+    {
+      "text": "{\"authority\":{\"actionPlanSubmitAllowed\":false,\"approvalAllowed\":false,\"paymentAllowed\":false,\"proofAllowed\":false,\"rpcSubmitAllowed\":false,\"serviceCallAllowed\":false,\"settlementAllowed\":false,\"shellAccessAllowed\":false,\"signingAllowed\":false,\"underlyingExecutionAllowed\":false,\"walletAccessAllowed\":false},\"code\":\"access_replay_blocked\",\"ok\":false,\"protocolVersion\":\"2026-07-28\",\"reason\":\"Settled access for this exact service call was already consumed or did not match.\",\"retryable\":false,\"schemaVersion\":1,\"tool\":\"proxy_paid_stellar_call\"}",
+      "type": "text"
+    }
+  ],
+  "isError": true,
+  "resultType": "complete",
+  "structuredContent": {
+    "authority": {
+      "actionPlanSubmitAllowed": false,
+      "approvalAllowed": false,
+      "paymentAllowed": false,
+      "proofAllowed": false,
+      "rpcSubmitAllowed": false,
+      "serviceCallAllowed": false,
+      "settlementAllowed": false,
+      "shellAccessAllowed": false,
+      "signingAllowed": false,
+      "underlyingExecutionAllowed": false,
+      "walletAccessAllowed": false
+    },
+    "code": "access_replay_blocked",
+    "ok": false,
+    "protocolVersion": "2026-07-28",
+    "reason": "Settled access for this exact service call was already consumed or did not match.",
+    "retryable": false,
+    "schemaVersion": 1,
+    "tool": "proxy_paid_stellar_call"
+  }
+}

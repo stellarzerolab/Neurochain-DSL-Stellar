@@ -494,6 +494,12 @@ function parseSearchResponse(input: unknown): BazaarSearchResponse | null {
   });
 }
 
+export function parseBazaarSearchResponse(
+  input: unknown,
+): BazaarSearchResponse | null {
+  return parseSearchResponse(input);
+}
+
 function parsePortResult(
   input: unknown,
   operation: DiscoveryOperation,

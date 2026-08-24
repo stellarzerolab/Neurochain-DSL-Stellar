@@ -324,8 +324,15 @@ fn catalog_target_and_json_bounds_fail_before_the_access_gate() {
 #[test]
 fn mcp_result_has_structured_text_parity_without_dispatching() {
     let catalog = catalog();
-    let mut gate = RecordingGate::with([BazaarPaidCallAccessDecision::Authorized]);
+    let mut gate = RecordingGate::with([
+        BazaarPaidCallAccessDecision::Authorized,
+        BazaarPaidCallAccessDecision::ReplayBlocked,
+    ]);
     let result = bazaar_mcp_paid_call_result(Some(&catalog), Some(&mut gate), fixture_arguments());
+    assert_eq!(
+        result,
+        read_value(PAID_CALL_FIXTURE_DIR, "authorized_result.json")
+    );
     assert_eq!(result["resultType"], "complete");
     assert_eq!(result["isError"], false);
     assert_eq!(
@@ -340,6 +347,14 @@ fn mcp_result_has_structured_text_parity_without_dispatching() {
         serde_json::from_str(result["content"][0]["text"].as_str().expect("text content"))
             .expect("text content JSON");
     assert_eq!(text, result["structuredContent"]);
+
+    let replay = bazaar_mcp_paid_call_result(Some(&catalog), Some(&mut gate), fixture_arguments());
+    assert_eq!(
+        replay,
+        read_value(PAID_CALL_FIXTURE_DIR, "replay_result.json")
+    );
+    assert_eq!(replay["isError"], true);
+    assert_eq!(replay["structuredContent"]["code"], "access_replay_blocked");
 }
 
 #[test]

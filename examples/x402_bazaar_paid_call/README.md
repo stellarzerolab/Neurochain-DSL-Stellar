@@ -15,3 +15,9 @@ This milestone performs no dispatch, network request, payment, settlement,
 signing, wallet operation, or ActionPlan submit. `paid_call.json` is an MCP
 wire input fixture and `outcome_contract.json` locks the stable fail-closed
 codes and retryability rules.
+
+`authorized_result.json` and `replay_result.json` are shared Rust/TypeScript
+MCP result fixtures. They lock the exact call binding, canonical digests,
+single-use replay outcome, text/structured parity, and the rule that the one
+successful service-call grant never becomes dispatch, signing, settlement, or
+submit authority.
