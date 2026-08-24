@@ -42,6 +42,17 @@ behind the persistent single-attempt state machine but is not exposed by the
 server runtime. No live settlement, signing, value transfer, or ActionPlan
 submit is enabled by this transport implementation.
 
+The separate `services/x402-stellar-facilitator` workspace is gated in CI
+with Node 24.19.0, pnpm 11.19.0, an exact frozen lockfile, and dependency
+install scripts disabled. The committed 49-package inventory rejects
+AGPL/GPL/LGPL/SSPL and unknown runtime licenses; package/version, readiness
+summary, evidence-path, and authority drift fail closed. The 24-case readiness
+record distinguishes verified offline evidence from service-boundary,
+credential/network, upstream `upto`, and independent-review blockers. Neither
+the CI gate nor a `verified_offline` status grants payment, credential,
+network, signing, settlement, dispatch, transaction-submit, or ActionPlan-
+submit authority.
+
 ZK guardrail attestation safety note: the hackathon Soroban contract under
 `hackathons/stellar-real-world-zk/soroban/` stores an owner, verifier-router
 address and evaluator image ID in its constructor. A policy commitment and
@@ -102,6 +113,11 @@ to a fixed `memmap2` release.
 
 ## 3. CI/CD Gatekeepers (GitHub Actions Example)
 Keep audit as a separate job; combining fmt+clippy saves time.
+
+The checked-in `.github/workflows/ci.yml` also runs the x402 TypeScript
+workspace through frozen install, supply-chain/license validation, strict
+typecheck, build, and Node built-in tests. Keep that job separate from runtime
+deployment and credential-bearing conformance.
 
 ```yaml
 name: Security & Quality

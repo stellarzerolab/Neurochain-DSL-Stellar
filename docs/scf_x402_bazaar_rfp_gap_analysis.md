@@ -336,7 +336,9 @@ Local checks:
 | `cargo test --test server_analyze x402` | PASS: 13 passed |
 | `cargo test --test mcp_v0_contract` | PASS: 53 passed |
 | Bazaar/discovery implementation search | No implementation hits in `src/`, `tests/`, `docs/`, `examples/`, `README.md`, or `Cargo.toml` before this analysis document |
-| TypeScript package/conformance workspace (2026-08-22) | PASS: exact manifest and lockfile, 49-package permissive inventory, canonical `/supported`, 13 upstream verify rejections, 12 upstream settle rejections, three pre-scheme admission rejections and strict typecheck/build with 9 Node built-in tests |
+| TypeScript package/conformance workspace (2026-08-24) | PASS: exact manifest and lockfile, 49-package permissive inventory, canonical `/supported`, 13 upstream verify rejections, 12 upstream settle rejections, three pre-scheme admission rejections, service/Bazaar/MCP parity, and 34 Node built-in tests |
+| Machine-readable 24-case readiness status (2026-08-24) | PASS: 9 verified offline, 2 service-boundary pending, 11 approval blocked, and 2 upstream blocked; package, summary, evidence-path, case/status, and authority drift fail closed |
+| GitHub TypeScript CI gate (2026-08-24) | ADDED: exact Node 24.19.0 and pnpm 11.19.0, frozen lockfile with scripts disabled, supply-chain/license check, strict typecheck, build, and Node tests; remote run is pending the pushed commit |
 | `cargo +1.97.0 fmt --all -- --check` (2026-08-22 paid-call milestone) | PASS |
 | `cargo +1.97.0 clippy --all-targets --all-features -- -D warnings` (2026-08-22 paid-call milestone) | PASS |
 | Bazaar catalog/cataloging/MCP/paid-call focused tests (2026-08-22) | PASS: 37 passed |
@@ -348,17 +350,17 @@ Local checks:
 
 ## Smallest Next Decision
 
-The exact package workspace, supply-chain gate, canonical offline `/supported`
-and safe upstream verify/settle rejection conformance are complete. Twelve
-invalid cases now return through `ExactStellarScheme.settle` before network,
-signer or submit use. Upstream core admission hooks reject unverified,
-duplicate and replay states before the Stellar scheme is invoked. This is an
-in-memory contract fixture, not a production replay store or settlement claim.
+The permitted offline package/readiness phase is complete. The exact package
+workspace, supply-chain gate, upstream supported/verify/settle rejection
+evidence, pure service/Bazaar/MCP adapters, cross-runtime fixtures, and local
+CI-quality commands are locked. The 24-case readiness record deliberately
+keeps durable replay/recovery and production observability
+`service_boundary_pending`; canonical-client, auth-entry, valid settlement,
+network, credentials, trustline/simulation, and independent review remain
+`approval_blocked`; Stellar `upto` remains `upstream_blocked`.
 
-The next smallest milestone is the pure TypeScript service module and
-NeuroChain Rust-boundary parity for `/supported`, `/verify` and `/settle`.
-Persistent idempotency, restart/outcome-unknown recovery and unknown-network
-exception mapping remain `service_boundary_pending`; valid settlement, RPC,
-credentials, signing and submission remain `approval_blocked`. The handler
-must preserve separate payment, proof, approval, settlement, service-call,
-signing and submission authorities without adding a listener.
+The next step is therefore a user decision, not another automatic offline
+feature. A separately approved testnet/canonical-client phase would need an
+explicit credential and network plan, non-production signer custody,
+persistent state, transaction-evidence handling, and a stop-before-value-
+transfer review. No such phase is activated by this document or the CI gate.

@@ -1,10 +1,11 @@
 # Offline @x402/stellar conformance preparation
 
-Date: 2026-08-22
+Date: 2026-08-24
 
-Status: versioned offline coverage plan plus approved exact-version package
-bootstrap, supply-chain gate, upstream API smoke, canonical offline Stellar
-exact conformance, and pure service-boundary handlers; no live runtime
+Status: versioned offline coverage plan plus machine-readable readiness status,
+approved exact-version package bootstrap, supply-chain gate, upstream API
+smoke, canonical offline Stellar exact rejection conformance, pure service-
+boundary handlers, and CI quality gates; no live runtime
 
 ## Outcome
 
@@ -26,6 +27,14 @@ reimplementing payment verification or settlement in Rust. The upstream
 `@x402/stellar` package remains the owner of verify/settle semantics. This
 module only checks coverage, source assumptions, approval gates, required
 evidence types, and the no authority boundary.
+
+`examples/x402_stellar_conformance/readiness.json` is the separate current
+evidence record. It does not rewrite the historical preparation plan. Its 24
+cases distinguish nine `verified_offline` results, two
+`service_boundary_pending` results, eleven `approval_blocked` results, and two
+`upstream_blocked` results. The TypeScript validator rejects case/status,
+package, summary, evidence-path, or authority drift and verifies that every
+referenced evidence file exists in the repository.
 
 ## Pinned source snapshot
 
@@ -54,7 +63,7 @@ license, or Stellar `upto` status changes, validation returns
 spec is intentionally treated as drift that requires review, not as automatic
 permission to advertise or run it.
 
-## Coverage states
+## Coverage and readiness states
 
 The 24 required cases use three states:
 
@@ -71,6 +80,23 @@ surface and wire shape, fee sponsorship, G- and C-account auth, SEP-41 and
 seven decimals, tamper/call/expiration/replay/auth-structure/simulation/
 trustline failures, non-custody, non-null reasons, `upto`, spec drift,
 observability/audit, and independent review.
+
+The current readiness record uses four evidence states rather than treating a
+planned fixture as completed conformance:
+
+- `verified_offline`: the pinned upstream package or a strict local boundary
+  has produced checked-in offline evidence without network or signer use;
+- `service_boundary_pending`: an in-memory contract exists, but durable state,
+  recovery, metrics, or production ownership is still missing;
+- `approval_blocked`: the remaining proof needs credentials, ledger/RPC state,
+  a valid settlement, canonical-client execution, or independent review;
+- `upstream_blocked`: Stellar `upto` remains unavailable in the pinned upstream
+  source snapshot.
+
+In particular, auth signature, expiration, sub-invocation, full non-custody,
+trustline, simulation, and valid settlement cases are not promoted from the
+safe pre-network rejection evidence. Replay remains service-boundary pending
+until consumption is persistent and restart-safe.
 
 ## Approved package bootstrap boundary
 
@@ -133,6 +159,9 @@ does not replace the canonical package or upstream E2E suite.
 - Structural schema: `examples/x402_stellar_conformance/schema.json`.
 - Drift/adversarial mutations:
   `examples/x402_stellar_conformance/adversarial_patches.json`.
+- Current 24-case evidence status and its adversarial mutations:
+  `examples/x402_stellar_conformance/readiness.json` and
+  `readiness_adversarial_patches.json`.
 - Tests: `tests/x402_stellar_conformance.rs`.
 - Package manifest and lockfile:
   `services/x402-stellar-facilitator/package.json` and `pnpm-lock.yaml`.
@@ -153,6 +182,14 @@ does not replace the canonical package or upstream E2E suite.
   `services/x402-stellar-facilitator/src/service-handlers.ts`,
   `services/x402-stellar-facilitator/test/service-handlers.test.ts` and
   `examples/x402_service_boundary/parity_manifest.json`.
+- Readiness validator and Node built-in tests:
+  `services/x402-stellar-facilitator/src/readiness-status.ts` and
+  `test/readiness-status.test.ts`.
+- GitHub quality gate: `.github/workflows/ci.yml` uses Node 24.19.0 and
+  pnpm 11.19.0, installs the frozen lockfile with dependency scripts disabled,
+  then runs the supply-chain, strict typecheck, build, and Node test gates.
+  The install is a CI supply-chain step; the conformance tests themselves do
+  not call Stellar, x402 services, or the package registry.
 
 ## Primary sources
 

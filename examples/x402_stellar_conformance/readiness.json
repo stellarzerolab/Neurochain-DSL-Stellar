@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-24",
+  "planRef": "examples/x402_stellar_conformance/plan.json",
+  "packageSnapshot": {
+    "node": "24.19.0",
+    "pnpm": "11.19.0",
+    "packages": {
+      "@x402/core": "2.23.0",
+      "@x402/stellar": "2.23.0",
+      "@types/node": "24.13.3",
+      "typescript": "5.9.3"
+    },
+    "licenseInventoryRef": "services/x402-stellar-facilitator/supply-chain/dependency-license-inventory.json"
+  },
+  "summary": {
+    "totalCases": 24,
+    "verifiedOffline": 9,
+    "serviceBoundaryPending": 2,
+    "approvalBlocked": 11,
+    "upstreamBlocked": 2
+  },
+  "cases": [
+    {
+      "id": "standard_surface",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/test/service-handlers.test.ts"],
+      "reason": "Pure supported, verify, and settle handlers preserve the upstream package boundary without opening a listener."
+    },
+    {
+      "id": "supported_exact_both_networks",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/supported-v2.expected.json"],
+      "reason": "The pinned upstream facilitator advertises exact independently for Stellar testnet and pubnet."
+    },
+    {
+      "id": "supported_are_fees_sponsored",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/supported-v2.expected.json"],
+      "reason": "Both pinned Stellar exact kinds advertise areFeesSponsored=true through the upstream API."
+    },
+    {
+      "id": "wire_v2_payload_transaction",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/test/service-handlers.test.ts"],
+      "reason": "Strict v2 handlers preserve payload.transaction for the upstream verify and settle ports."
+    },
+    {
+      "id": "exact_canonical_client_e2e",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json"],
+      "reason": "A canonical-client round trip requires separately approved credentials, network access, and transaction evidence."
+    },
+    {
+      "id": "exact_keypair_auth",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "Keypair auth-entry conformance requires an approved signer fixture and Stellar RPC simulation."
+    },
+    {
+      "id": "exact_custom_check_auth",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "Custom __check_auth conformance requires approved contract-account credentials and RPC simulation."
+    },
+    {
+      "id": "exact_sep41_seven_decimals",
+      "status": "approval_blocked",
+      "evidenceRefs": ["docs/x402_stellar_conformance.md"],
+      "reason": "Valid SEP-41 transfer and seven-decimal settlement evidence require an approved live package round trip."
+    },
+    {
+      "id": "exact_tampered_signature_reject",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "Signature-status rejection occurs after simulated auth entries and needs an approved signer-backed fixture."
+    },
+    {
+      "id": "exact_asset_mismatch_reject",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "ExactStellarScheme.verify rejects the wrong asset before network, signing, or settlement."
+    },
+    {
+      "id": "exact_amount_mismatch_reject",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "ExactStellarScheme.verify rejects the wrong amount before network, signing, or settlement."
+    },
+    {
+      "id": "exact_recipient_mismatch_reject",
+      "status": "verified_offline",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "ExactStellarScheme.verify rejects the wrong recipient before network, signing, or settlement."
+    },
+    {
+      "id": "exact_expired_auth_reject",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "The expiration boundary is derived from live ledger state after RPC simulation."
+    },
+    {
+      "id": "exact_replay_reject",
+      "status": "service_boundary_pending",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json"],
+      "reason": "The upstream admission hook rejects replay in memory, but restart-safe persistent consumption is not implemented."
+    },
+    {
+      "id": "exact_auth_structure_reject",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "Complete auth-entry and sub-invocation validation requires Stellar RPC simulation."
+    },
+    {
+      "id": "exact_facilitator_non_custodial",
+      "status": "approval_blocked",
+      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json"],
+      "reason": "Pre-network payer rejection is proven, but complete simulated auth-entry non-custody still requires RPC evidence."
+    },
+    {
+      "id": "exact_simulation_balance_change_reject",
+      "status": "approval_blocked",
+      "evidenceRefs": ["docs/x402_stellar_conformance.md"],
+      "reason": "Unexpected balance-change rejection requires current-ledger simulation evidence."
+    },
+    {
+      "id": "exact_missing_trustline_reject",
+      "status": "approval_blocked",
+      "evidenceRefs": ["docs/x402_stellar_conformance.md"],
+      "reason": "Missing trustline behavior requires package execution against approved ledger state."
+    },
+    {
+      "id": "rejections_non_null_reason",
+      "status": "verified_offline",
+      "evidenceRefs": [
+        "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+        "services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json"
+      ],
+      "reason": "All safe upstream verify and settle rejection fixtures expose stable non-empty reasons."
+    },
+    {
+      "id": "upto_stellar_upstream_spec",
+      "status": "upstream_blocked",
+      "evidenceRefs": ["examples/x402_stellar_conformance/plan.json"],
+      "reason": "The pinned source snapshot contains no approved upstream Stellar upto network specification."
+    },
+    {
+      "id": "upto_single_use_time_bound_cap",
+      "status": "upstream_blocked",
+      "evidenceRefs": ["examples/x402_stellar_conformance/plan.json"],
+      "reason": "Single-use and time-bound Stellar upto semantics remain an upstream specification task."
+    },
+    {
+      "id": "spec_drift_gate",
+      "status": "verified_offline",
+      "evidenceRefs": ["examples/x402_stellar_conformance/adversarial_patches.json"],
+      "reason": "Pinned source, protocol, package, license, coverage, and authority drift fail closed in offline tests."
+    },
+    {
+      "id": "observability_and_audit",
+      "status": "service_boundary_pending",
+      "evidenceRefs": ["services/x402-stellar-facilitator/test/service-handlers.test.ts"],
+      "reason": "Stable secret-free result contracts exist, but production metrics, persistence, reconciliation, and SLO evidence do not."
+    },
+    {
+      "id": "third_party_security_review",
+      "status": "approval_blocked",
+      "evidenceRefs": ["docs/x402_stellar_conformance.md"],
+      "reason": "Independent security review remains mandatory before any mainnet production tag."
+    }
+  ],
+  "authorityBoundary": {
+    "networkAccessAllowed": false,
+    "credentialUseAllowed": false,
+    "keypairCreationAllowed": false,
+    "signingAllowed": false,
+    "paymentAllowed": false,
+    "settlementAllowed": false,
+    "serviceDispatchAllowed": false,
+    "transactionSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false
+  }
+}

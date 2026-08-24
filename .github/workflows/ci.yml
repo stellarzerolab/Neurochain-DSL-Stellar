@@ -6,6 +6,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  x402_typescript:
+    name: x402 TypeScript Offline Conformance
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/x402-stellar-facilitator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+          cache-dependency-path: services/x402-stellar-facilitator/pnpm-lock.yaml
+      - name: Frozen dependency install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Supply-chain and license gate
+        run: pnpm run check:supply-chain
+      - name: Strict typecheck
+        run: pnpm run typecheck
+      - name: Build
+        run: pnpm run build
+      - name: Node built-in tests
+        run: pnpm test
+
   fmt_clippy:
     name: Format + Clippy
     runs-on: ubuntu-latest

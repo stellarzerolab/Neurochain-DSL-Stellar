@@ -1,0 +1,42 @@
+[
+  {
+    "name": "canonical_client_claimed_offline",
+    "operation": "mark_canonical_client_verified",
+    "expectedCode": "readiness_case_mismatch"
+  },
+  {
+    "name": "upto_claimed_offline",
+    "operation": "mark_upto_verified",
+    "expectedCode": "readiness_case_mismatch"
+  },
+  {
+    "name": "persistent_replay_claimed_complete",
+    "operation": "mark_replay_verified",
+    "expectedCode": "readiness_case_mismatch"
+  },
+  {
+    "name": "network_authority_enabled",
+    "patch": {"authorityBoundary": {"networkAccessAllowed": true}},
+    "expectedCode": "readiness_authority_forbidden"
+  },
+  {
+    "name": "package_version_drift",
+    "patch": {"packageSnapshot": {"packages": {"@x402/stellar": "2.24.0"}}},
+    "expectedCode": "readiness_package_drift"
+  },
+  {
+    "name": "summary_drift",
+    "patch": {"summary": {"verifiedOffline": 10}},
+    "expectedCode": "readiness_summary_mismatch"
+  },
+  {
+    "name": "missing_case",
+    "operation": "remove_last_case",
+    "expectedCode": "readiness_case_count_mismatch"
+  },
+  {
+    "name": "evidence_path_traversal",
+    "operation": "inject_traversal_evidence",
+    "expectedCode": "readiness_evidence_ref_invalid"
+  }
+]

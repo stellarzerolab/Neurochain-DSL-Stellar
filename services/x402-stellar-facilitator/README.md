@@ -35,6 +35,12 @@ verification or settlement semantics.
   and result fixtures, preserves canonical structured/text output, and leaves
   exact binding plus single-use access decisions behind the Rust port without
   dispatching the service call;
+- a strict machine-readable 24-case readiness validator that separates
+  verified offline evidence from persistent service-boundary work, approval-
+  blocked live/security work, and upstream-blocked Stellar `upto` work;
+- a GitHub CI gate with exact Node/pnpm versions, frozen lockfile installation,
+  dependency scripts disabled, supply-chain validation, strict typecheck,
+  build, and Node built-in tests;
 - Node built-in tests only.
 
 ## Authority boundary
@@ -137,3 +143,10 @@ upstream declaration files because the pinned Stellar SDK closure references
 optional declaration packages that are not part of the approved direct
 dependency set; no runtime validation or NeuroChain authority check is
 bypassed.
+
+The current evidence status is checked in at
+`examples/x402_stellar_conformance/readiness.json`. It grants no payment,
+network, credential, signing, settlement, dispatch, transaction-submit, or
+ActionPlan-submit authority. CI installation may fetch only the exact frozen
+dependency closure; all conformance and readiness tests run without external
+Stellar or x402 service calls.
