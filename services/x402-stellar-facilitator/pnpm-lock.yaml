@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@stellar/stellar-sdk':
+        specifier: 16.2.0
+        version: 16.2.0(debug@4.4.3)
       '@x402/core':
         specifier: 2.23.0
         version: 2.23.0

@@ -143,20 +143,35 @@ not reproduce the Rust access gate or digest algorithm.
 `src/testnet-conformance-harness.ts` is the first checkpoint of the separately
 approved non-production Stellar testnet phase. Its default request is a pure
 offline plan: it validates the exact `stellar:testnet` CAIP-2 identifier,
-official RPC/Horizon/Friendbot endpoint allowlist, pinned testnet USDC asset,
-explicit recipient and fixed 0.01 test-token amount. It creates only a public
+official RPC/Horizon/Friendbot endpoint allowlist, SDK-derived native-XLM
+SEP-41 contract, explicit public recipient and fixed 0.01 test-XLM amount. It creates only a public
 request digest and calls no state, credential, signer, network or submit port.
 
 Execution requires all of the following at the same time: `execute=true`, the
-exact bounded-testnet confirmation, an atomic state port, an ephemeral
-credential port and a canonical-client port. No concrete implementations are
-provided in this checkpoint. The credential uses a symbol-keyed opaque handle
-that JSON cannot serialize, and both port exceptions and malformed evidence
-are replaced with stable non-secret reasons. Only a strict public evidence
-envelope may leave the canonical port.
+exact bounded-testnet confirmation, an atomic state port, a one-shot ephemeral
+credential port and a canonical-client port. The local implementations use
+`@stellar/stellar-sdk@16.2.0` only to generate one in-memory testnet keypair;
+the pinned `@x402/stellar` client signs the auth entry and its facilitator
+verifies the payload. The credential uses a symbol-keyed opaque handle that
+JSON cannot serialize. Only a strict public evidence envelope may leave the
+canonical port, and no settlement method is exposed by this runner.
 
-This milestone performs no live testnet call and creates no keypair. A later
-checkpoint may add only the explicitly approved dedicated testnet adapters.
+The first bounded live attempt funded public account
+`GBWOXRYVXTBHSFAUEPKFP4MZTXD22E5ROJTGMGR7NJ6ZNAVJH7YFRWDK` in testnet
+ledger `4310008`, but canonical verify did not return public success evidence.
+The local admission record therefore became terminal `outcome_unknown`; it
+must not be deleted or retried automatically. The adapter now waits through a
+bounded Horizon indexing window before entering the upstream verify path.
+No settlement or transaction-submit authority was exercised.
+
+The safe default command remains offline:
+
+```powershell
+pnpm run testnet:plan
+```
+
+A live retry requires a new explicit approval and a newly bounded request; the
+terminal state from the first attempt must not be bypassed.
 Pubnet/mainnet, production or existing wallets, persistent secrets, custom
 accounts, general transaction submission, service dispatch, underlying
 execution and ActionPlan submit remain outside the boundary.

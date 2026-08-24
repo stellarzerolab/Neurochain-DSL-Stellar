@@ -86,6 +86,7 @@ test("settle wire, admission and authority drift fail closed", async () => {
 
   const packageDrift = cloneFixture(fixture);
   packageDrift.sourcePackages = {
+    "@stellar/stellar-sdk": "16.2.0",
     "@x402/core": "2.23.0",
     "@x402/stellar": "9.9.9",
   };

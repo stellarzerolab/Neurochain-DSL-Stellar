@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "network": "stellar:testnet",
+  "attemptedAt": "2026-08-24T12:04:19.653Z",
+  "completedAt": "2026-08-24T12:04:26.291Z",
+  "publicAccountId": "GBWOXRYVXTBHSFAUEPKFP4MZTXD22E5ROJTGMGR7NJ6ZNAVJH7YFRWDK",
+  "friendbotFunding": {
+    "status": "confirmed",
+    "transactionHash": "46a5b81bc748523a7dd07fb7f14d48719da02c48105f58120fbf4b41293bb4e3",
+    "ledger": 4310008,
+    "createdAt": "2026-08-24T12:04:22Z",
+    "startingBalance": "10000.0000000"
+  },
+  "canonicalSupported": {
+    "status": "verified_offline"
+  },
+  "canonicalVerify": {
+    "status": "outcome_unknown",
+    "code": "testnet_outcome_unknown",
+    "reason": "strict public verify evidence was not returned after the funded attempt"
+  },
+  "settlement": {
+    "status": "not_attempted"
+  },
+  "authorityBoundary": {
+    "serviceDispatchGranted": false,
+    "underlyingExecutionGranted": false,
+    "walletGeneralAuthorityGranted": false,
+    "settlementGeneralAuthorityGranted": false,
+    "transactionSubmitGeneralAuthorityGranted": false,
+    "actionPlanSubmitGranted": false
+  }
+}

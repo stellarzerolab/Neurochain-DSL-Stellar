@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
+import { Asset, Networks } from "@stellar/stellar-sdk";
 import {
   DEFAULT_TESTNET_HORIZON_URL,
   DEFAULT_TESTNET_RPC_URL,
   STELLAR_TESTNET_CAIP2,
-  USDC_TESTNET_ADDRESS,
   convertToTokenAmount,
   validateStellarDestinationAddress,
 } from "@x402/stellar";
@@ -14,6 +14,11 @@ export const TESTNET_HARNESS_CONFIRMATION =
   "EXECUTE_BOUNDED_X402_TESTNET" as const;
 export const OFFICIAL_TESTNET_FRIENDBOT_URL =
   "https://friendbot.stellar.org" as const;
+export const NATIVE_XLM_TESTNET_ADDRESS = Asset.native().contractId(
+  Networks.TESTNET,
+);
+export const BOUNDED_TESTNET_RECIPIENT =
+  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5" as const;
 export const BOUNDED_TESTNET_AMOUNT = convertToTokenAmount("0.01");
 
 export const TESTNET_CREDENTIAL_HANDLE: unique symbol = Symbol(
@@ -77,7 +82,7 @@ export interface TestnetHarnessRequest {
   readonly friendbotUrl: typeof OFFICIAL_TESTNET_FRIENDBOT_URL;
   readonly x402Version: 2;
   readonly scheme: "exact";
-  readonly asset: typeof USDC_TESTNET_ADDRESS;
+  readonly asset: string;
   readonly payTo: string;
   readonly amount: string;
 }
@@ -91,7 +96,7 @@ export interface TestnetHarnessSafePlan {
   readonly friendbotUrl: typeof OFFICIAL_TESTNET_FRIENDBOT_URL;
   readonly x402Version: 2;
   readonly scheme: "exact";
-  readonly asset: typeof USDC_TESTNET_ADDRESS;
+  readonly asset: string;
   readonly payTo: string;
   readonly amount: string;
   readonly requestDigest: string;
@@ -324,10 +329,10 @@ function validateRequest(
       "RPC, Horizon and Friendbot must match the exact official testnet allowlist",
     );
   }
-  if (value.asset !== USDC_TESTNET_ADDRESS) {
+  if (value.asset !== NATIVE_XLM_TESTNET_ADDRESS) {
     return blocked(
       "testnet_asset_mismatch",
-      "asset must match the pinned Stellar testnet USDC contract",
+      "asset must match the derived Stellar testnet native-XLM SEP-41 contract",
     );
   }
   if (

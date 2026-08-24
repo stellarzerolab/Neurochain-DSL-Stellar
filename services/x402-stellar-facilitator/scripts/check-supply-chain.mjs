@@ -12,6 +12,7 @@ const INVENTORY_PATH = join(ROOT, "supply-chain", "dependency-license-inventory.
 const EXPECTED = Object.freeze({
   packageManager: "pnpm@11.19.0",
   dependencies: Object.freeze({
+    "@stellar/stellar-sdk": "16.2.0",
     "@x402/core": "2.23.0",
     "@x402/stellar": "2.23.0",
   }),

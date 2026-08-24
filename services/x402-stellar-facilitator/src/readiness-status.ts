@@ -1,4 +1,5 @@
 const EXPECTED_PACKAGES = Object.freeze({
+  "@stellar/stellar-sdk": "16.2.0",
   "@x402/core": "2.23.0",
   "@x402/stellar": "2.23.0",
   "@types/node": "24.13.3",

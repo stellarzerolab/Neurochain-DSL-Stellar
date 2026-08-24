@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "source": "pnpm licenses list --json",
   "packageManager": "pnpm@11.19.0",
-  "lockfileSha256": "c7f8306ef8af65f56b5d251c4b8ae0e00cea8537732660d31b3236957334a49e",
+  "lockfileSha256": "ea0d1dcca7cd257d553a9653e1e88d0f14477f9aeef71fb12c4e965108a1b2c1",
   "policy": {
     "prohibitedLicenseFamilies": [
       "AGPL",
@@ -15,6 +15,7 @@
   },
   "directDependencies": {
     "dependencies": {
+      "@stellar/stellar-sdk": "16.2.0",
       "@x402/core": "2.23.0",
       "@x402/stellar": "2.23.0"
     },
@@ -56,7 +57,7 @@
       "version": "16.2.0",
       "license": "Apache-2.0",
       "scope": "runtime",
-      "direct": false
+      "direct": "runtime"
     },
     {
       "name": "@types/node",

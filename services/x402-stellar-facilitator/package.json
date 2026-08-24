@@ -15,9 +15,11 @@
     "test": "pnpm run build && node --test \"dist/test/**/*.test.js\"",
     "check:supply-chain": "node scripts/check-supply-chain.mjs --check",
     "update:supply-chain": "node scripts/check-supply-chain.mjs --write",
+    "testnet:plan": "pnpm run build && node dist/src/run-testnet-supported-verify.js",
     "check": "pnpm run check:supply-chain && pnpm run typecheck && pnpm test"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "16.2.0",
     "@x402/core": "2.23.0",
     "@x402/stellar": "2.23.0"
   },

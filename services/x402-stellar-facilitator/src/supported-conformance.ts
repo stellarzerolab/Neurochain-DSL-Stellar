@@ -4,6 +4,7 @@ import { ExactStellarScheme } from "@x402/stellar/exact/facilitator";
 
 export const SUPPORTED_FIXTURE_SCHEMA_VERSION = 1 as const;
 export const PINNED_SOURCE_PACKAGES = Object.freeze({
+  "@stellar/stellar-sdk": "16.2.0",
   "@x402/core": "2.23.0",
   "@x402/stellar": "2.23.0",
 });

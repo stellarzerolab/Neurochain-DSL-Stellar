@@ -133,8 +133,8 @@ harness under
 - defaults to `execute=false` and proves zero state, credential, signer,
   network and submit calls;
 - accepts only `stellar:testnet`, exact official RPC/Horizon/Friendbot URLs,
-  the pinned testnet USDC contract, a separately bounded recipient and the
-  fixed 0.01 test-token amount;
+  the SDK-derived native-XLM SEP-41 contract, a separately bounded public
+  recipient and the fixed 0.01 test-XLM amount;
 - rejects an unknown field, pubnet, endpoint, asset, recipient, amount or
   missing confirmation with a stable non-empty fail-closed code;
 - requires separate atomic-state, ephemeral-credential and canonical-client
@@ -148,8 +148,12 @@ harness under
   wallet, dispatch, underlying execution, transaction-submit, guardrail
   override or ActionPlan-submit authority.
 
-The checkpoint now implements only the bounded local state port; credential
-and canonical-client ports remain absent. The
+The checkpoint now implements the bounded local state port plus one-shot
+ephemeral credential and canonical supported/verify ports. The credential is
+created only in memory with `@stellar/stellar-sdk@16.2.0`; the pinned
+`@x402/stellar@2.23.0` client owns auth-entry construction/signing and the
+pinned facilitator owns verification. No settle call is available through the
+runner. The
 `LocalTestnetStateAdapter` stores schema-v1 admission state and strict public
 evidence beneath the ignored `.local-testnet-state/` directory. Exclusive
 request locks, same-directory atomic replacement and restart reconciliation
@@ -165,9 +169,15 @@ escape and symlink state roots are rejected. This is a local non-production
 harness adapter, not the service handler's production store or a settlement
 runtime.
 
-The checkpoint still does not create a keypair, call Friendbot/RPC/Horizon,
-sign, settle or submit. Live testnet evidence must not be claimed until a later
-approved harness run has produced the corresponding public ledger evidence.
+The first explicitly approved live attempt created one ephemeral keypair and
+Friendbot funded its public account in ledger 4310008 (transaction
+`46a5b81bc748523a7dd07fb7f14d48719da02c48105f58120fbf4b41293bb4e3`).
+Canonical verify did not produce strict public success evidence, so the state
+is terminal `outcome_unknown`; no verify success or settlement is claimed.
+The likely boundary was immediate Horizon indexing after Friendbot funding,
+which is now handled by a bounded retry window, but this is an inference rather
+than proven attribution. A new ephemeral retry requires separate approval and
+a new bounded request; the terminal record is not deleted or retried.
 
 The pure service-handler milestone adds no protocol reimplementation. It
 delegates standard results to an injected upstream facilitator port, maps

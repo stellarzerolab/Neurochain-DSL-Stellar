@@ -38,6 +38,7 @@ test("committed dependency and license inventory keeps the approved closure", as
   assert.equal(inventory.schemaVersion, 1);
   assert.equal(inventory.packageManager, "pnpm@11.19.0");
   assert.deepEqual(inventory.directDependencies.dependencies, {
+    "@stellar/stellar-sdk": "16.2.0",
     "@x402/core": "2.23.0",
     "@x402/stellar": "2.23.0",
   });
