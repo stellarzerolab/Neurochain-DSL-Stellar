@@ -38,6 +38,10 @@ verification or settlement semantics.
 - a strict machine-readable 24-case readiness validator that separates
   verified offline evidence from persistent service-boundary work, approval-
   blocked live/security work, and upstream-blocked Stellar `upto` work;
+- a default-off one-shot testnet harness plus a local-only atomic state adapter
+  that records only request admission and strict public ledger evidence, blocks
+  duplicate/replay/restart retries, and never stores credentials or payment
+  material;
 - a GitHub CI gate with exact Node/pnpm versions, frozen lockfile installation,
   dependency scripts disabled, supply-chain validation, strict typecheck,
   build, and Node built-in tests;
@@ -82,12 +86,25 @@ leaking raw diagnostics. Unknown networks fail closed before a facilitator
 call. Every result carries an explicit all-false authority boundary.
 
 Settlement additionally requires a `SettlementStatePort` reservation before
-the upstream port can be called. No implementation is provided in this
-milestone: without an atomic persistent adapter the handler returns
-`settlement_state_unavailable`. Duplicate, replay, unverified and
-outcome-unknown decisions remain stable service states, and an outcome that
-cannot be durably recorded is never exposed as successful. This is an
-interface contract, not a persistent database or settlement runtime.
+the upstream port can be called. No production implementation is provided:
+without one the service handler returns `settlement_state_unavailable`.
+Duplicate, replay, unverified and outcome-unknown decisions remain stable
+service states, and an outcome that cannot be durably recorded is never
+exposed as successful. The separate `LocalTestnetStateAdapter` implements only
+the approved one-shot non-production harness port. It is not connected to the
+service handler or a listener and is not a production database or settlement
+runtime.
+
+The local testnet adapter writes schema-v1 records beneath the ignored
+`.local-testnet-state/` directory using exclusive per-request locks and
+same-directory atomic replacement. Records contain only a request digest,
+reservation identifier, admission/completion timestamps, state, and strict
+public evidence. Credentials, opaque signer handles, payment payloads, auth
+entries, signed XDR and raw upstream responses are rejected by construction.
+An interrupted `attempted` record becomes terminal `outcome_unknown` on
+restart; it is never retried automatically. Corrupt state, unknown schema,
+unexpected files, path traversal, symlink roots, duplicate reservations and
+replays all fail closed with stable non-empty codes.
 
 The evaluation handler consumes the shared fixtures under
 `examples/x402_service_boundary/`. TypeScript checks strict envelope,

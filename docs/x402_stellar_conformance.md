@@ -148,10 +148,26 @@ harness under
   wallet, dispatch, underlying execution, transaction-submit, guardrail
   override or ActionPlan-submit authority.
 
-The checkpoint does not implement any of those ports and therefore does not
-create a keypair, call Friendbot/RPC/Horizon, sign, settle or submit. Live
-testnet evidence must not be claimed until a later approved harness run has
-produced the corresponding public ledger evidence.
+The checkpoint now implements only the bounded local state port; credential
+and canonical-client ports remain absent. The
+`LocalTestnetStateAdapter` stores schema-v1 admission state and strict public
+evidence beneath the ignored `.local-testnet-state/` directory. Exclusive
+request locks, same-directory atomic replacement and restart reconciliation
+make duplicate, replay, concurrent reservation and interrupted attempts fail
+closed. An interrupted attempt becomes terminal `outcome_unknown` and is not
+retried automatically.
+
+The state schema excludes credentials, signer handles, payment payloads, auth
+entries, signed transaction XDR and raw upstream responses. It accepts only
+request/reservation identifiers, timestamps, state, and the harness's strict
+public evidence envelope. Corrupt or unknown records, unexpected files, path
+escape and symlink state roots are rejected. This is a local non-production
+harness adapter, not the service handler's production store or a settlement
+runtime.
+
+The checkpoint still does not create a keypair, call Friendbot/RPC/Horizon,
+sign, settle or submit. Live testnet evidence must not be claimed until a later
+approved harness run has produced the corresponding public ledger evidence.
 
 The pure service-handler milestone adds no protocol reimplementation. It
 delegates standard results to an injected upstream facilitator port, maps
@@ -209,6 +225,10 @@ does not replace the canonical package or upstream E2E suite.
   `services/x402-stellar-facilitator/src/testnet-conformance-harness.ts`,
   `fixtures/testnet-harness-v1.expected.json` and
   `test/testnet-conformance-harness.test.ts`.
+- Local-only atomic testnet state adapter, safe schema fixture and recovery
+  tests: `services/x402-stellar-facilitator/src/testnet-state-adapter.ts`,
+  `fixtures/testnet-state-v1.expected.json` and
+  `test/testnet-state-adapter.test.ts`.
 - Stable result codes include `conformance_plan_ready`,
   `spec_drift_detected`, `invalid_dependency_boundary`,
   `missing_conformance_case`, `duplicate_conformance_case`, and

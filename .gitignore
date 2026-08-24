@@ -11,6 +11,7 @@
 /services/**/dist/
 /services/**/node_modules/
 /services/**/.pnpm-store/
+/services/x402-stellar-facilitator/.local-testnet-state/
 macro_raw_latest.log
 macro_run_latest.log
 

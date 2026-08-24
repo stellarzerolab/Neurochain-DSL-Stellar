@@ -97,14 +97,44 @@ export interface TestnetHarnessSafePlan {
   readonly requestDigest: string;
 }
 
-export interface TestnetStateReservation {
-  readonly status: "reserved" | "unavailable";
-  readonly code: string;
-  readonly reason: string;
-}
+export type TestnetStateReservation =
+  | Readonly<{
+      status: "reserved";
+      reservationId: string;
+      code: string;
+      reason: string;
+    }>
+  | Readonly<{
+      status: "unavailable";
+      code: string;
+      reason: string;
+    }>;
+
+export type TestnetStateOutcome =
+  | Readonly<{
+      status: "confirmed";
+      evidence: TestnetPublicEvidence;
+    }>
+  | Readonly<{ status: "outcome_unknown" }>;
+
+export type TestnetStateFinalization =
+  | Readonly<{
+      status: "recorded";
+      code: string;
+      reason: string;
+    }>
+  | Readonly<{
+      status: "unavailable";
+      code: string;
+      reason: string;
+    }>;
 
 export interface TestnetStatePort {
   reserve(requestDigest: string): Promise<TestnetStateReservation>;
+  finalize(
+    reservationId: string,
+    outcome: TestnetStateOutcome,
+  ): Promise<TestnetStateFinalization>;
 }
 
 export interface EphemeralTestnetCredential {
@@ -159,6 +189,7 @@ export type TestnetHarnessCode =
   | "testnet_amount_mismatch"
   | "testnet_authority_forbidden"
   | "testnet_state_unavailable"
+  | "testnet_outcome_unknown"
   | "testnet_credential_invalid"
   | "testnet_execution_unavailable"
   | "testnet_public_evidence_invalid";
@@ -407,7 +438,9 @@ function sanitizeConformanceResults(
   return Object.freeze(sanitized);
 }
 
-function parsePublicEvidence(value: unknown): TestnetPublicEvidence | null {
+export function sanitizeTestnetPublicEvidence(
+  value: unknown,
+): TestnetPublicEvidence | null {
   if (
     value === null ||
     typeof value !== "object" ||
@@ -460,6 +493,23 @@ function parsePublicEvidence(value: unknown): TestnetPublicEvidence | null {
   });
 }
 
+async function finalizeTestnetState(
+  statePort: TestnetStatePort,
+  reservationId: string,
+  outcome: TestnetStateOutcome,
+): Promise<boolean> {
+  try {
+    const finalized = await statePort.finalize(reservationId, outcome);
+    return (
+      finalized.status === "recorded" &&
+      isNonEmptyString(finalized.code) &&
+      isNonEmptyString(finalized.reason)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function runTestnetConformanceHarness(
   requestValue: unknown,
   boundary: TestnetHarnessBoundary,
@@ -507,6 +557,7 @@ export async function runTestnetConformanceHarness(
   }
   if (
     reservation.status !== "reserved" ||
+    !isNonEmptyString(reservation.reservationId) ||
     !isNonEmptyString(reservation.code) ||
     !isNonEmptyString(reservation.reason)
   ) {
@@ -521,6 +572,11 @@ export async function runTestnetConformanceHarness(
   try {
     credential = await boundary.credentialPort.createEphemeral();
   } catch {
+    await finalizeTestnetState(
+      boundary.statePort,
+      reservation.reservationId,
+      { status: "outcome_unknown" },
+    );
     return blocked(
       "testnet_credential_invalid",
       "ephemeral testnet credential creation failed without exposing details",
@@ -535,6 +591,11 @@ export async function runTestnetConformanceHarness(
     !(TESTNET_CREDENTIAL_HANDLE in credential) ||
     credential[TESTNET_CREDENTIAL_HANDLE] === undefined
   ) {
+    await finalizeTestnetState(
+      boundary.statePort,
+      reservation.reservationId,
+      { status: "outcome_unknown" },
+    );
     return blocked(
       "testnet_credential_invalid",
       "credential port did not return a valid opaque ephemeral testnet credential",
@@ -546,17 +607,39 @@ export async function runTestnetConformanceHarness(
   try {
     rawEvidence = await boundary.canonicalPort.run(plan, credential);
   } catch {
+    await finalizeTestnetState(
+      boundary.statePort,
+      reservation.reservationId,
+      { status: "outcome_unknown" },
+    );
     return blocked(
-      "testnet_execution_unavailable",
-      "canonical testnet conformance execution failed without exposing details",
+      "testnet_outcome_unknown",
+      "canonical testnet conformance outcome is unknown and must not be retried automatically",
       plan,
     );
   }
-  const evidence = parsePublicEvidence(rawEvidence);
+  const evidence = sanitizeTestnetPublicEvidence(rawEvidence);
   if (!evidence || evidence.publicAccountId !== credential.publicAccountId) {
+    await finalizeTestnetState(
+      boundary.statePort,
+      reservation.reservationId,
+      { status: "outcome_unknown" },
+    );
     return blocked(
-      "testnet_public_evidence_invalid",
-      "canonical port returned non-public, malformed, unbound or incomplete evidence",
+      "testnet_outcome_unknown",
+      "canonical port returned invalid evidence after an attempt; the outcome must not be retried automatically",
+      plan,
+    );
+  }
+  const finalized = await finalizeTestnetState(
+    boundary.statePort,
+    reservation.reservationId,
+    { status: "confirmed", evidence },
+  );
+  if (!finalized) {
+    return blocked(
+      "testnet_outcome_unknown",
+      "canonical evidence could not be recorded atomically and must not be exposed as successful",
       plan,
     );
   }

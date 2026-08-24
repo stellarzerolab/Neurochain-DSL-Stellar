@@ -55,6 +55,10 @@ test("default harness validates a safe plan with zero credential, network or sub
           stateCalls += 1;
           throw new Error("dry_run_state_invoked");
         },
+        finalize: async () => {
+          stateCalls += 1;
+          throw new Error("dry_run_state_finalize_invoked");
+        },
       },
       credentialPort: {
         createEphemeral: async () => {
@@ -166,6 +170,7 @@ test("execute path requires atomic state and opaque credential ports", async () 
       code: "duplicate",
       reason: "request digest is already reserved",
     }),
+    finalize: async () => assert.fail("unavailable state finalized"),
   };
   const credentialPort: TestnetCredentialPort = {
     createEphemeral: async () => {
@@ -197,8 +202,14 @@ test("opaque credential handles and canonical errors never escape into public ou
   const statePort: TestnetStatePort = {
     reserve: async () => ({
       status: "reserved",
+      reservationId: "tstate_exception_case",
       code: "reserved",
       reason: "request digest reserved atomically",
+    }),
+    finalize: async () => ({
+      status: "recorded",
+      code: "outcome_unknown",
+      reason: "unknown outcome recorded",
     }),
   };
   const credentialPort: TestnetCredentialPort = {
@@ -218,7 +229,7 @@ test("opaque credential handles and canonical errors never escape into public ou
     credentialPort,
     canonicalPort,
   });
-  assert.equal(result.code, "testnet_execution_unavailable");
+  assert.equal(result.code, "testnet_outcome_unknown");
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET_SENTINEL, "u"));
 });
 
@@ -239,8 +250,17 @@ test("only strict public evidence can leave the canonical port", async () => {
         stateCalls += 1;
         return {
           status: "reserved",
+          reservationId: "tstate_public_evidence_case",
           code: "reserved",
           reason: "request digest reserved atomically",
+        };
+      },
+      finalize: async () => {
+        stateCalls += 1;
+        return {
+          status: "recorded",
+          code: "recorded",
+          reason: "public outcome recorded",
         };
       },
     },
@@ -303,7 +323,7 @@ test("only strict public evidence can leave the canonical port", async () => {
       reason: "canonical verify check passed",
     },
   ]);
-  assert.equal(stateCalls, 1);
+  assert.equal(stateCalls, 2);
   assert.equal(credentialCalls, 1);
   assert.equal(canonicalCalls, 1);
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET_SENTINEL, "u"));
@@ -341,7 +361,7 @@ test("only strict public evidence can leave the canonical port", async () => {
     request,
     injectedEvidenceBoundary,
   );
-  assert.equal(rejected.code, "testnet_public_evidence_invalid");
+  assert.equal(rejected.code, "testnet_outcome_unknown");
   assert.doesNotMatch(JSON.stringify(rejected), new RegExp(SECRET_SENTINEL, "u"));
 
   const unboundEvidenceBoundary: TestnetHarnessBoundary = {
@@ -376,5 +396,5 @@ test("only strict public evidence can leave the canonical port", async () => {
     request,
     unboundEvidenceBoundary,
   );
-  assert.equal(unbound.code, "testnet_public_evidence_invalid");
+  assert.equal(unbound.code, "testnet_outcome_unknown");
 });

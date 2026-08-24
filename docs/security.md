@@ -128,12 +128,22 @@ testnet endpoints and fixed safe payment metadata, then returns a public plan
 digest without invoking any effectful port.
 
 An opted-in future testnet run must supply separate atomic-state, ephemeral
-credential and canonical-client ports. The credential signer is held only in
-a symbol-keyed opaque field, and public results are rebuilt from a strict
-allowlisted evidence schema. Raw port exceptions, unknown evidence fields and
-secret-shaped inputs are never echoed. Tests replace `fetch` with a throwing
-sentinel and prove the default path makes zero state, credential, canonical or
-network calls.
+credential and canonical-client ports. The bounded local state port now has a
+non-production implementation beneath the ignored `.local-testnet-state/`
+directory. It uses per-request exclusive locks and atomic same-directory
+replacement, converts interrupted attempts to terminal `outcome_unknown`, and
+fails closed on corrupt/unknown state, concurrent reservation, path escape or
+symlink roots. It stores only request/reservation identifiers, timestamps,
+state and strict public evidence; credentials, signer handles, payment
+payloads, auth entries, signed XDR and raw upstream responses are forbidden.
+
+The credential signer is held only in a symbol-keyed opaque field, and public
+results are rebuilt from a strict allowlisted evidence schema. Raw port
+exceptions, unknown evidence fields and secret-shaped inputs are never echoed.
+Tests replace `fetch` with a throwing sentinel and prove the default path makes
+zero state, credential, canonical or network calls. The state adapter is not
+connected to the listener-free service handlers and is not a production store
+or settlement runtime.
 
 This boundary does not authorize pubnet/mainnet, a production or existing
 wallet, persistent secret storage, custom account credentials, general
