@@ -121,9 +121,28 @@ underlying execution, wallet, RPC, transaction-submit and ActionPlan-submit
 flags remain false. The module exposes no listener or dispatch method and does
 not reproduce the Rust access gate or digest algorithm.
 
-The separately approved follow-up milestones add only offline conformance.
-Any credential, Stellar network call, signing, real settlement, long-lived
-runtime, deployment, or submit still requires a new explicit approval.
+## Bounded testnet harness
+
+`src/testnet-conformance-harness.ts` is the first checkpoint of the separately
+approved non-production Stellar testnet phase. Its default request is a pure
+offline plan: it validates the exact `stellar:testnet` CAIP-2 identifier,
+official RPC/Horizon/Friendbot endpoint allowlist, pinned testnet USDC asset,
+explicit recipient and fixed 0.01 test-token amount. It creates only a public
+request digest and calls no state, credential, signer, network or submit port.
+
+Execution requires all of the following at the same time: `execute=true`, the
+exact bounded-testnet confirmation, an atomic state port, an ephemeral
+credential port and a canonical-client port. No concrete implementations are
+provided in this checkpoint. The credential uses a symbol-keyed opaque handle
+that JSON cannot serialize, and both port exceptions and malformed evidence
+are replaced with stable non-secret reasons. Only a strict public evidence
+envelope may leave the canonical port.
+
+This milestone performs no live testnet call and creates no keypair. A later
+checkpoint may add only the explicitly approved dedicated testnet adapters.
+Pubnet/mainnet, production or existing wallets, persistent secrets, custom
+accounts, general transaction submission, service dispatch, underlying
+execution and ActionPlan submit remain outside the boundary.
 
 ## Local quality gate
 

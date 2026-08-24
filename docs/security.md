@@ -119,6 +119,28 @@ workspace through frozen install, supply-chain/license validation, strict
 typecheck, build, and Node built-in tests. Keep that job separate from runtime
 deployment and credential-bearing conformance.
 
+### Bounded x402 testnet harness
+
+The approved non-production testnet phase starts with a default-off one-shot
+TypeScript harness. Its checked-in implementation has no concrete credential,
+network or submit adapter. Dry-run validation accepts only exact official
+testnet endpoints and fixed safe payment metadata, then returns a public plan
+digest without invoking any effectful port.
+
+An opted-in future testnet run must supply separate atomic-state, ephemeral
+credential and canonical-client ports. The credential signer is held only in
+a symbol-keyed opaque field, and public results are rebuilt from a strict
+allowlisted evidence schema. Raw port exceptions, unknown evidence fields and
+secret-shaped inputs are never echoed. Tests replace `fetch` with a throwing
+sentinel and prove the default path makes zero state, credential, canonical or
+network calls.
+
+This boundary does not authorize pubnet/mainnet, a production or existing
+wallet, persistent secret storage, custom account credentials, general
+transaction submission, service dispatch, underlying execution or ActionPlan
+submit. Live testnet evidence is recorded only after a separately gated run
+has produced the corresponding public ledger result.
+
 ```yaml
 name: Security & Quality
 

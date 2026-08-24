@@ -117,10 +117,41 @@ The user approved this exact offline-only package boundary on 2026-08-22:
   a signer or call verify/settle.
 
 The upstream package remains the owner of verify and settle, never the Rust
-guardrail runtime. Credentials, a credential-backed signer, any
-RPC/Horizon/facilitator call, live settlement, pubnet, deployment, wallet
-signing, transaction submit, and ActionPlan submit remain separate approval
-gates.
+guardrail runtime. The later approval described below is limited to a new
+dedicated non-production testnet credential and canonical x402 calls.
+Pubnet/mainnet, production or existing wallets, deployment, general wallet or
+transaction-submit authority, service dispatch and ActionPlan submit remain
+separate approval gates.
+
+## Approved testnet harness checkpoint
+
+The user approved a dedicated non-production Stellar testnet conformance phase
+on 2026-08-24. The first checkpoint remains fully offline. The pure one-shot
+harness under
+`services/x402-stellar-facilitator/src/testnet-conformance-harness.ts`:
+
+- defaults to `execute=false` and proves zero state, credential, signer,
+  network and submit calls;
+- accepts only `stellar:testnet`, exact official RPC/Horizon/Friendbot URLs,
+  the pinned testnet USDC contract, a separately bounded recipient and the
+  fixed 0.01 test-token amount;
+- rejects an unknown field, pubnet, endpoint, asset, recipient, amount or
+  missing confirmation with a stable non-empty fail-closed code;
+- requires separate atomic-state, ephemeral-credential and canonical-client
+  ports before an opted-in run can proceed;
+- keeps the signer as a symbol-keyed opaque handle and never serializes, logs,
+  returns or echoes credential or upstream exception details;
+- returns only an exact public evidence envelope containing a public account
+  ID, optional confirmed transaction hash/ledger, UTC timestamp and redacted
+  conformance checks;
+- grants no payment, proof, approval, general signing, general settlement,
+  wallet, dispatch, underlying execution, transaction-submit, guardrail
+  override or ActionPlan-submit authority.
+
+The checkpoint does not implement any of those ports and therefore does not
+create a keypair, call Friendbot/RPC/Horizon, sign, settle or submit. Live
+testnet evidence must not be claimed until a later approved harness run has
+produced the corresponding public ledger evidence.
 
 The pure service-handler milestone adds no protocol reimplementation. It
 delegates standard results to an injected upstream facilitator port, maps
@@ -174,6 +205,10 @@ does not replace the canonical package or upstream E2E suite.
 - Canonical `/supported` fixture and drift gate:
   `services/x402-stellar-facilitator/fixtures/supported-v2.expected.json`,
   `src/supported-conformance.ts` and its Node built-in tests.
+- Default-off testnet harness, safe fixture and secret/redaction tests:
+  `services/x402-stellar-facilitator/src/testnet-conformance-harness.ts`,
+  `fixtures/testnet-harness-v1.expected.json` and
+  `test/testnet-conformance-harness.test.ts`.
 - Stable result codes include `conformance_plan_ready`,
   `spec_drift_detected`, `invalid_dependency_boundary`,
   `missing_conformance_case`, `duplicate_conformance_case`, and
@@ -197,6 +232,10 @@ does not replace the canonical package or upstream E2E suite.
   <https://github.com/stellar/scf-handbook/blob/main/scf-awards/build-award/rfp-track.md#x402-facilitator-with-bazaar-discovery-support>
 - Stellar x402 documentation:
   <https://developers.stellar.org/docs/build/agentic-payments/x402>
+- Stellar network endpoint reference:
+  <https://developers.stellar.org/docs/networks>
+- Stellar testnet/Friendbot quickstart:
+  <https://developers.stellar.org/docs/tokens/quickstart>
 - x402 exact on Stellar specification:
   <https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_stellar.md>
 - Generic x402 `upto` specification:
