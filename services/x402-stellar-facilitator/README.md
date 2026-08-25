@@ -146,6 +146,10 @@ offline plan: it validates the exact `stellar:testnet` CAIP-2 identifier,
 official RPC/Horizon/Friendbot endpoint allowlist, SDK-derived native-XLM
 SEP-41 contract, explicit public recipient and fixed 0.01 test-XLM amount. It creates only a public
 request digest and calls no state, credential, signer, network or submit port.
+The second approved verify attempt uses a strict schema-v2 request with the
+fixed `attempt: 2` discriminator. The original schema-v1 fixture and terminal
+state remain unchanged, so the new request receives a distinct deterministic
+digest without weakening replay protection.
 
 Execution requires all of the following at the same time: `execute=true`, the
 exact bounded-testnet confirmation, an atomic state port, a one-shot ephemeral
@@ -163,6 +167,14 @@ The local admission record therefore became terminal `outcome_unknown`; it
 must not be deleted or retried automatically. The adapter now waits through a
 bounded Horizon indexing window before entering the upstream verify path.
 No settlement or transaction-submit authority was exercised.
+
+The separately approved second bounded request used schema v2 and a different
+ephemeral testnet account. Friendbot funding was confirmed, but canonical
+verify again returned no strict public success evidence. That request now has
+its own terminal `outcome_unknown` record; the first record is unchanged and
+no third credential, retry, settlement, or transaction submit is allowed by
+this checkpoint. The next step is offline error-stage instrumentation and
+review, not another live attempt.
 
 The safe default command remains offline:
 

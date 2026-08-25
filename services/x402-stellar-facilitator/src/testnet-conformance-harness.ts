@@ -9,7 +9,8 @@ import {
   validateStellarDestinationAddress,
 } from "@x402/stellar";
 
-export const TESTNET_HARNESS_SCHEMA_VERSION = 1 as const;
+export const TESTNET_HARNESS_SCHEMA_VERSION = 2 as const;
+export const TESTNET_HARNESS_ATTEMPT = 2 as const;
 export const TESTNET_HARNESS_CONFIRMATION =
   "EXECUTE_BOUNDED_X402_TESTNET" as const;
 export const OFFICIAL_TESTNET_FRIENDBOT_URL =
@@ -28,6 +29,7 @@ export const TESTNET_CREDENTIAL_HANDLE: unique symbol = Symbol(
 const REQUEST_KEYS = Object.freeze([
   "amount",
   "asset",
+  "attempt",
   "confirmation",
   "execute",
   "friendbotUrl",
@@ -74,6 +76,7 @@ const PUBLIC_CHECKS = Object.freeze({
 
 export interface TestnetHarnessRequest {
   readonly schemaVersion: typeof TESTNET_HARNESS_SCHEMA_VERSION;
+  readonly attempt: typeof TESTNET_HARNESS_ATTEMPT;
   readonly execute: boolean;
   readonly confirmation: string | null;
   readonly network: typeof STELLAR_TESTNET_CAIP2;
@@ -89,6 +92,7 @@ export interface TestnetHarnessRequest {
 
 export interface TestnetHarnessSafePlan {
   readonly schemaVersion: typeof TESTNET_HARNESS_SCHEMA_VERSION;
+  readonly attempt: typeof TESTNET_HARNESS_ATTEMPT;
   readonly execute: boolean;
   readonly network: typeof STELLAR_TESTNET_CAIP2;
   readonly rpcUrl: typeof DEFAULT_TESTNET_RPC_URL;
@@ -298,11 +302,12 @@ function validateRequest(
   if (!hasStrictRequestEnvelope(value)) {
     return blocked(
       "testnet_request_invalid",
-      "request must use the strict schema-v1 testnet harness envelope",
+      "request must use the strict schema-v2 testnet harness envelope",
     );
   }
   if (
     value.schemaVersion !== TESTNET_HARNESS_SCHEMA_VERSION ||
+    value.attempt !== TESTNET_HARNESS_ATTEMPT ||
     typeof value.execute !== "boolean" ||
     (value.confirmation !== null && typeof value.confirmation !== "string") ||
     value.x402Version !== 2 ||
@@ -310,7 +315,7 @@ function validateRequest(
   ) {
     return blocked(
       "testnet_request_invalid",
-      "request schemaVersion, execution flag, confirmation, x402Version or scheme is invalid",
+      "request schemaVersion, bounded attempt, execution flag, confirmation, x402Version or scheme is invalid",
     );
   }
   if (value.network !== STELLAR_TESTNET_CAIP2) {
@@ -370,6 +375,7 @@ function validateRequest(
 function buildSafePlan(request: TestnetHarnessRequest): TestnetHarnessSafePlan {
   const safeFields = Object.freeze({
     schemaVersion: request.schemaVersion,
+    attempt: request.attempt,
     execute: request.execute,
     network: request.network,
     rpcUrl: request.rpcUrl,

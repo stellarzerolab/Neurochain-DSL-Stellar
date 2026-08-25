@@ -17,7 +17,7 @@ const PUBLIC_ACCOUNT =
 const SECRET_SENTINEL = "TOP_SECRET_SENTINEL_MUST_NEVER_ESCAPE";
 
 interface HarnessFixture {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly request: Record<string, unknown>;
   readonly boundary: { readonly expectedPayTo: string };
   readonly expected: { readonly status: string; readonly code: string };
@@ -25,7 +25,7 @@ interface HarnessFixture {
 
 async function readFixture(): Promise<HarnessFixture> {
   const fixtureUrl = new URL(
-    "../../fixtures/testnet-harness-v1.expected.json",
+    "../../fixtures/testnet-harness-v2.expected.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as HarnessFixture;
@@ -73,7 +73,8 @@ test("default harness validates a safe plan with zero credential, network or sub
         },
       },
     });
-    assert.equal(fixture.schemaVersion, 1);
+    assert.equal(fixture.schemaVersion, 2);
+    assert.equal(result.plan?.attempt, 2);
     assert.equal(result.status, fixture.expected.status);
     assert.equal(result.code, fixture.expected.code);
     assert.ok(result.reason.trim().length > 0);
@@ -114,6 +115,7 @@ test("network, endpoint, asset, recipient, amount, opt-in and envelope drift fai
       "testnet_recipient_mismatch",
     ],
     [{ ...fixture.request, amount: "100001" }, "testnet_amount_mismatch"],
+    [{ ...fixture.request, attempt: 3 }, "testnet_request_invalid"],
     [
       { ...fixture.request, execute: true, confirmation: null },
       "testnet_execute_opt_in_required",

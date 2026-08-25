@@ -49,8 +49,11 @@
     {
       "id": "exact_canonical_client_e2e",
       "status": "approval_blocked",
-      "evidenceRefs": ["services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json"],
-      "reason": "A canonical-client round trip requires separately approved credentials, network access, and transaction evidence."
+      "evidenceRefs": [
+        "services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json",
+        "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json"
+      ],
+      "reason": "Two bounded dedicated testnet attempts confirmed public Friendbot funding but returned terminal outcome_unknown before strict canonical verify evidence; another credential or network attempt requires a new diagnostic approval."
     },
     {
       "id": "exact_keypair_auth",

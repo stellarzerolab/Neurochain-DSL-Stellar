@@ -179,6 +179,22 @@ which is now handled by a bounded retry window, but this is an inference rather
 than proven attribution. A new ephemeral retry requires separate approval and
 a new bounded request; the terminal record is not deleted or retried.
 
+The approved second verify attempt uses the strict schema-v2 fixture
+`services/x402-stellar-facilitator/fixtures/testnet-harness-v2.expected.json`.
+Its fixed `attempt: 2` discriminator creates a new deterministic request digest
+while preserving the original schema-v1 fixture and terminal state. Arbitrary
+attempt identifiers fail closed.
+
+The second bounded live attempt funded a different dedicated public account in
+testnet ledger 4329773, but it also failed to return strict public canonical
+verify evidence. Its separate schema-v2 request state is therefore terminal
+`outcome_unknown`; the original state remained byte-for-byte unchanged and no
+settlement was attempted. Because the bounded Horizon readiness window did not
+resolve the result, indexing lag is no longer a sufficient working diagnosis.
+The next step is offline error-stage instrumentation and review before any
+third credential or network attempt. Public evidence is recorded in
+`examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json`.
+
 The pure service-handler milestone adds no protocol reimplementation. It
 delegates standard results to an injected upstream facilitator port, maps
 unknown-network and upstream-exception cases to stable fail-closed codes, and
@@ -233,7 +249,8 @@ does not replace the canonical package or upstream E2E suite.
   `src/supported-conformance.ts` and its Node built-in tests.
 - Default-off testnet harness, safe fixture and secret/redaction tests:
   `services/x402-stellar-facilitator/src/testnet-conformance-harness.ts`,
-  `fixtures/testnet-harness-v1.expected.json` and
+  `fixtures/testnet-harness-v1.expected.json`,
+  `fixtures/testnet-harness-v2.expected.json` and
   `test/testnet-conformance-harness.test.ts`.
 - Local-only atomic testnet state adapter, safe schema fixture and recovery
   tests: `services/x402-stellar-facilitator/src/testnet-state-adapter.ts`,

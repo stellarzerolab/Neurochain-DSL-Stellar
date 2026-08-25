@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "network": "stellar:testnet",
+  "requestSchemaVersion": 2,
+  "boundedAttempt": 2,
+  "requestDigest": "926657c2544e42e202b20e280c01e2067e24b28b893318c25978eefb325bac63",
+  "attemptedAt": "2026-08-25T15:34:40.238Z",
+  "completedAt": "2026-08-25T15:34:48.373Z",
+  "publicAccountId": "GDOJ5P3CR6WDBGE5K7DUVQ47BCXKDOQMBVAFJNJ3NELSXWI5RJL25TKE",
+  "friendbotFunding": {
+    "status": "confirmed",
+    "transactionHash": "5028359c99eb08232d2320b097f4de484ade6ea0a163c929d4d99171b806bb53",
+    "ledger": 4329773,
+    "createdAt": "2026-08-25T15:34:44Z"
+  },
+  "canonicalSupported": {
+    "status": "verified_offline"
+  },
+  "canonicalVerify": {
+    "status": "outcome_unknown",
+    "code": "testnet_outcome_unknown",
+    "reason": "strict public verify evidence was not returned after the second funded bounded attempt"
+  },
+  "stateBoundary": {
+    "status": "terminal_outcome_unknown",
+    "automaticRetryAllowed": false,
+    "originalAttemptStateChanged": false
+  },
+  "settlement": {
+    "status": "not_attempted"
+  },
+  "authorityBoundary": {
+    "serviceDispatchGranted": false,
+    "underlyingExecutionGranted": false,
+    "walletGeneralAuthorityGranted": false,
+    "settlementGeneralAuthorityGranted": false,
+    "transactionSubmitGeneralAuthorityGranted": false,
+    "actionPlanSubmitGranted": false
+  }
+}

@@ -15,7 +15,7 @@ import { LocalTestnetStateAdapter } from "./testnet-state-adapter.js";
 const SERVICE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const FIXTURE_PATH = resolve(
   SERVICE_ROOT,
-  "fixtures/testnet-harness-v1.expected.json",
+  "fixtures/testnet-harness-v2.expected.json",
 );
 const EXECUTE_ARGUMENT = "--execute-bounded-testnet";
 const EXECUTE_ENVIRONMENT = "NC_X402_TESTNET_CONFIRM";
@@ -38,16 +38,31 @@ async function main(): Promise<void> {
         confirmation: TESTNET_HARNESS_CONFIRMATION,
       }
     : fixture.request;
+  let publicAccountId: string | null = null;
+  const credentialPort = createEphemeralTestnetCredentialPort();
   const boundary = execute
     ? {
         expectedPayTo: fixture.boundary.expectedPayTo,
         statePort: new LocalTestnetStateAdapter({ workspaceRoot: SERVICE_ROOT }),
-        credentialPort: createEphemeralTestnetCredentialPort(),
+        credentialPort: {
+          createEphemeral: async () => {
+            const credential = await credentialPort.createEphemeral();
+            publicAccountId = credential.publicAccountId;
+            return credential;
+          },
+        },
         canonicalPort: createCanonicalSupportedVerifyPort(),
       }
     : { expectedPayTo: fixture.boundary.expectedPayTo };
   const result = await runTestnetConformanceHarness(request, boundary);
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  const output = execute
+    ? Object.freeze({
+        schemaVersion: 1 as const,
+        publicAccountId,
+        result,
+      })
+    : result;
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
   if (execute && result.status !== "completed") {
     process.exitCode = 1;
   }
