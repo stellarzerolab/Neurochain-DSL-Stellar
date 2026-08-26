@@ -33,6 +33,7 @@ async function readFixture(): Promise<HarnessFixture> {
 async function assertDiagnostic(
   operation: Promise<unknown>,
   stage: TestnetCanonicalDiagnosticError["diagnostic"]["stage"],
+  detailCode?: TestnetCanonicalDiagnosticError["diagnostic"]["detailCode"],
 ): Promise<void> {
   await assert.rejects(operation, (error: unknown) => {
     assert.ok(error instanceof TestnetCanonicalDiagnosticError);
@@ -40,6 +41,9 @@ async function assertDiagnostic(
     assert.ok(error.diagnostic.code.trim().length > 0);
     assert.ok(error.diagnostic.reason.trim().length > 0);
     assert.equal(error.diagnostic.retryAllowed, false);
+    if (detailCode !== undefined) {
+      assert.equal(error.diagnostic.detailCode, detailCode);
+    }
     assert.doesNotMatch(
       JSON.stringify(error),
       new RegExp(SECRET_SENTINEL, "u"),
@@ -158,6 +162,7 @@ test("external network attempts and payer mismatches fail closed without secret 
   await assertDiagnostic(
     mismatch.run(fixture.request, secondCredential),
     "verify_result_validation",
+    "verified_payer_mismatch",
   );
 });
 
@@ -276,4 +281,57 @@ test("canonical adapter exposes only stable redacted failure stages", async () =
     ),
     "payment_payload_creation",
   );
+});
+
+test("verify rejection details preserve only pinned or local safe codes", async () => {
+  const fixture = await readFixture();
+  const cases: readonly {
+    readonly response: unknown;
+    readonly expectedDetail:
+      | "unexpected_verify_error"
+      | "missing_upstream_verify_reason"
+      | "unrecognized_upstream_verify_reason"
+      | "verify_response_malformed";
+  }[] = [
+    {
+      response: {
+        isValid: false,
+        invalidReason: "unexpected_verify_error",
+        invalidMessage: SECRET_SENTINEL,
+      },
+      expectedDetail: "unexpected_verify_error",
+    },
+    {
+      response: {
+        isValid: false,
+        invalidReason: SECRET_SENTINEL,
+        invalidMessage: SECRET_SENTINEL,
+      },
+      expectedDetail: "unrecognized_upstream_verify_reason",
+    },
+    {
+      response: { isValid: false, invalidMessage: SECRET_SENTINEL },
+      expectedDetail: "missing_upstream_verify_reason",
+    },
+    {
+      response: null,
+      expectedDetail: "verify_response_malformed",
+    },
+  ];
+
+  for (const conformanceCase of cases) {
+    const port = createCanonicalSupportedVerifyPort({
+      networkFetch: async () => new Response(null, { status: 200 }),
+      runUpstreamVerify: async () =>
+        conformanceCase.response as VerifyResponse,
+    });
+    await assertDiagnostic(
+      port.run(
+        fixture.request,
+        await testCredentialPort().createEphemeral(),
+      ),
+      "verify_result_validation",
+      conformanceCase.expectedDetail,
+    );
+  }
 });

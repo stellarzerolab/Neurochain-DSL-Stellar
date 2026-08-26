@@ -230,6 +230,53 @@ const TESTNET_CANONICAL_DIAGNOSTICS = Object.freeze({
   }),
 });
 
+const PINNED_UPSTREAM_VERIFY_REASON_CODES = Object.freeze([
+  "invalid_exact_stellar_payload_event_missing_contract_id",
+  "invalid_exact_stellar_payload_event_not_transfer",
+  "invalid_exact_stellar_payload_event_wrong_amount",
+  "invalid_exact_stellar_payload_event_wrong_asset",
+  "invalid_exact_stellar_payload_event_wrong_from",
+  "invalid_exact_stellar_payload_event_wrong_to",
+  "invalid_exact_stellar_payload_facilitator_in_auth",
+  "invalid_exact_stellar_payload_facilitator_is_payer",
+  "invalid_exact_stellar_payload_fee_exceeds_maximum",
+  "invalid_exact_stellar_payload_has_subinvocations",
+  "invalid_exact_stellar_payload_malformed",
+  "invalid_exact_stellar_payload_missing_payer_signature",
+  "invalid_exact_stellar_payload_multiple_transfers",
+  "invalid_exact_stellar_payload_no_auth_entries",
+  "invalid_exact_stellar_payload_no_transfer_events",
+  "invalid_exact_stellar_payload_simulation_failed",
+  "invalid_exact_stellar_payload_unexpected_pending_signatures",
+  "invalid_exact_stellar_payload_unsafe_tx_or_op_source",
+  "invalid_exact_stellar_payload_unsupported_credential_type",
+  "invalid_exact_stellar_payload_wrong_amount",
+  "invalid_exact_stellar_payload_wrong_asset",
+  "invalid_exact_stellar_payload_wrong_function_name",
+  "invalid_exact_stellar_payload_wrong_operation",
+  "invalid_exact_stellar_payload_wrong_recipient",
+  "invalid_exact_stellar_signature_expiration_too_far",
+  "invalid_network",
+  "invalid_x402_version",
+  "network_mismatch",
+  "unexpected_verify_error",
+  "unsupported_scheme",
+] as const);
+
+const PINNED_UPSTREAM_VERIFY_REASON_SET = new Set<string>(
+  PINNED_UPSTREAM_VERIFY_REASON_CODES,
+);
+
+export type PinnedUpstreamVerifyReasonCode =
+  (typeof PINNED_UPSTREAM_VERIFY_REASON_CODES)[number];
+
+export type TestnetVerifyDiagnosticDetailCode =
+  | PinnedUpstreamVerifyReasonCode
+  | "missing_upstream_verify_reason"
+  | "unrecognized_upstream_verify_reason"
+  | "verified_payer_mismatch"
+  | "verify_response_malformed";
+
 export type TestnetCanonicalStage = keyof typeof TESTNET_CANONICAL_DIAGNOSTICS;
 
 export interface TestnetCanonicalDiagnostic {
@@ -237,24 +284,60 @@ export interface TestnetCanonicalDiagnostic {
   readonly code: string;
   readonly reason: string;
   readonly retryAllowed: false;
+  readonly detailCode?: TestnetVerifyDiagnosticDetailCode;
 }
 
 function canonicalDiagnostic(
   stage: TestnetCanonicalStage,
+  detailCode?: unknown,
 ): TestnetCanonicalDiagnostic {
   const definition = TESTNET_CANONICAL_DIAGNOSTICS[stage];
+  const safeDetailCode =
+    stage === "verify_result_validation" && detailCode !== undefined
+      ? normalizeTestnetVerifyDiagnosticDetail(detailCode)
+      : undefined;
   return Object.freeze({
     stage,
     code: definition.code,
     reason: definition.reason,
     retryAllowed: false as const,
+    ...(safeDetailCode === undefined ? {} : { detailCode: safeDetailCode }),
   });
+}
+
+export function listPinnedUpstreamVerifyReasonCodes(): readonly PinnedUpstreamVerifyReasonCode[] {
+  return PINNED_UPSTREAM_VERIFY_REASON_CODES;
+}
+
+export function classifyPinnedUpstreamVerifyReason(
+  value: unknown,
+): TestnetVerifyDiagnosticDetailCode {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return "missing_upstream_verify_reason";
+  }
+  return PINNED_UPSTREAM_VERIFY_REASON_SET.has(value)
+    ? (value as PinnedUpstreamVerifyReasonCode)
+    : "unrecognized_upstream_verify_reason";
+}
+
+function normalizeTestnetVerifyDiagnosticDetail(
+  value: unknown,
+): TestnetVerifyDiagnosticDetailCode {
+  if (
+    value === "verified_payer_mismatch" ||
+    value === "verify_response_malformed" ||
+    value === "missing_upstream_verify_reason" ||
+    value === "unrecognized_upstream_verify_reason"
+  ) {
+    return value;
+  }
+  return classifyPinnedUpstreamVerifyReason(value);
 }
 
 export function listTestnetCanonicalDiagnostics(): readonly TestnetCanonicalDiagnostic[] {
   return Object.freeze(
     (Object.keys(TESTNET_CANONICAL_DIAGNOSTICS) as TestnetCanonicalStage[]).map(
-      canonicalDiagnostic,
+      (stage) => canonicalDiagnostic(stage),
     ),
   );
 }
@@ -262,10 +345,10 @@ export function listTestnetCanonicalDiagnostics(): readonly TestnetCanonicalDiag
 export class TestnetCanonicalDiagnosticError extends Error {
   readonly diagnostic: TestnetCanonicalDiagnostic;
 
-  constructor(stage: TestnetCanonicalStage) {
+  constructor(stage: TestnetCanonicalStage, detailCode?: unknown) {
     super("canonical testnet stage failed closed");
     this.name = "TestnetCanonicalDiagnosticError";
-    this.diagnostic = canonicalDiagnostic(stage);
+    this.diagnostic = canonicalDiagnostic(stage, detailCode);
     Object.freeze(this);
   }
 }

@@ -16,6 +16,7 @@ import { ExactStellarScheme as FacilitatorExactStellarScheme } from "@x402/stell
 import {
   TESTNET_CREDENTIAL_HANDLE,
   TestnetCanonicalDiagnosticError,
+  classifyPinnedUpstreamVerifyReason,
   type CanonicalTestnetPort,
   type EphemeralTestnetCredential,
   type TestnetCredentialPort,
@@ -90,6 +91,34 @@ async function runCanonicalStage<T>(
       throw error;
     }
     throw new TestnetCanonicalDiagnosticError(stage);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertBoundedVerifyResult(
+  value: unknown,
+  expectedPayer: string,
+): asserts value is VerifyResponse & { readonly isValid: true; readonly payer: string } {
+  if (!isRecord(value) || typeof value.isValid !== "boolean") {
+    throw new TestnetCanonicalDiagnosticError(
+      "verify_result_validation",
+      "verify_response_malformed",
+    );
+  }
+  if (!value.isValid) {
+    throw new TestnetCanonicalDiagnosticError(
+      "verify_result_validation",
+      classifyPinnedUpstreamVerifyReason(value.invalidReason),
+    );
+  }
+  if (value.payer !== expectedPayer) {
+    throw new TestnetCanonicalDiagnosticError(
+      "verify_result_validation",
+      "verified_payer_mismatch",
+    );
   }
 }
 
@@ -369,14 +398,10 @@ export function createCanonicalSupportedVerifyPort(
             ),
           );
 
-          const verify = await runCanonicalStage("upstream_verify", () =>
+          const verify: unknown = await runCanonicalStage("upstream_verify", () =>
             runUpstreamVerify(plan, handle.signer),
           );
-          if (!verify.isValid || verify.payer !== credential.publicAccountId) {
-            throw new TestnetCanonicalDiagnosticError(
-              "verify_result_validation",
-            );
-          }
+          assertBoundedVerifyResult(verify, credential.publicAccountId);
 
           return Object.freeze({
             network: STELLAR_TESTNET_CAIP2,

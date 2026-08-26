@@ -185,6 +185,13 @@ An unrecognized failure maps to `canonical_port_unknown`. Every diagnostic is
 XDR and payment material never cross the result boundary. The deterministic
 wire fixture is `fixtures/testnet-error-stages-v1.expected.json`.
 
+For `verify_result_validation`, the optional `detailCode` preserves only one
+of the 30 reason codes inventoried from pinned `@x402/stellar@2.23.0`, or a
+fixed local code for missing, unrecognized, malformed or payer-mismatched
+results. Unknown `invalidReason` text and all `invalidMessage` content are
+discarded. The version/package drift fixture is
+`fixtures/testnet-upstream-verify-reasons-v1.expected.json`.
+
 This instrumentation is offline evidence only. It cannot retroactively assign
 a stage to either terminal record, does not authorize another credential or
 network attempt, and does not change the settlement or submit boundary.

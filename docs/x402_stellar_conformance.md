@@ -205,6 +205,14 @@ non-retryable and contain only a fixed stage, code and reason; raw exceptions,
 credentials, auth entries, payment payloads and signed XDR remain inside the
 private boundary.
 
+The verify-result stage additionally uses an exact allowlist of 30
+`invalidReason` codes inventoried from pinned `@x402/stellar@2.23.0`. A known
+code becomes the optional public `detailCode`; missing, unknown, malformed and
+valid-but-wrong-payer results map to fixed local codes. Arbitrary upstream
+reason text, `invalidMessage` and exception content are never echoed. The
+versioned reason fixture is tied to the exact direct package version, so a
+package or reason-inventory change requires review.
+
 The pinned upstream facilitator performs structural validation before RPC
 simulation and auth-entry validation. It also converts unexpected internal
 verification exceptions to an invalid verify response. The local adapter does
@@ -272,6 +280,7 @@ does not replace the canonical package or upstream E2E suite.
   `test/testnet-conformance-harness.test.ts`.
 - Redacted canonical error-stage contract:
   `services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json`,
+  `fixtures/testnet-upstream-verify-reasons-v1.expected.json`,
   `src/testnet-live-conformance.ts`,
   `test/testnet-conformance-harness.test.ts` and
   `test/testnet-live-conformance.test.ts`.

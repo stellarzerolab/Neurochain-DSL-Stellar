@@ -6,6 +6,8 @@ import {
   TESTNET_CREDENTIAL_HANDLE,
   TESTNET_HARNESS_CONFIRMATION,
   TestnetCanonicalDiagnosticError,
+  classifyPinnedUpstreamVerifyReason,
+  listPinnedUpstreamVerifyReasonCodes,
   listTestnetCanonicalDiagnostics,
   runTestnetConformanceHarness,
   type CanonicalTestnetPort,
@@ -30,6 +32,13 @@ interface DiagnosticFixture {
   readonly diagnostics: ReturnType<typeof listTestnetCanonicalDiagnostics>;
 }
 
+interface UpstreamReasonFixture {
+  readonly schemaVersion: 1;
+  readonly package: "@x402/stellar";
+  readonly packageVersion: "2.23.0";
+  readonly reasonCodes: ReturnType<typeof listPinnedUpstreamVerifyReasonCodes>;
+}
+
 async function readFixture(): Promise<HarnessFixture> {
   const fixtureUrl = new URL(
     "../../fixtures/testnet-harness-v2.expected.json",
@@ -44,6 +53,14 @@ async function readDiagnosticFixture(): Promise<DiagnosticFixture> {
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as DiagnosticFixture;
+}
+
+async function readUpstreamReasonFixture(): Promise<UpstreamReasonFixture> {
+  const fixtureUrl = new URL(
+    "../../fixtures/testnet-upstream-verify-reasons-v1.expected.json",
+    import.meta.url,
+  );
+  return JSON.parse(await readFile(fixtureUrl, "utf8")) as UpstreamReasonFixture;
 }
 
 function clone(value: Record<string, unknown>): Record<string, unknown> {
@@ -464,4 +481,38 @@ test("canonical error-stage fixture is deterministic, redacted and non-retryable
       new RegExp(SECRET_SENTINEL, "u"),
     );
   }
+});
+
+test("pinned upstream verify reasons are allowlisted without echoing unknown input", async () => {
+  const fixture = await readUpstreamReasonFixture();
+  const packageJson = JSON.parse(
+    await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+  ) as { readonly dependencies?: Readonly<Record<string, string>> };
+  assert.equal(fixture.schemaVersion, 1);
+  assert.equal(fixture.package, "@x402/stellar");
+  assert.equal(fixture.packageVersion, "2.23.0");
+  assert.equal(
+    packageJson.dependencies?.[fixture.package],
+    fixture.packageVersion,
+  );
+  assert.deepEqual(listPinnedUpstreamVerifyReasonCodes(), fixture.reasonCodes);
+  assert.equal(fixture.reasonCodes.length, 30);
+  assert.equal(new Set(fixture.reasonCodes).size, fixture.reasonCodes.length);
+  assert.deepEqual(fixture.reasonCodes, [...fixture.reasonCodes].sort());
+  for (const reasonCode of fixture.reasonCodes) {
+    assert.match(reasonCode, /^[a-z0-9_]+$/u);
+    assert.equal(classifyPinnedUpstreamVerifyReason(reasonCode), reasonCode);
+  }
+  assert.equal(
+    classifyPinnedUpstreamVerifyReason(undefined),
+    "missing_upstream_verify_reason",
+  );
+  assert.equal(
+    classifyPinnedUpstreamVerifyReason(SECRET_SENTINEL),
+    "unrecognized_upstream_verify_reason",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(classifyPinnedUpstreamVerifyReason(SECRET_SENTINEL)),
+    new RegExp(SECRET_SENTINEL, "u"),
+  );
 });
