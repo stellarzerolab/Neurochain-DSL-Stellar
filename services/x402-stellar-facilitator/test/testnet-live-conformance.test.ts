@@ -24,7 +24,7 @@ interface HarnessFixture {
 
 async function readFixture(): Promise<HarnessFixture> {
   const fixtureUrl = new URL(
-    "../../fixtures/testnet-harness-v2.expected.json",
+    "../../fixtures/testnet-harness-v3.expected.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as HarnessFixture;

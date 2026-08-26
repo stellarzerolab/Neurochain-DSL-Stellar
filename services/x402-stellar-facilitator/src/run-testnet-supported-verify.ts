@@ -15,7 +15,7 @@ import { LocalTestnetStateAdapter } from "./testnet-state-adapter.js";
 const SERVICE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const FIXTURE_PATH = resolve(
   SERVICE_ROOT,
-  "fixtures/testnet-harness-v2.expected.json",
+  "fixtures/testnet-harness-v3.expected.json",
 );
 const EXECUTE_ARGUMENT = "--execute-bounded-testnet";
 const EXECUTE_ENVIRONMENT = "NC_X402_TESTNET_CONFIRM";

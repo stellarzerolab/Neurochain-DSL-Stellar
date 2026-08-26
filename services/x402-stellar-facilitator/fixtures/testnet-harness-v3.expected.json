@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "request": {
+    "schemaVersion": 2,
+    "attempt": 3,
+    "execute": false,
+    "confirmation": null,
+    "network": "stellar:testnet",
+    "rpcUrl": "https://soroban-testnet.stellar.org",
+    "horizonUrl": "https://horizon-testnet.stellar.org",
+    "friendbotUrl": "https://friendbot.stellar.org",
+    "x402Version": 2,
+    "scheme": "exact",
+    "asset": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "payTo": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    "amount": "100000"
+  },
+  "boundary": {
+    "expectedPayTo": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+  },
+  "expected": {
+    "status": "ready",
+    "code": "testnet_harness_ready"
+  }
+}

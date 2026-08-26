@@ -41,7 +41,7 @@ interface UpstreamReasonFixture {
 
 async function readFixture(): Promise<HarnessFixture> {
   const fixtureUrl = new URL(
-    "../../fixtures/testnet-harness-v2.expected.json",
+    "../../fixtures/testnet-harness-v3.expected.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as HarnessFixture;
@@ -106,7 +106,7 @@ test("default harness validates a safe plan with zero credential, network or sub
       },
     });
     assert.equal(fixture.schemaVersion, 2);
-    assert.equal(result.plan?.attempt, 2);
+    assert.equal(result.plan?.attempt, 3);
     assert.equal(result.status, fixture.expected.status);
     assert.equal(result.code, fixture.expected.code);
     assert.ok(result.reason.trim().length > 0);
@@ -148,7 +148,7 @@ test("network, endpoint, asset, recipient, amount, opt-in and envelope drift fai
       "testnet_recipient_mismatch",
     ],
     [{ ...fixture.request, amount: "100001" }, "testnet_amount_mismatch"],
-    [{ ...fixture.request, attempt: 3 }, "testnet_request_invalid"],
+    [{ ...fixture.request, attempt: 2 }, "testnet_request_invalid"],
     [
       { ...fixture.request, execute: true, confirmation: null },
       "testnet_execute_opt_in_required",
@@ -297,6 +297,9 @@ test("opaque credential handles and canonical errors never escape into public ou
 
 test("only strict public evidence can leave the canonical port", async () => {
   const fixture = await readFixture();
+  const dryRun = await runTestnetConformanceHarness(fixture.request, {
+    expectedPayTo: fixture.boundary.expectedPayTo,
+  });
   const request = {
     ...fixture.request,
     execute: true,
@@ -308,8 +311,9 @@ test("only strict public evidence can leave the canonical port", async () => {
   const boundary: TestnetHarnessBoundary = {
     expectedPayTo: fixture.boundary.expectedPayTo,
     statePort: {
-      reserve: async () => {
+      reserve: async (requestDigest) => {
         stateCalls += 1;
+        assert.notEqual(requestDigest, dryRun.plan?.requestDigest);
         return {
           status: "reserved",
           reservationId: "tstate_public_evidence_case",
@@ -370,6 +374,7 @@ test("only strict public evidence can leave the canonical port", async () => {
   const result = await runTestnetConformanceHarness(request, boundary);
   assert.equal(result.status, "completed");
   assert.equal(result.code, "testnet_conformance_completed");
+  assert.notEqual(result.plan?.requestDigest, dryRun.plan?.requestDigest);
   assert.equal(result.diagnostic, null);
   assert.equal(result.evidence?.status, "supported_verified");
   assert.deepEqual(result.evidence?.conformanceResults, [

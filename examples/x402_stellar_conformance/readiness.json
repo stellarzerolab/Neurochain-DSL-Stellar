@@ -54,9 +54,10 @@
         "services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json",
         "services/x402-stellar-facilitator/fixtures/testnet-upstream-verify-reasons-v1.expected.json",
         "services/x402-stellar-facilitator/test/testnet-live-conformance.test.ts",
-        "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json"
+        "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json",
+        "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-26.json"
       ],
-      "reason": "Two bounded dedicated testnet attempts confirmed public Friendbot funding but returned terminal outcome_unknown before strict canonical verify evidence; offline redacted stage instrumentation is ready, while another credential or network attempt still requires explicit approval."
+      "reason": "Three bounded dedicated testnet attempts confirmed public Friendbot funding but returned terminal outcome_unknown before strict canonical verify evidence; the third redacted result wrapper was not retained after a local post-run digest assertion mismatch, and another credential or network attempt still requires explicit approval."
     },
     {
       "id": "exact_keypair_auth",

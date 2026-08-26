@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "network": "stellar:testnet",
+  "requestSchemaVersion": 2,
+  "boundedAttempt": 3,
+  "requestDigest": "88f097a735d9df8aab8759a9b1dac2b7a984167ad5849acd6cabee9ca19204a3",
+  "attemptedAt": "2026-08-26T13:20:13.243Z",
+  "completedAt": "2026-08-26T13:20:20.983Z",
+  "publicAccountId": "GA3CM2RCS3VGQAHLIP2VVWLXKCXOPF3QPC72DKDV65PQ46DNSZ3JPVA4",
+  "friendbotFunding": {
+    "status": "confirmed",
+    "transactionHash": "8d4b3e902860e018b95b7408741f9dad9b539d3b8a4b3d3183532ad3958432f3",
+    "ledger": 4345407,
+    "createdAt": "2026-08-26T13:20:17Z"
+  },
+  "canonicalSupported": {
+    "status": "verified_offline"
+  },
+  "canonicalVerify": {
+    "status": "outcome_unknown",
+    "code": "testnet_outcome_unknown",
+    "reason": "strict public verify evidence was not returned after the third funded bounded attempt"
+  },
+  "diagnosticCapture": {
+    "status": "not_recovered",
+    "code": "post_run_digest_assertion_mismatch",
+    "reason": "the local post-run checkpoint compared the execute digest with the dry-run digest and did not retain the redacted result wrapper"
+  },
+  "stateBoundary": {
+    "status": "terminal_outcome_unknown",
+    "automaticRetryAllowed": false,
+    "firstAttemptStateChanged": false,
+    "secondAttemptStateChanged": false
+  },
+  "settlement": {
+    "status": "not_attempted"
+  },
+  "authorityBoundary": {
+    "serviceDispatchGranted": false,
+    "underlyingExecutionGranted": false,
+    "walletGeneralAuthorityGranted": false,
+    "settlementGeneralAuthorityGranted": false,
+    "transactionSubmitGeneralAuthorityGranted": false,
+    "actionPlanSubmitGranted": false
+  }
+}

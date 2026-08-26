@@ -10,7 +10,7 @@ import {
 } from "@x402/stellar";
 
 export const TESTNET_HARNESS_SCHEMA_VERSION = 2 as const;
-export const TESTNET_HARNESS_ATTEMPT = 2 as const;
+export const TESTNET_HARNESS_ATTEMPT = 3 as const;
 export const TESTNET_HARNESS_CONFIRMATION =
   "EXECUTE_BOUNDED_X402_TESTNET" as const;
 export const OFFICIAL_TESTNET_FRIENDBOT_URL =

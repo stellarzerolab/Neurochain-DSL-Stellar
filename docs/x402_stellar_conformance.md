@@ -195,6 +195,19 @@ resolve the result, indexing lag is no longer a sufficient working diagnosis.
 Public evidence is recorded in
 `examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json`.
 
+The separately approved third request keeps schema v2 but uses the fixed
+`attempt: 3` discriminator and
+`services/x402-stellar-facilitator/fixtures/testnet-harness-v3.expected.json`.
+Friendbot funding was confirmed for a third dedicated public account in
+testnet ledger 4345407. Canonical verify still produced no strict public
+success evidence, so its isolated request state is terminal `outcome_unknown`;
+the two earlier records remained byte-for-byte unchanged and no settlement was
+attempted. The local post-run checkpoint incorrectly compared the execute
+digest with the intentionally different dry-run digest and therefore did not
+retain the redacted result wrapper. The diagnostic stage or `detailCode` is not
+guessed after the fact. Public evidence is recorded in
+`examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-26.json`.
+
 The next offline checkpoint adds a versioned, machine-readable diagnostic to
 the harness result. The adapter maps credential, official-endpoint allowlist,
 supported snapshot, Friendbot, payer/recipient Horizon readiness,
@@ -216,9 +229,9 @@ package or reason-inventory change requires review.
 The pinned upstream facilitator performs structural validation before RPC
 simulation and auth-entry validation. It also converts unexpected internal
 verification exceptions to an invalid verify response. The local adapter does
-not reimplement that behavior. The new instrumentation can classify a future
-explicitly approved bounded attempt, but it cannot infer or rewrite the stage
-of either existing terminal record. No third credential, retry, network call,
+not reimplement that behavior. The instrumentation cannot infer or rewrite the
+stage of existing terminal records, including the third attempt whose public
+wrapper was not retained. No fourth credential, retry, network call,
 settlement or submit is authorized by this checkpoint.
 
 The pure service-handler milestone adds no protocol reimplementation. It
@@ -276,8 +289,13 @@ does not replace the canonical package or upstream E2E suite.
 - Default-off testnet harness, safe fixture and secret/redaction tests:
   `services/x402-stellar-facilitator/src/testnet-conformance-harness.ts`,
   `fixtures/testnet-harness-v1.expected.json`,
-  `fixtures/testnet-harness-v2.expected.json` and
+  `fixtures/testnet-harness-v2.expected.json`,
+  `fixtures/testnet-harness-v3.expected.json` and
   `test/testnet-conformance-harness.test.ts`.
+- Redacted bounded live-attempt evidence:
+  `examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-24.json`,
+  `testnet-supported-verify-attempt-2026-08-25.json` and
+  `testnet-supported-verify-attempt-2026-08-26.json`.
 - Redacted canonical error-stage contract:
   `services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json`,
   `fixtures/testnet-upstream-verify-reasons-v1.expected.json`,

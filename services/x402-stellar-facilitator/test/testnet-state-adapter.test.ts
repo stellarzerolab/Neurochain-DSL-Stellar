@@ -60,7 +60,7 @@ async function readHarnessFixture(): Promise<{
   readonly boundary: { readonly expectedPayTo: string };
 }> {
   const fixtureUrl = new URL(
-    "../../fixtures/testnet-harness-v2.expected.json",
+    "../../fixtures/testnet-harness-v3.expected.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as {

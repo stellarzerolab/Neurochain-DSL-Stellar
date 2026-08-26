@@ -172,8 +172,18 @@ The separately approved second bounded request used schema v2 and a different
 ephemeral testnet account. Friendbot funding was confirmed, but canonical
 verify again returned no strict public success evidence. That request now has
 its own terminal `outcome_unknown` record; the first record is unchanged and
-no third credential, retry, settlement, or transaction submit is allowed by
-this checkpoint.
+no third credential, retry, settlement, or transaction submit was allowed by
+that checkpoint without a new approval.
+
+The separately approved third bounded request keeps schema v2 and uses the
+fixed `attempt: 3` fixture. Friendbot funding was confirmed, but canonical
+verify again returned no strict public success evidence. Its isolated state is
+terminal `outcome_unknown`, the first two records are unchanged, and no
+settlement or transaction submit was attempted. A local post-run assertion
+compared the execute digest with the intentionally different dry-run digest,
+so the redacted result wrapper was not retained; no diagnostic stage is
+inferred after the fact. No fourth credential or network retry is authorized
+by this checkpoint.
 
 The offline error-stage instrumentation now maps the canonical path to a
 versioned set of stable, secret-free diagnostics: credential validation,
@@ -193,8 +203,9 @@ discarded. The version/package drift fixture is
 `fixtures/testnet-upstream-verify-reasons-v1.expected.json`.
 
 This instrumentation is offline evidence only. It cannot retroactively assign
-a stage to either terminal record, does not authorize another credential or
-network attempt, and does not change the settlement or submit boundary.
+a stage to any of the three terminal records, does not authorize another
+credential or network attempt, and does not change the settlement or submit
+boundary.
 
 The safe default command remains offline:
 
@@ -202,8 +213,8 @@ The safe default command remains offline:
 pnpm run testnet:plan
 ```
 
-A live retry requires a new explicit approval and a newly bounded request; the
-terminal state from the first attempt must not be bypassed.
+A live retry requires a new explicit approval and a newly bounded request; none
+of the three terminal states may be bypassed.
 Pubnet/mainnet, production or existing wallets, persistent secrets, custom
 accounts, general transaction submission, service dispatch, underlying
 execution and ActionPlan submit remain outside the boundary.
