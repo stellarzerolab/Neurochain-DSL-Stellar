@@ -51,9 +51,11 @@
       "status": "approval_blocked",
       "evidenceRefs": [
         "services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json",
+        "services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json",
+        "services/x402-stellar-facilitator/test/testnet-live-conformance.test.ts",
         "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json"
       ],
-      "reason": "Two bounded dedicated testnet attempts confirmed public Friendbot funding but returned terminal outcome_unknown before strict canonical verify evidence; another credential or network attempt requires a new diagnostic approval."
+      "reason": "Two bounded dedicated testnet attempts confirmed public Friendbot funding but returned terminal outcome_unknown before strict canonical verify evidence; offline redacted stage instrumentation is ready, while another credential or network attempt still requires explicit approval."
     },
     {
       "id": "exact_keypair_auth",
@@ -163,8 +165,11 @@
     {
       "id": "observability_and_audit",
       "status": "service_boundary_pending",
-      "evidenceRefs": ["services/x402-stellar-facilitator/test/service-handlers.test.ts"],
-      "reason": "Stable secret-free result contracts exist, but production metrics, persistence, reconciliation, and SLO evidence do not."
+      "evidenceRefs": [
+        "services/x402-stellar-facilitator/test/service-handlers.test.ts",
+        "services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json"
+      ],
+      "reason": "Stable secret-free result and canonical error-stage contracts exist, but production metrics, persistence, reconciliation, and SLO evidence do not."
     },
     {
       "id": "third_party_security_review",

@@ -1,11 +1,12 @@
 # Offline @x402/stellar conformance preparation
 
-Date: 2026-08-24
+Date: 2026-08-26
 
 Status: versioned offline coverage plan plus machine-readable readiness status,
 approved exact-version package bootstrap, supply-chain gate, upstream API
 smoke, canonical offline Stellar exact rejection conformance, pure service-
-boundary handlers, and CI quality gates; no live runtime
+boundary handlers, redacted testnet error-stage instrumentation, and CI quality
+gates; no live runtime
 
 ## Outcome
 
@@ -191,9 +192,26 @@ verify evidence. Its separate schema-v2 request state is therefore terminal
 `outcome_unknown`; the original state remained byte-for-byte unchanged and no
 settlement was attempted. Because the bounded Horizon readiness window did not
 resolve the result, indexing lag is no longer a sufficient working diagnosis.
-The next step is offline error-stage instrumentation and review before any
-third credential or network attempt. Public evidence is recorded in
+Public evidence is recorded in
 `examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json`.
+
+The next offline checkpoint adds a versioned, machine-readable diagnostic to
+the harness result. The adapter maps credential, official-endpoint allowlist,
+supported snapshot, Friendbot, payer/recipient Horizon readiness,
+payment-payload creation, pinned upstream verify, verify-result validation,
+public-evidence validation and state finalization failures to stable codes. An
+unknown adapter failure maps to `canonical_port_unknown`. All diagnostics are
+non-retryable and contain only a fixed stage, code and reason; raw exceptions,
+credentials, auth entries, payment payloads and signed XDR remain inside the
+private boundary.
+
+The pinned upstream facilitator performs structural validation before RPC
+simulation and auth-entry validation. It also converts unexpected internal
+verification exceptions to an invalid verify response. The local adapter does
+not reimplement that behavior. The new instrumentation can classify a future
+explicitly approved bounded attempt, but it cannot infer or rewrite the stage
+of either existing terminal record. No third credential, retry, network call,
+settlement or submit is authorized by this checkpoint.
 
 The pure service-handler milestone adds no protocol reimplementation. It
 delegates standard results to an injected upstream facilitator port, maps
@@ -252,6 +270,11 @@ does not replace the canonical package or upstream E2E suite.
   `fixtures/testnet-harness-v1.expected.json`,
   `fixtures/testnet-harness-v2.expected.json` and
   `test/testnet-conformance-harness.test.ts`.
+- Redacted canonical error-stage contract:
+  `services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json`,
+  `src/testnet-live-conformance.ts`,
+  `test/testnet-conformance-harness.test.ts` and
+  `test/testnet-live-conformance.test.ts`.
 - Local-only atomic testnet state adapter, safe schema fixture and recovery
   tests: `services/x402-stellar-facilitator/src/testnet-state-adapter.ts`,
   `fixtures/testnet-state-v1.expected.json` and

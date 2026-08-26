@@ -6,6 +6,7 @@ import type { VerifyResponse } from "@x402/core/types";
 
 import {
   TESTNET_CREDENTIAL_HANDLE,
+  TestnetCanonicalDiagnosticError,
   type TestnetHarnessSafePlan,
 } from "../src/testnet-conformance-harness.js";
 import {
@@ -27,6 +28,24 @@ async function readFixture(): Promise<HarnessFixture> {
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as HarnessFixture;
+}
+
+async function assertDiagnostic(
+  operation: Promise<unknown>,
+  stage: TestnetCanonicalDiagnosticError["diagnostic"]["stage"],
+): Promise<void> {
+  await assert.rejects(operation, (error: unknown) => {
+    assert.ok(error instanceof TestnetCanonicalDiagnosticError);
+    assert.equal(error.diagnostic.stage, stage);
+    assert.ok(error.diagnostic.code.trim().length > 0);
+    assert.ok(error.diagnostic.reason.trim().length > 0);
+    assert.equal(error.diagnostic.retryAllowed, false);
+    assert.doesNotMatch(
+      JSON.stringify(error),
+      new RegExp(SECRET_SENTINEL, "u"),
+    );
+    return true;
+  });
 }
 
 function testCredentialPort() {
@@ -122,9 +141,9 @@ test("external network attempts and payer mismatches fail closed without secret 
       return { isValid: true, payer: PUBLIC_ACCOUNT };
     },
   });
-  await assert.rejects(
+  await assertDiagnostic(
     forbidden.run(fixture.request, credential),
-    /testnet_external_endpoint_forbidden/u,
+    "network_allowlist",
   );
   assert.equal(networkCalls, 3);
 
@@ -136,9 +155,9 @@ test("external network attempts and payer mismatches fail closed without secret 
       payer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
     }),
   });
-  await assert.rejects(
+  await assertDiagnostic(
     mismatch.run(fixture.request, secondCredential),
-    /testnet_canonical_verify_failed/u,
+    "verify_result_validation",
   );
 });
 
@@ -173,5 +192,88 @@ test("bounded Horizon readiness retries transient account indexing lag only", as
   assert.equal(
     (evidence as { readonly status: string }).status,
     "supported_verified",
+  );
+});
+
+test("canonical adapter exposes only stable redacted failure stages", async () => {
+  const fixture = await readFixture();
+
+  const friendbotFailure = createCanonicalSupportedVerifyPort({
+    networkFetch: async (input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      return new Response(null, {
+        status: url.startsWith("https://friendbot.stellar.org/") ? 503 : 200,
+      });
+    },
+    runUpstreamVerify: async () => ({ isValid: true, payer: PUBLIC_ACCOUNT }),
+  });
+  await assertDiagnostic(
+    friendbotFailure.run(
+      fixture.request,
+      await testCredentialPort().createEphemeral(),
+    ),
+    "friendbot_funding",
+  );
+
+  const payerReadinessFailure = createCanonicalSupportedVerifyPort({
+    networkFetch: async (input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      return new Response(null, {
+        status: url.endsWith(`/accounts/${PUBLIC_ACCOUNT}`) ? 500 : 200,
+      });
+    },
+    runUpstreamVerify: async () => ({ isValid: true, payer: PUBLIC_ACCOUNT }),
+  });
+  await assertDiagnostic(
+    payerReadinessFailure.run(
+      fixture.request,
+      await testCredentialPort().createEphemeral(),
+    ),
+    "payer_horizon_readiness",
+  );
+
+  const recipientReadinessFailure = createCanonicalSupportedVerifyPort({
+    networkFetch: async (input) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      return new Response(null, {
+        status: url.endsWith(`/accounts/${fixture.request.payTo}`) ? 500 : 200,
+      });
+    },
+    runUpstreamVerify: async () => ({ isValid: true, payer: PUBLIC_ACCOUNT }),
+  });
+  await assertDiagnostic(
+    recipientReadinessFailure.run(
+      fixture.request,
+      await testCredentialPort().createEphemeral(),
+    ),
+    "recipient_horizon_readiness",
+  );
+
+  const upstreamFailure = createCanonicalSupportedVerifyPort({
+    networkFetch: async () => new Response(null, { status: 200 }),
+    runUpstreamVerify: async () => {
+      throw new Error(SECRET_SENTINEL);
+    },
+  });
+  await assertDiagnostic(
+    upstreamFailure.run(
+      fixture.request,
+      await testCredentialPort().createEphemeral(),
+    ),
+    "upstream_verify",
+  );
+
+  const payloadFailure = createCanonicalSupportedVerifyPort({
+    networkFetch: async () => new Response(null, { status: 200 }),
+    runUpstreamVerify: async () => {
+      throw new TestnetCanonicalDiagnosticError("payment_payload_creation");
+    },
+  });
+  await assertDiagnostic(
+    payloadFailure.run(
+      fixture.request,
+      await testCredentialPort().createEphemeral(),
+    ),
+    "payment_payload_creation",
   );
 });

@@ -179,6 +179,97 @@ export interface CanonicalTestnetPort {
   ): Promise<unknown>;
 }
 
+const TESTNET_CANONICAL_DIAGNOSTICS = Object.freeze({
+  credential_validation: Object.freeze({
+    code: "testnet_canonical_credential_validation_failed",
+    reason: "canonical port rejected the opaque credential boundary",
+  }),
+  network_allowlist: Object.freeze({
+    code: "testnet_network_allowlist_failed",
+    reason: "canonical port rejected a request outside the official testnet allowlist",
+  }),
+  supported_snapshot: Object.freeze({
+    code: "testnet_supported_snapshot_failed",
+    reason: "canonical supported snapshot validation failed closed",
+  }),
+  friendbot_funding: Object.freeze({
+    code: "testnet_friendbot_funding_failed",
+    reason: "official Friendbot funding failed closed",
+  }),
+  payer_horizon_readiness: Object.freeze({
+    code: "testnet_payer_horizon_readiness_failed",
+    reason: "payer account did not pass bounded Horizon readiness",
+  }),
+  recipient_horizon_readiness: Object.freeze({
+    code: "testnet_recipient_horizon_readiness_failed",
+    reason: "recipient account did not pass bounded Horizon readiness",
+  }),
+  payment_payload_creation: Object.freeze({
+    code: "testnet_payment_payload_creation_failed",
+    reason: "canonical payment payload creation failed closed",
+  }),
+  upstream_verify: Object.freeze({
+    code: "testnet_upstream_verify_failed",
+    reason: "pinned upstream canonical verify call failed closed",
+  }),
+  verify_result_validation: Object.freeze({
+    code: "testnet_verify_result_validation_failed",
+    reason: "pinned upstream verify result did not validate the bounded payer",
+  }),
+  canonical_port_unknown: Object.freeze({
+    code: "testnet_canonical_port_unknown",
+    reason: "canonical port failed outside a recognized redacted stage",
+  }),
+  public_evidence_validation: Object.freeze({
+    code: "testnet_public_evidence_validation_failed",
+    reason: "canonical port returned invalid or payer-unbound public evidence",
+  }),
+  state_finalization: Object.freeze({
+    code: "testnet_state_finalization_failed",
+    reason: "canonical public evidence could not be recorded atomically",
+  }),
+});
+
+export type TestnetCanonicalStage = keyof typeof TESTNET_CANONICAL_DIAGNOSTICS;
+
+export interface TestnetCanonicalDiagnostic {
+  readonly stage: TestnetCanonicalStage;
+  readonly code: string;
+  readonly reason: string;
+  readonly retryAllowed: false;
+}
+
+function canonicalDiagnostic(
+  stage: TestnetCanonicalStage,
+): TestnetCanonicalDiagnostic {
+  const definition = TESTNET_CANONICAL_DIAGNOSTICS[stage];
+  return Object.freeze({
+    stage,
+    code: definition.code,
+    reason: definition.reason,
+    retryAllowed: false as const,
+  });
+}
+
+export function listTestnetCanonicalDiagnostics(): readonly TestnetCanonicalDiagnostic[] {
+  return Object.freeze(
+    (Object.keys(TESTNET_CANONICAL_DIAGNOSTICS) as TestnetCanonicalStage[]).map(
+      canonicalDiagnostic,
+    ),
+  );
+}
+
+export class TestnetCanonicalDiagnosticError extends Error {
+  readonly diagnostic: TestnetCanonicalDiagnostic;
+
+  constructor(stage: TestnetCanonicalStage) {
+    super("canonical testnet stage failed closed");
+    this.name = "TestnetCanonicalDiagnosticError";
+    this.diagnostic = canonicalDiagnostic(stage);
+    Object.freeze(this);
+  }
+}
+
 export interface TestnetHarnessBoundary {
   readonly expectedPayTo: string;
   readonly statePort?: TestnetStatePort;
@@ -223,6 +314,7 @@ export interface TestnetHarnessResult {
   readonly reason: string;
   readonly plan: TestnetHarnessSafePlan | null;
   readonly evidence: TestnetPublicEvidence | null;
+  readonly diagnostic: TestnetCanonicalDiagnostic | null;
   readonly authorityBoundary: TestnetHarnessAuthorityBoundary;
 }
 
@@ -273,6 +365,7 @@ function blocked(
   >,
   reason: string,
   plan: TestnetHarnessSafePlan | null = null,
+  diagnostic: TestnetCanonicalDiagnostic | null = null,
 ): TestnetHarnessResult {
   return Object.freeze({
     status: "blocked" as const,
@@ -280,6 +373,7 @@ function blocked(
     reason,
     plan,
     evidence: null,
+    diagnostic,
     authorityBoundary: AUTHORITY_BOUNDARY,
   });
 }
@@ -538,6 +632,7 @@ export async function runTestnetConformanceHarness(
         "bounded Stellar testnet plan validated offline; no credential, signing, network or submit action ran",
       plan,
       evidence: null,
+      diagnostic: null,
       authorityBoundary: AUTHORITY_BOUNDARY,
     });
   }
@@ -617,7 +712,7 @@ export async function runTestnetConformanceHarness(
   let rawEvidence: unknown;
   try {
     rawEvidence = await boundary.canonicalPort.run(plan, credential);
-  } catch {
+  } catch (error) {
     await finalizeTestnetState(
       boundary.statePort,
       reservation.reservationId,
@@ -627,6 +722,9 @@ export async function runTestnetConformanceHarness(
       "testnet_outcome_unknown",
       "canonical testnet conformance outcome is unknown and must not be retried automatically",
       plan,
+      error instanceof TestnetCanonicalDiagnosticError
+        ? error.diagnostic
+        : canonicalDiagnostic("canonical_port_unknown"),
     );
   }
   const evidence = sanitizeTestnetPublicEvidence(rawEvidence);
@@ -640,6 +738,7 @@ export async function runTestnetConformanceHarness(
       "testnet_outcome_unknown",
       "canonical port returned invalid evidence after an attempt; the outcome must not be retried automatically",
       plan,
+      canonicalDiagnostic("public_evidence_validation"),
     );
   }
   const finalized = await finalizeTestnetState(
@@ -652,6 +751,7 @@ export async function runTestnetConformanceHarness(
       "testnet_outcome_unknown",
       "canonical evidence could not be recorded atomically and must not be exposed as successful",
       plan,
+      canonicalDiagnostic("state_finalization"),
     );
   }
 
@@ -662,6 +762,7 @@ export async function runTestnetConformanceHarness(
       "bounded canonical Stellar testnet conformance completed with public redacted evidence",
     plan,
     evidence,
+    diagnostic: null,
     authorityBoundary: AUTHORITY_BOUNDARY,
   });
 }

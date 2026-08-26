@@ -15,6 +15,7 @@ import { ExactStellarScheme as FacilitatorExactStellarScheme } from "@x402/stell
 
 import {
   TESTNET_CREDENTIAL_HANDLE,
+  TestnetCanonicalDiagnosticError,
   type CanonicalTestnetPort,
   type EphemeralTestnetCredential,
   type TestnetCredentialPort,
@@ -76,6 +77,20 @@ function isLiveCredentialHandle(value: unknown): value is LiveCredentialHandle {
     typeof (value as Partial<LiveCredentialHandle>).signer?.signAuthEntry ===
       "function"
   );
+}
+
+async function runCanonicalStage<T>(
+  stage: ConstructorParameters<typeof TestnetCanonicalDiagnosticError>[0],
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof TestnetCanonicalDiagnosticError) {
+      throw error;
+    }
+    throw new TestnetCanonicalDiagnosticError(stage);
+  }
 }
 
 export function createEphemeralTestnetCredentialPort(
@@ -150,18 +165,14 @@ function assertAllowlistedRequest(
       !hasExactSearchKeys(url, ["addr"]) ||
       url.searchParams.get("addr") !== publicAccountId
     ) {
-      throw new Error(
-        "testnet_friendbot_request_forbidden:Friendbot request exceeded the dedicated public-account boundary",
-      );
+      throw new TestnetCanonicalDiagnosticError("network_allowlist");
     }
     return;
   }
 
   if (url.origin === rpc.origin) {
     if (url.pathname !== "/" || url.search.length !== 0 || method !== "POST") {
-      throw new Error(
-        "testnet_rpc_request_forbidden:RPC request exceeded the exact official endpoint boundary",
-      );
+      throw new TestnetCanonicalDiagnosticError("network_allowlist");
     }
     return;
   }
@@ -181,16 +192,12 @@ function assertAllowlistedRequest(
       hasExactSearchKeys(url, ["limit", "order"]) &&
       url.searchParams.get("order") === "desc";
     if (!accountRequest && !ledgerRequest) {
-      throw new Error(
-        "testnet_horizon_request_forbidden:Horizon request exceeded the account or ledger-read boundary",
-      );
+      throw new TestnetCanonicalDiagnosticError("network_allowlist");
     }
     return;
   }
 
-  throw new Error(
-    "testnet_external_endpoint_forbidden:only official Stellar testnet Friendbot, RPC and Horizon endpoints are allowed",
-  );
+  throw new TestnetCanonicalDiagnosticError("network_allowlist");
 }
 
 async function withAllowlistedFetch<T>(
@@ -200,9 +207,7 @@ async function withAllowlistedFetch<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   if (allowlistedFetchScopeActive) {
-    throw new Error(
-      "testnet_fetch_scope_busy:the one-shot network scope is already active",
-    );
+    throw new TestnetCanonicalDiagnosticError("network_allowlist");
   }
   allowlistedFetchScopeActive = true;
   const originalFetch = globalThis.fetch;
@@ -276,7 +281,9 @@ async function runPinnedUpstreamVerify(
     extra: Object.freeze({ areFeesSponsored: true }),
   });
   const client = new ClientExactStellarScheme(signer, { url: plan.rpcUrl });
-  const created = await client.createPaymentPayload(2, requirements);
+  const created = await runCanonicalStage("payment_payload_creation", () =>
+    client.createPaymentPayload(2, requirements),
+  );
   const payload: PaymentPayload = Object.freeze({
     ...created,
     accepted: requirements,
@@ -288,7 +295,9 @@ async function runPinnedUpstreamVerify(
       areFeesSponsored: true,
     },
   );
-  return facilitator.verify(payload, requirements);
+  return runCanonicalStage("upstream_verify", () =>
+    facilitator.verify(payload, requirements),
+  );
 }
 
 function assertCanonicalSupported(): void {
@@ -327,9 +336,7 @@ export function createCanonicalSupportedVerifyPort(
         !isLiveCredentialHandle(handle) ||
         handle.signer.address !== credential.publicAccountId
       ) {
-        throw new Error(
-          "testnet_credential_invalid:canonical port requires the opaque one-shot credential handle",
-        );
+        throw new TestnetCanonicalDiagnosticError("credential_validation");
       }
 
       return withAllowlistedFetch(
@@ -337,29 +344,37 @@ export function createCanonicalSupportedVerifyPort(
         credential.publicAccountId,
         networkFetch,
         async () => {
-          assertCanonicalSupported();
+          await runCanonicalStage("supported_snapshot", assertCanonicalSupported);
 
           const friendbotUrl = new URL(plan.friendbotUrl);
           friendbotUrl.searchParams.set("addr", credential.publicAccountId);
-          await requireOk(
-            await globalThis.fetch(friendbotUrl),
-            "testnet_friendbot_funding_failed",
+          await runCanonicalStage("friendbot_funding", async () =>
+            requireOk(
+              await globalThis.fetch(friendbotUrl),
+              "testnet_friendbot_funding_failed",
+            ),
           );
-          await requireHorizonAccount(
-            `${plan.horizonUrl}/accounts/${credential.publicAccountId}`,
-            "testnet_payer_account_unavailable",
-            wait,
+          await runCanonicalStage("payer_horizon_readiness", () =>
+            requireHorizonAccount(
+              `${plan.horizonUrl}/accounts/${credential.publicAccountId}`,
+              "testnet_payer_account_unavailable",
+              wait,
+            ),
           );
-          await requireHorizonAccount(
-            `${plan.horizonUrl}/accounts/${plan.payTo}`,
-            "testnet_recipient_account_unavailable",
-            wait,
+          await runCanonicalStage("recipient_horizon_readiness", () =>
+            requireHorizonAccount(
+              `${plan.horizonUrl}/accounts/${plan.payTo}`,
+              "testnet_recipient_account_unavailable",
+              wait,
+            ),
           );
 
-          const verify = await runUpstreamVerify(plan, handle.signer);
+          const verify = await runCanonicalStage("upstream_verify", () =>
+            runUpstreamVerify(plan, handle.signer),
+          );
           if (!verify.isValid || verify.payer !== credential.publicAccountId) {
-            throw new Error(
-              "testnet_canonical_verify_failed:pinned upstream did not validate the bounded payer payload",
+            throw new TestnetCanonicalDiagnosticError(
+              "verify_result_validation",
             );
           }
 

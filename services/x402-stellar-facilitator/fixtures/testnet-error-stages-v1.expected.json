@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "diagnostics": [
+    {
+      "stage": "credential_validation",
+      "code": "testnet_canonical_credential_validation_failed",
+      "reason": "canonical port rejected the opaque credential boundary",
+      "retryAllowed": false
+    },
+    {
+      "stage": "network_allowlist",
+      "code": "testnet_network_allowlist_failed",
+      "reason": "canonical port rejected a request outside the official testnet allowlist",
+      "retryAllowed": false
+    },
+    {
+      "stage": "supported_snapshot",
+      "code": "testnet_supported_snapshot_failed",
+      "reason": "canonical supported snapshot validation failed closed",
+      "retryAllowed": false
+    },
+    {
+      "stage": "friendbot_funding",
+      "code": "testnet_friendbot_funding_failed",
+      "reason": "official Friendbot funding failed closed",
+      "retryAllowed": false
+    },
+    {
+      "stage": "payer_horizon_readiness",
+      "code": "testnet_payer_horizon_readiness_failed",
+      "reason": "payer account did not pass bounded Horizon readiness",
+      "retryAllowed": false
+    },
+    {
+      "stage": "recipient_horizon_readiness",
+      "code": "testnet_recipient_horizon_readiness_failed",
+      "reason": "recipient account did not pass bounded Horizon readiness",
+      "retryAllowed": false
+    },
+    {
+      "stage": "payment_payload_creation",
+      "code": "testnet_payment_payload_creation_failed",
+      "reason": "canonical payment payload creation failed closed",
+      "retryAllowed": false
+    },
+    {
+      "stage": "upstream_verify",
+      "code": "testnet_upstream_verify_failed",
+      "reason": "pinned upstream canonical verify call failed closed",
+      "retryAllowed": false
+    },
+    {
+      "stage": "verify_result_validation",
+      "code": "testnet_verify_result_validation_failed",
+      "reason": "pinned upstream verify result did not validate the bounded payer",
+      "retryAllowed": false
+    },
+    {
+      "stage": "canonical_port_unknown",
+      "code": "testnet_canonical_port_unknown",
+      "reason": "canonical port failed outside a recognized redacted stage",
+      "retryAllowed": false
+    },
+    {
+      "stage": "public_evidence_validation",
+      "code": "testnet_public_evidence_validation_failed",
+      "reason": "canonical port returned invalid or payer-unbound public evidence",
+      "retryAllowed": false
+    },
+    {
+      "stage": "state_finalization",
+      "code": "testnet_state_finalization_failed",
+      "reason": "canonical public evidence could not be recorded atomically",
+      "retryAllowed": false
+    }
+  ]
+}

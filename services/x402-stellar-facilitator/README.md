@@ -173,8 +173,21 @@ ephemeral testnet account. Friendbot funding was confirmed, but canonical
 verify again returned no strict public success evidence. That request now has
 its own terminal `outcome_unknown` record; the first record is unchanged and
 no third credential, retry, settlement, or transaction submit is allowed by
-this checkpoint. The next step is offline error-stage instrumentation and
-review, not another live attempt.
+this checkpoint.
+
+The offline error-stage instrumentation now maps the canonical path to a
+versioned set of stable, secret-free diagnostics: credential validation,
+network allowlisting, supported snapshot, Friendbot funding, payer and
+recipient Horizon readiness, payment-payload creation, upstream verify,
+verify-result validation, public-evidence validation and state finalization.
+An unrecognized failure maps to `canonical_port_unknown`. Every diagnostic is
+`retryAllowed: false`; raw upstream errors, credentials, auth entries, signed
+XDR and payment material never cross the result boundary. The deterministic
+wire fixture is `fixtures/testnet-error-stages-v1.expected.json`.
+
+This instrumentation is offline evidence only. It cannot retroactively assign
+a stage to either terminal record, does not authorize another credential or
+network attempt, and does not change the settlement or submit boundary.
 
 The safe default command remains offline:
 

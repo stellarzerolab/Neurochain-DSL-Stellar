@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   TESTNET_CREDENTIAL_HANDLE,
   TESTNET_HARNESS_CONFIRMATION,
+  TestnetCanonicalDiagnosticError,
+  listTestnetCanonicalDiagnostics,
   runTestnetConformanceHarness,
   type CanonicalTestnetPort,
   type TestnetCredentialPort,
@@ -23,12 +25,25 @@ interface HarnessFixture {
   readonly expected: { readonly status: string; readonly code: string };
 }
 
+interface DiagnosticFixture {
+  readonly schemaVersion: 1;
+  readonly diagnostics: ReturnType<typeof listTestnetCanonicalDiagnostics>;
+}
+
 async function readFixture(): Promise<HarnessFixture> {
   const fixtureUrl = new URL(
     "../../fixtures/testnet-harness-v2.expected.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as HarnessFixture;
+}
+
+async function readDiagnosticFixture(): Promise<DiagnosticFixture> {
+  const fixtureUrl = new URL(
+    "../../fixtures/testnet-error-stages-v1.expected.json",
+    import.meta.url,
+  );
+  return JSON.parse(await readFile(fixtureUrl, "utf8")) as DiagnosticFixture;
 }
 
 function clone(value: Record<string, unknown>): Record<string, unknown> {
@@ -81,6 +96,7 @@ test("default harness validates a safe plan with zero credential, network or sub
     assert.equal(result.plan?.execute, false);
     assert.match(result.plan?.requestDigest ?? "", /^[0-9a-f]{64}$/u);
     assert.equal(result.evidence, null);
+    assert.equal(result.diagnostic, null);
     assert.deepEqual(Object.values(result.authorityBoundary), Array(11).fill(false));
     const serialized = JSON.stringify(result);
     assert.doesNotMatch(serialized, /"confirmation"\s*:/u);
@@ -232,7 +248,34 @@ test("opaque credential handles and canonical errors never escape into public ou
     canonicalPort,
   });
   assert.equal(result.code, "testnet_outcome_unknown");
+  assert.deepEqual(result.diagnostic, {
+    stage: "canonical_port_unknown",
+    code: "testnet_canonical_port_unknown",
+    reason: "canonical port failed outside a recognized redacted stage",
+    retryAllowed: false,
+  });
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET_SENTINEL, "u"));
+
+  const stagedResult = await runTestnetConformanceHarness(request, {
+    expectedPayTo: fixture.boundary.expectedPayTo,
+    statePort,
+    credentialPort,
+    canonicalPort: {
+      run: async () => {
+        throw new TestnetCanonicalDiagnosticError("payment_payload_creation");
+      },
+    },
+  });
+  assert.deepEqual(stagedResult.diagnostic, {
+    stage: "payment_payload_creation",
+    code: "testnet_payment_payload_creation_failed",
+    reason: "canonical payment payload creation failed closed",
+    retryAllowed: false,
+  });
+  assert.doesNotMatch(
+    JSON.stringify(stagedResult),
+    new RegExp(SECRET_SENTINEL, "u"),
+  );
 });
 
 test("only strict public evidence can leave the canonical port", async () => {
@@ -310,6 +353,7 @@ test("only strict public evidence can leave the canonical port", async () => {
   const result = await runTestnetConformanceHarness(request, boundary);
   assert.equal(result.status, "completed");
   assert.equal(result.code, "testnet_conformance_completed");
+  assert.equal(result.diagnostic, null);
   assert.equal(result.evidence?.status, "supported_verified");
   assert.deepEqual(result.evidence?.conformanceResults, [
     {
@@ -364,6 +408,7 @@ test("only strict public evidence can leave the canonical port", async () => {
     injectedEvidenceBoundary,
   );
   assert.equal(rejected.code, "testnet_outcome_unknown");
+  assert.equal(rejected.diagnostic?.stage, "public_evidence_validation");
   assert.doesNotMatch(JSON.stringify(rejected), new RegExp(SECRET_SENTINEL, "u"));
 
   const unboundEvidenceBoundary: TestnetHarnessBoundary = {
@@ -399,4 +444,24 @@ test("only strict public evidence can leave the canonical port", async () => {
     unboundEvidenceBoundary,
   );
   assert.equal(unbound.code, "testnet_outcome_unknown");
+  assert.equal(unbound.diagnostic?.stage, "public_evidence_validation");
+});
+
+test("canonical error-stage fixture is deterministic, redacted and non-retryable", async () => {
+  const fixture = await readDiagnosticFixture();
+  assert.equal(fixture.schemaVersion, 1);
+  assert.deepEqual(listTestnetCanonicalDiagnostics(), fixture.diagnostics);
+  assert.equal(
+    new Set(fixture.diagnostics.map((diagnostic) => diagnostic.stage)).size,
+    fixture.diagnostics.length,
+  );
+  for (const diagnostic of fixture.diagnostics) {
+    assert.ok(diagnostic.code.trim().length > 0);
+    assert.ok(diagnostic.reason.trim().length > 0);
+    assert.equal(diagnostic.retryAllowed, false);
+    assert.doesNotMatch(
+      JSON.stringify(diagnostic),
+      new RegExp(SECRET_SENTINEL, "u"),
+    );
+  }
 });
