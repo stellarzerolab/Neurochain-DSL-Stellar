@@ -17,8 +17,10 @@ import {
   TESTNET_CREDENTIAL_HANDLE,
   TestnetCanonicalDiagnosticError,
   classifyPinnedUpstreamVerifyReason,
+  sanitizeTestnetPublicEvidence,
   type CanonicalTestnetPort,
   type EphemeralTestnetCredential,
+  type TestnetPublicEvidence,
   type TestnetCredentialPort,
   type TestnetHarnessSafePlan,
 } from "./testnet-conformance-harness.js";
@@ -329,7 +331,7 @@ async function runPinnedUpstreamVerify(
   );
 }
 
-function assertCanonicalSupported(): void {
+export function assertCanonicalSupported(): void {
   const supported = buildSupportedConformanceSnapshot();
   const exactTestnet = supported.response.kinds.find(
     (kind) =>
@@ -342,6 +344,40 @@ function assertCanonicalSupported(): void {
       "testnet_supported_invalid:pinned upstream did not advertise sponsored exact Stellar testnet support",
     );
   }
+}
+
+export function mapCanonicalVerifyResultToPublicEvidence(
+  value: unknown,
+  expectedPayer: string,
+  observedAt: string,
+): TestnetPublicEvidence {
+  assertBoundedVerifyResult(value, expectedPayer);
+  const evidence = sanitizeTestnetPublicEvidence({
+    network: STELLAR_TESTNET_CAIP2,
+    publicAccountId: expectedPayer,
+    transactionHash: null,
+    ledger: null,
+    status: "supported_verified",
+    observedAt,
+    conformanceResults: [
+      {
+        check: "canonical_supported",
+        status: "passed",
+        code: "supported_passed",
+        reason: "canonical supported check passed",
+      },
+      {
+        check: "canonical_verify",
+        status: "passed",
+        code: "verify_passed",
+        reason: "canonical verify check passed",
+      },
+    ],
+  });
+  if (!evidence) {
+    throw new TestnetCanonicalDiagnosticError("public_evidence_validation");
+  }
+  return evidence;
 }
 
 export function createCanonicalSupportedVerifyPort(
@@ -401,30 +437,11 @@ export function createCanonicalSupportedVerifyPort(
           const verify: unknown = await runCanonicalStage("upstream_verify", () =>
             runUpstreamVerify(plan, handle.signer),
           );
-          assertBoundedVerifyResult(verify, credential.publicAccountId);
-
-          return Object.freeze({
-            network: STELLAR_TESTNET_CAIP2,
-            publicAccountId: credential.publicAccountId,
-            transactionHash: null,
-            ledger: null,
-            status: "supported_verified" as const,
-            observedAt: now().toISOString(),
-            conformanceResults: Object.freeze([
-              Object.freeze({
-                check: "canonical_supported",
-                status: "passed" as const,
-                code: "supported_passed",
-                reason: "canonical supported check passed",
-              }),
-              Object.freeze({
-                check: "canonical_verify",
-                status: "passed" as const,
-                code: "verify_passed",
-                reason: "canonical verify check passed",
-              }),
-            ]),
-          });
+          return mapCanonicalVerifyResultToPublicEvidence(
+            verify,
+            credential.publicAccountId,
+            now().toISOString(),
+          );
         },
       );
     },

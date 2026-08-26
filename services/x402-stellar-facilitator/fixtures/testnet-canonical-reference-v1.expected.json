@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "sourcePackages": {
+    "stellar": "2.23.0",
+    "core": "2.23.0"
+  },
+  "mode": "offline_injected_ports",
+  "observedAt": "2026-08-26T16:00:00.000Z",
+  "publicAccountId": "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+  "binding": {
+    "dryRunDigest": "11e32f2b42fe3c944e301d0a3abc17a06b0462d5b22eb7daf612090749c521ab",
+    "executeDigest": "88f097a735d9df8aab8759a9b1dac2b7a984167ad5849acd6cabee9ca19204a3",
+    "persistedDigest": "88f097a735d9df8aab8759a9b1dac2b7a984167ad5849acd6cabee9ca19204a3",
+    "authoritativeSource": "execute_result.plan.requestDigest",
+    "digestsDistinct": true
+  },
+  "cases": [
+    {
+      "id": "valid_result_wrapper",
+      "resultStatus": "completed",
+      "resultCode": "testnet_conformance_completed",
+      "state": "confirmed",
+      "diagnosticStage": null,
+      "detailCode": null,
+      "evidenceStatus": "supported_verified"
+    },
+    {
+      "id": "malformed_verify_result",
+      "resultStatus": "blocked",
+      "resultCode": "testnet_outcome_unknown",
+      "state": "outcome_unknown",
+      "diagnosticStage": "verify_result_validation",
+      "detailCode": "verify_response_malformed",
+      "evidenceStatus": null
+    },
+    {
+      "id": "unknown_verify_reason",
+      "resultStatus": "blocked",
+      "resultCode": "testnet_outcome_unknown",
+      "state": "outcome_unknown",
+      "diagnosticStage": "verify_result_validation",
+      "detailCode": "unrecognized_upstream_verify_reason",
+      "evidenceStatus": null
+    },
+    {
+      "id": "payer_mismatch",
+      "resultStatus": "blocked",
+      "resultCode": "testnet_outcome_unknown",
+      "state": "outcome_unknown",
+      "diagnosticStage": "verify_result_validation",
+      "detailCode": "verified_payer_mismatch",
+      "evidenceStatus": null
+    },
+    {
+      "id": "capture_unavailable",
+      "resultStatus": "blocked",
+      "resultCode": "testnet_outcome_unknown",
+      "state": "unavailable",
+      "diagnosticStage": "state_finalization",
+      "detailCode": null,
+      "evidenceStatus": null
+    },
+    {
+      "id": "digest_mismatch",
+      "resultStatus": "blocked",
+      "resultCode": "testnet_reference_digest_mismatch",
+      "state": "confirmed",
+      "diagnosticStage": null,
+      "detailCode": null,
+      "evidenceStatus": null
+    }
+  ],
+  "effectBoundary": {
+    "externalNetworkCalls": 0,
+    "keypairsGenerated": 0,
+    "signingCalls": 0,
+    "submitCalls": 0,
+    "settlementCalls": 0,
+    "serviceDispatchCalls": 0,
+    "actionPlanSubmitCalls": 0
+  },
+  "forbiddenFields": [
+    "authEntry",
+    "credential",
+    "invalidMessage",
+    "paymentPayload",
+    "privateKey",
+    "rawError",
+    "secretKey",
+    "signedXdr",
+    "upstreamRawResponse"
+  ]
+}

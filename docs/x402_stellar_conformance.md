@@ -234,6 +234,16 @@ capture gaps while leaving the wrong-dry-run-digest comparison as an explicit
 caller hazard. No existing schema-v1 local state record is rewritten, migrated
 or assigned a diagnostic.
 
+The canonical offline reference uses pinned `@x402/stellar@2.23.0` supported
+semantics and the same pure verify-result mapper used by the live adapter.
+Injected in-memory ports drive the harness and schema-v2 state adapter without
+creating a keypair or making an external request. The versioned fixture locks
+valid result-wrapper/confirmed-state parity plus malformed, unknown-reason,
+payer-mismatch, execute/dry-run digest-mismatch and capture-unavailable
+failures. Raw upstream text, `invalidMessage`, credentials, auth entries,
+payment payloads and signed XDR do not cross the public wrapper or state
+boundary.
+
 The verify-result stage additionally uses an exact allowlist of 30
 `invalidReason` codes inventoried from pinned `@x402/stellar@2.23.0`. A known
 code becomes the optional public `detailCode`; missing, unknown, malformed and
@@ -328,6 +338,10 @@ does not replace the canonical package or upstream E2E suite.
   `fixtures/testnet-state-v1.expected.json`,
   `fixtures/testnet-state-v2.expected.json` and
   `test/testnet-state-adapter.test.ts`.
+- Canonical offline reference, digest binding and result-wrapper/state parity:
+  `services/x402-stellar-facilitator/src/testnet-canonical-reference.ts`,
+  `fixtures/testnet-canonical-reference-v1.expected.json` and
+  `test/testnet-canonical-reference.test.ts`.
 - Stable result codes include `conformance_plan_ready`,
   `spec_drift_detected`, `invalid_dependency_boundary`,
   `missing_conformance_case`, `duplicate_conformance_case`, and

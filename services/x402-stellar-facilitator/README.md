@@ -221,6 +221,14 @@ remaining caller hazard is comparing execute output against the intentionally
 different dry-run digest. The postmortem uses injected offline ports only and
 does not inspect or change the three existing schema-v1 local state records.
 
+The canonical offline reference fixture exercises the same pinned supported
+snapshot, verify-result mapper, harness result wrapper and schema-v2 state
+finalization with injected in-memory ports. It covers valid, malformed,
+unknown-reason, payer-mismatch, digest-mismatch and capture-unavailable cases.
+The reference generates no keypair, performs no external fetch, signing,
+settlement, submit or dispatch, and proves that raw upstream text and
+`invalidMessage` cannot cross into the public wrapper or local state.
+
 The safe default command remains offline:
 
 ```powershell
