@@ -11,7 +11,10 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import {
+  TestnetCanonicalDiagnosticError,
+  sanitizeTestnetCanonicalDiagnostic,
   sanitizeTestnetPublicEvidence,
+  type TestnetCanonicalDiagnostic,
   type TestnetPublicEvidence,
   type TestnetStateFinalization,
   type TestnetStateOutcome,
@@ -19,13 +22,14 @@ import {
   type TestnetStateReservation,
 } from "./testnet-conformance-harness.js";
 
-export const TESTNET_STATE_SCHEMA_VERSION = 1 as const;
+export const TESTNET_LEGACY_STATE_SCHEMA_VERSION = 1 as const;
+export const TESTNET_STATE_SCHEMA_VERSION = 2 as const;
 export const TESTNET_LOCAL_STATE_DIRECTORY = ".local-testnet-state" as const;
 export const TESTNET_STATE_MAX_BYTES = 16_384 as const;
 
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
 const RESERVATION_PATTERN = /^tstate_([0-9a-f]{64})$/u;
-const RECORD_KEYS = Object.freeze([
+const LEGACY_RECORD_KEYS = Object.freeze([
   "admittedAt",
   "attemptedAt",
   "completedAt",
@@ -35,13 +39,13 @@ const RECORD_KEYS = Object.freeze([
   "schemaVersion",
   "state",
 ]);
+const RECORD_KEYS = Object.freeze([...LEGACY_RECORD_KEYS, "diagnostic"].sort());
 
 let temporaryFileSequence = 0;
 
 export type TestnetLocalState = "attempted" | "outcome_unknown" | "confirmed";
 
-export interface TestnetLocalStateRecord {
-  readonly schemaVersion: typeof TESTNET_STATE_SCHEMA_VERSION;
+interface TestnetLocalStateRecordBase {
   readonly requestDigest: string;
   readonly reservationId: string;
   readonly state: TestnetLocalState;
@@ -50,6 +54,20 @@ export interface TestnetLocalStateRecord {
   readonly completedAt: string | null;
   readonly evidence: TestnetPublicEvidence | null;
 }
+
+export interface TestnetLegacyLocalStateRecord
+  extends TestnetLocalStateRecordBase {
+  readonly schemaVersion: typeof TESTNET_LEGACY_STATE_SCHEMA_VERSION;
+}
+
+export interface TestnetLocalStateRecordV2 extends TestnetLocalStateRecordBase {
+  readonly schemaVersion: typeof TESTNET_STATE_SCHEMA_VERSION;
+  readonly diagnostic: TestnetCanonicalDiagnostic | null;
+}
+
+export type TestnetLocalStateRecord =
+  | TestnetLegacyLocalStateRecord
+  | TestnetLocalStateRecordV2;
 
 export type TestnetStateInspection =
   | Readonly<{
@@ -184,17 +202,26 @@ function assertSafeRecord(
   if (
     value === null ||
     typeof value !== "object" ||
-    Array.isArray(value) ||
-    !hasExactKeys(value, RECORD_KEYS)
+    Array.isArray(value)
   ) {
     throw new TestnetStateError(
       "testnet_state_record_invalid",
-      "state record must use the strict schema-v1 public envelope",
+      "state record must use a strict supported public envelope",
     );
   }
   const candidate = value as Record<string, unknown>;
+  const isLegacy = candidate.schemaVersion === TESTNET_LEGACY_STATE_SCHEMA_VERSION;
+  const isCurrent = candidate.schemaVersion === TESTNET_STATE_SCHEMA_VERSION;
   if (
-    candidate.schemaVersion !== TESTNET_STATE_SCHEMA_VERSION ||
+    (!isLegacy && !isCurrent) ||
+    !hasExactKeys(candidate, isLegacy ? LEGACY_RECORD_KEYS : RECORD_KEYS)
+  ) {
+    throw new TestnetStateError(
+      "testnet_state_record_invalid",
+      "state record must use the exact legacy schema-v1 or current schema-v2 envelope",
+    );
+  }
+  if (
     candidate.requestDigest !== expectedDigest ||
     candidate.reservationId !== reservationIdFor(expectedDigest) ||
     (candidate.state !== "attempted" &&
@@ -210,7 +237,9 @@ function assertSafeRecord(
   }
   if (
     candidate.state === "attempted" &&
-    (candidate.completedAt !== null || candidate.evidence !== null)
+    (candidate.completedAt !== null ||
+      candidate.evidence !== null ||
+      (isCurrent && candidate.diagnostic !== null))
   ) {
     throw new TestnetStateError(
       "testnet_state_record_invalid",
@@ -219,16 +248,22 @@ function assertSafeRecord(
   }
   if (
     candidate.state === "outcome_unknown" &&
-    (!isIsoTimestamp(candidate.completedAt) || candidate.evidence !== null)
+    (!isIsoTimestamp(candidate.completedAt) ||
+      candidate.evidence !== null ||
+      (isCurrent && !sanitizeTestnetCanonicalDiagnostic(candidate.diagnostic)))
   ) {
     throw new TestnetStateError(
       "testnet_state_record_invalid",
-      "outcome-unknown state requires only a public completion timestamp",
+      "outcome-unknown state requires a public completion timestamp and schema-v2 requires an allowlisted diagnostic",
     );
   }
   if (candidate.state === "confirmed") {
     const evidence = sanitizeTestnetPublicEvidence(candidate.evidence);
-    if (!isIsoTimestamp(candidate.completedAt) || !evidence) {
+    if (
+      !isIsoTimestamp(candidate.completedAt) ||
+      !evidence ||
+      (isCurrent && candidate.diagnostic !== null)
+    ) {
       throw new TestnetStateError(
         "testnet_state_record_invalid",
         "confirmed state requires strict public evidence and completion time",
@@ -299,6 +334,7 @@ export class LocalTestnetStateAdapter implements TestnetStatePort {
           attemptedAt: timestamp,
           completedAt: null,
           evidence: null,
+          diagnostic: null,
         });
         await this.#writeRecord(stateRoot, record);
         return Object.freeze({
@@ -336,6 +372,20 @@ export class LocalTestnetStateAdapter implements TestnetStatePort {
         }
         if (existing.state === "outcome_unknown") {
           if (outcome.status === "outcome_unknown") {
+            if (existing.schemaVersion === TESTNET_STATE_SCHEMA_VERSION) {
+              const diagnostic = sanitizeTestnetCanonicalDiagnostic(
+                outcome.diagnostic,
+              );
+              if (
+                !diagnostic ||
+                canonicalJson(diagnostic) !== canonicalJson(existing.diagnostic)
+              ) {
+                throw new TestnetStateError(
+                  "testnet_state_diagnostic_mismatch",
+                  "terminal diagnostic capture does not match the recorded outcome",
+                );
+              }
+            }
             return Object.freeze({
               status: "recorded" as const,
               code: "testnet_state_outcome_unknown",
@@ -371,12 +421,7 @@ export class LocalTestnetStateAdapter implements TestnetStatePort {
         const completedAt = this.#timestamp();
         const next =
           outcome.status === "outcome_unknown"
-            ? Object.freeze({
-                ...existing,
-                state: "outcome_unknown" as const,
-                completedAt,
-                evidence: null,
-              })
+            ? this.#outcomeUnknownRecord(existing, outcome, completedAt)
             : this.#confirmedRecord(existing, outcome.evidence, completedAt);
         await this.#writeRecord(stateRoot, next);
         return Object.freeze({
@@ -434,12 +479,48 @@ export class LocalTestnetStateAdapter implements TestnetStatePort {
         "confirmed state accepts only strict public redacted evidence",
       );
     }
-    return Object.freeze({
-      ...existing,
-      state: "confirmed" as const,
-      completedAt,
-      evidence,
-    });
+    return existing.schemaVersion === TESTNET_STATE_SCHEMA_VERSION
+      ? Object.freeze({
+          ...existing,
+          state: "confirmed" as const,
+          completedAt,
+          evidence,
+          diagnostic: null,
+        })
+      : Object.freeze({
+          ...existing,
+          state: "confirmed" as const,
+          completedAt,
+          evidence,
+        });
+  }
+
+  #outcomeUnknownRecord(
+    existing: TestnetLocalStateRecord,
+    outcome: Extract<TestnetStateOutcome, { readonly status: "outcome_unknown" }>,
+    completedAt: string,
+  ): TestnetLocalStateRecord {
+    const diagnostic = sanitizeTestnetCanonicalDiagnostic(outcome.diagnostic);
+    if (!diagnostic) {
+      throw new TestnetStateError(
+        "testnet_state_diagnostic_invalid",
+        "outcome-unknown state requires an allowlisted redacted diagnostic",
+      );
+    }
+    return existing.schemaVersion === TESTNET_STATE_SCHEMA_VERSION
+      ? Object.freeze({
+          ...existing,
+          state: "outcome_unknown" as const,
+          completedAt,
+          evidence: null,
+          diagnostic,
+        })
+      : Object.freeze({
+          ...existing,
+          state: "outcome_unknown" as const,
+          completedAt,
+          evidence: null,
+        });
   }
 
   #timestamp(): string {
@@ -520,14 +601,27 @@ export class LocalTestnetStateAdapter implements TestnetStatePort {
               requestDigest,
             );
             if (current?.state === "attempted") {
+              const completedAt = this.#timestamp();
+              const recovered =
+                current.schemaVersion === TESTNET_STATE_SCHEMA_VERSION
+                  ? Object.freeze({
+                      ...current,
+                      state: "outcome_unknown" as const,
+                      completedAt,
+                      evidence: null,
+                      diagnostic: new TestnetCanonicalDiagnosticError(
+                        "canonical_port_unknown",
+                      ).diagnostic,
+                    })
+                  : Object.freeze({
+                      ...current,
+                      state: "outcome_unknown" as const,
+                      completedAt,
+                      evidence: null,
+                    });
               await this.#writeRecord(
                 canonicalStateRoot,
-                Object.freeze({
-                  ...current,
-                  state: "outcome_unknown" as const,
-                  completedAt: this.#timestamp(),
-                  evidence: null,
-                }),
+                recovered,
               );
             }
           },

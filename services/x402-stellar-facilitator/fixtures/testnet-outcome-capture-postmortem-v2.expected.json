@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 2,
+  "source": {
+    "harnessSchemaVersion": 2,
+    "boundedAttempt": 3
+  },
+  "digestAuthority": {
+    "dryRunDigest": "11e32f2b42fe3c944e301d0a3abc17a06b0462d5b22eb7daf612090749c521ab",
+    "executeDigest": "88f097a735d9df8aab8759a9b1dac2b7a984167ad5849acd6cabee9ca19204a3",
+    "authoritativeDigest": "88f097a735d9df8aab8759a9b1dac2b7a984167ad5849acd6cabee9ca19204a3",
+    "authoritativeSource": "execute_result.plan.requestDigest",
+    "digestsDistinct": true
+  },
+  "returnedDiagnostic": {
+    "stage": "upstream_verify",
+    "code": "testnet_upstream_verify_failed",
+    "detailCode": null,
+    "retryAllowed": false
+  },
+  "captureBoundary": {
+    "diagnosticSurface": "execute_result.diagnostic",
+    "publicEvidenceSurface": "execute_result.evidence",
+    "persistedOutcomeSurface": "state_port.finalize.outcome",
+    "terminalState": "outcome_unknown",
+    "diagnosticPersisted": true,
+    "persistedDiagnostic": {
+      "stage": "upstream_verify",
+      "code": "testnet_upstream_verify_failed",
+      "detailCode": null,
+      "retryAllowed": false
+    },
+    "rawUpstreamPersisted": false,
+    "credentialPersisted": false,
+    "retryAllowed": false
+  },
+  "lossWindows": [
+    {
+      "code": "dry_run_digest_used_as_execute_expectation",
+      "reason": "a caller can discard a valid execute result by comparing it with the intentionally different dry-run digest"
+    }
+  ]
+}

@@ -124,7 +124,10 @@ export type TestnetStateOutcome =
       status: "confirmed";
       evidence: TestnetPublicEvidence;
     }>
-  | Readonly<{ status: "outcome_unknown" }>;
+  | Readonly<{
+      status: "outcome_unknown";
+      diagnostic: TestnetCanonicalDiagnostic;
+    }>;
 
 export type TestnetStateFinalization =
   | Readonly<{
@@ -287,6 +290,17 @@ export interface TestnetCanonicalDiagnostic {
   readonly detailCode?: TestnetVerifyDiagnosticDetailCode;
 }
 
+const DIAGNOSTIC_KEYS = Object.freeze([
+  "code",
+  "reason",
+  "retryAllowed",
+  "stage",
+]);
+const DIAGNOSTIC_WITH_DETAIL_KEYS = Object.freeze([
+  ...DIAGNOSTIC_KEYS,
+  "detailCode",
+].sort());
+
 function canonicalDiagnostic(
   stage: TestnetCanonicalStage,
   detailCode?: unknown,
@@ -303,6 +317,32 @@ function canonicalDiagnostic(
     retryAllowed: false as const,
     ...(safeDetailCode === undefined ? {} : { detailCode: safeDetailCode }),
   });
+}
+
+export function sanitizeTestnetCanonicalDiagnostic(
+  value: unknown,
+): TestnetCanonicalDiagnostic | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  const hasDetail = "detailCode" in candidate;
+  if (
+    !hasExactKeys(
+      candidate,
+      hasDetail ? DIAGNOSTIC_WITH_DETAIL_KEYS : DIAGNOSTIC_KEYS,
+    ) ||
+    typeof candidate.stage !== "string" ||
+    !(candidate.stage in TESTNET_CANONICAL_DIAGNOSTICS) ||
+    candidate.retryAllowed !== false
+  ) {
+    return null;
+  }
+  const safe = canonicalDiagnostic(
+    candidate.stage as TestnetCanonicalStage,
+    hasDetail ? candidate.detailCode : undefined,
+  );
+  return canonicalJson(safe) === canonicalJson(candidate) ? safe : null;
 }
 
 export function listPinnedUpstreamVerifyReasonCodes(): readonly PinnedUpstreamVerifyReasonCode[] {
@@ -761,15 +801,17 @@ export async function runTestnetConformanceHarness(
   try {
     credential = await boundary.credentialPort.createEphemeral();
   } catch {
+    const diagnostic = canonicalDiagnostic("credential_validation");
     await finalizeTestnetState(
       boundary.statePort,
       reservation.reservationId,
-      { status: "outcome_unknown" },
+      { status: "outcome_unknown", diagnostic },
     );
     return blocked(
       "testnet_credential_invalid",
       "ephemeral testnet credential creation failed without exposing details",
       plan,
+      diagnostic,
     );
   }
   if (
@@ -780,15 +822,17 @@ export async function runTestnetConformanceHarness(
     !(TESTNET_CREDENTIAL_HANDLE in credential) ||
     credential[TESTNET_CREDENTIAL_HANDLE] === undefined
   ) {
+    const diagnostic = canonicalDiagnostic("credential_validation");
     await finalizeTestnetState(
       boundary.statePort,
       reservation.reservationId,
-      { status: "outcome_unknown" },
+      { status: "outcome_unknown", diagnostic },
     );
     return blocked(
       "testnet_credential_invalid",
       "credential port did not return a valid opaque ephemeral testnet credential",
       plan,
+      diagnostic,
     );
   }
 
@@ -796,32 +840,35 @@ export async function runTestnetConformanceHarness(
   try {
     rawEvidence = await boundary.canonicalPort.run(plan, credential);
   } catch (error) {
+    const diagnostic =
+      error instanceof TestnetCanonicalDiagnosticError
+        ? error.diagnostic
+        : canonicalDiagnostic("canonical_port_unknown");
     await finalizeTestnetState(
       boundary.statePort,
       reservation.reservationId,
-      { status: "outcome_unknown" },
+      { status: "outcome_unknown", diagnostic },
     );
     return blocked(
       "testnet_outcome_unknown",
       "canonical testnet conformance outcome is unknown and must not be retried automatically",
       plan,
-      error instanceof TestnetCanonicalDiagnosticError
-        ? error.diagnostic
-        : canonicalDiagnostic("canonical_port_unknown"),
+      diagnostic,
     );
   }
   const evidence = sanitizeTestnetPublicEvidence(rawEvidence);
   if (!evidence || evidence.publicAccountId !== credential.publicAccountId) {
+    const diagnostic = canonicalDiagnostic("public_evidence_validation");
     await finalizeTestnetState(
       boundary.statePort,
       reservation.reservationId,
-      { status: "outcome_unknown" },
+      { status: "outcome_unknown", diagnostic },
     );
     return blocked(
       "testnet_outcome_unknown",
       "canonical port returned invalid evidence after an attempt; the outcome must not be retried automatically",
       plan,
-      canonicalDiagnostic("public_evidence_validation"),
+      diagnostic,
     );
   }
   const finalized = await finalizeTestnetState(

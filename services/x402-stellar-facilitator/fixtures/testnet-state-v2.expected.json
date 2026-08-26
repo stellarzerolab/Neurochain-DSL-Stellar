@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 2,
+  "legacySchemaVersion": 1,
+  "localDirectory": ".local-testnet-state",
+  "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reservationId": "tstate_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "storedFields": [
+    "admittedAt",
+    "attemptedAt",
+    "completedAt",
+    "diagnostic",
+    "evidence",
+    "requestDigest",
+    "reservationId",
+    "schemaVersion",
+    "state"
+  ],
+  "states": ["attempted", "outcome_unknown", "confirmed"],
+  "transitions": [
+    {
+      "operation": "reserve",
+      "from": null,
+      "to": "attempted",
+      "code": "testnet_state_reserved"
+    },
+    {
+      "operation": "reserve",
+      "from": "attempted",
+      "to": "attempted",
+      "code": "testnet_state_duplicate"
+    },
+    {
+      "operation": "restart",
+      "from": "attempted",
+      "to": "outcome_unknown",
+      "code": "testnet_state_outcome_unknown"
+    },
+    {
+      "operation": "finalize_outcome_unknown",
+      "from": "attempted",
+      "to": "outcome_unknown",
+      "code": "testnet_state_outcome_unknown"
+    },
+    {
+      "operation": "finalize_confirmed",
+      "from": "attempted",
+      "to": "confirmed",
+      "code": "testnet_state_confirmed"
+    },
+    {
+      "operation": "reserve",
+      "from": "confirmed",
+      "to": "confirmed",
+      "code": "testnet_state_replay"
+    }
+  ],
+  "forbiddenFields": [
+    "apiKey",
+    "authEntry",
+    "credential",
+    "invalidMessage",
+    "opaqueSignerHandle",
+    "paymentPayload",
+    "privateKey",
+    "rawError",
+    "secretKey",
+    "signedXdr",
+    "upstreamRawResponse"
+  ]
+}

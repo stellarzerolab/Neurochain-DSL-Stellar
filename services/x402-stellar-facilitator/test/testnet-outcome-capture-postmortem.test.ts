@@ -29,12 +29,12 @@ async function readJsonFixture(path: string): Promise<unknown> {
   ) as unknown;
 }
 
-test("postmortem locks the execute digest and exposes the current capture gap without network", async () => {
+test("postmortem locks the execute digest and proves durable diagnostic capture without network", async () => {
   const fixture = (await readJsonFixture(
     "testnet-harness-v3.expected.json",
   )) as HarnessFixture;
   const expected = await readJsonFixture(
-    "testnet-outcome-capture-postmortem-v1.expected.json",
+    "testnet-outcome-capture-postmortem-v2.expected.json",
   );
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
@@ -101,7 +101,11 @@ test("postmortem locks the execute digest and exposes the current capture gap wi
       postmortem.digestAuthority.authoritativeDigest,
       dryRunResult.plan?.requestDigest,
     );
-    assert.equal(postmortem.captureBoundary.diagnosticPersisted, false);
+    assert.equal(postmortem.captureBoundary.diagnosticPersisted, true);
+    assert.deepEqual(
+      postmortem.captureBoundary.persistedDiagnostic,
+      postmortem.returnedDiagnostic,
+    );
     assert.doesNotMatch(
       JSON.stringify(postmortem),
       new RegExp(SECRET_SENTINEL, "u"),
@@ -137,7 +141,7 @@ test("postmortem rejects missing diagnostics and non-terminal state capture", as
       buildTestnetOutcomeCapturePostmortem(
         dryRunResult,
         invalidExecuteResult,
-        { status: "outcome_unknown" },
+        { status: "outcome_unknown" } as unknown as TestnetStateOutcome,
       ),
     (error: unknown) => {
       assert.ok(error instanceof TestnetOutcomeCapturePostmortemError);

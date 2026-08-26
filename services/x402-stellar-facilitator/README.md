@@ -95,16 +95,20 @@ the approved one-shot non-production harness port. It is not connected to the
 service handler or a listener and is not a production database or settlement
 runtime.
 
-The local testnet adapter writes schema-v1 records beneath the ignored
+The local testnet adapter writes schema-v2 records beneath the ignored
 `.local-testnet-state/` directory using exclusive per-request locks and
 same-directory atomic replacement. Records contain only a request digest,
-reservation identifier, admission/completion timestamps, state, and strict
-public evidence. Credentials, opaque signer handles, payment payloads, auth
-entries, signed XDR and raw upstream responses are rejected by construction.
-An interrupted `attempted` record becomes terminal `outcome_unknown` on
-restart; it is never retried automatically. Corrupt state, unknown schema,
-unexpected files, path traversal, symlink roots, duplicate reservations and
-replays all fail closed with stable non-empty codes.
+reservation identifier, admission/completion timestamps, state, an allowlisted
+redacted diagnostic for `outcome_unknown`, and strict public evidence for
+`confirmed`. Diagnostic capture and terminal finalization share one atomic
+write. Exact schema-v1 terminal records remain readable without migration or
+rewriting. Credentials, opaque signer handles, payment payloads, auth entries,
+signed XDR, raw errors and raw upstream responses are rejected by construction.
+An interrupted `attempted` record becomes terminal `outcome_unknown` with the
+local `canonical_port_unknown` diagnostic on restart; it is never retried
+automatically. Corrupt state, unknown schema/code, digest mismatch, partial
+writes, unexpected files, path traversal, symlink roots, duplicate
+reservations and replays all fail closed with stable non-empty codes.
 
 The evaluation handler consumes the shared fixtures under
 `examples/x402_service_boundary/`. TypeScript checks strict envelope,
@@ -210,11 +214,12 @@ boundary.
 The executable offline postmortem in
 `src/testnet-outcome-capture-postmortem.ts` locks the execute result plan digest
 as the only authoritative digest for an attempted request. Its versioned
-fixture proves that the dry-run digest is intentionally different and records
-the three current capture gaps: wrong-digest comparison, caller loss of the
-returned redacted wrapper, and schema-v1 state persistence of terminal status
-without the diagnostic. The postmortem uses injected offline ports only and
-does not inspect or change the three existing local state records.
+fixture proves that the dry-run digest is intentionally different. Schema-v2
+now atomically persists the same allowlisted diagnostic carried by the returned
+wrapper, closing the wrapper-loss and status-only persistence gaps. The one
+remaining caller hazard is comparing execute output against the intentionally
+different dry-run digest. The postmortem uses injected offline ports only and
+does not inspect or change the three existing schema-v1 local state records.
 
 The safe default command remains offline:
 

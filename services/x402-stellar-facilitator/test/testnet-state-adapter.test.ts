@@ -16,11 +16,14 @@ import test from "node:test";
 import {
   TESTNET_CREDENTIAL_HANDLE,
   TESTNET_HARNESS_CONFIRMATION,
+  TestnetCanonicalDiagnosticError,
   runTestnetConformanceHarness,
+  type TestnetCanonicalDiagnostic,
   type TestnetPublicEvidence,
 } from "../src/testnet-conformance-harness.js";
 import {
   LocalTestnetStateAdapter,
+  TESTNET_LEGACY_STATE_SCHEMA_VERSION,
   TESTNET_LOCAL_STATE_DIRECTORY,
   TESTNET_STATE_SCHEMA_VERSION,
 } from "../src/testnet-state-adapter.js";
@@ -32,7 +35,8 @@ const PUBLIC_ACCOUNT =
 const SECRET_SENTINEL = "TOP_SECRET_SENTINEL_MUST_NEVER_PERSIST";
 
 interface StateFixture {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
+  readonly legacySchemaVersion: 1;
   readonly localDirectory: string;
   readonly requestDigest: string;
   readonly reservationId: string;
@@ -49,10 +53,17 @@ interface StateFixture {
 
 async function readStateFixture(): Promise<StateFixture> {
   const fixtureUrl = new URL(
-    "../../fixtures/testnet-state-v1.expected.json",
+    "../../fixtures/testnet-state-v2.expected.json",
     import.meta.url,
   );
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as StateFixture;
+}
+
+function diagnostic(
+  stage: ConstructorParameters<typeof TestnetCanonicalDiagnosticError>[0] =
+    "upstream_verify",
+): TestnetCanonicalDiagnostic {
+  return new TestnetCanonicalDiagnosticError(stage).diagnostic;
 }
 
 async function readHarnessFixture(): Promise<{
@@ -150,6 +161,7 @@ test("state fixture and ignored local directory lock the public storage boundary
     [
       "testnet_state_reserved",
       "testnet_state_duplicate",
+      "testnet_state_outcome_unknown",
       "testnet_state_outcome_unknown",
       "testnet_state_confirmed",
       "testnet_state_replay",
@@ -256,6 +268,12 @@ test("restart converts an interrupted attempt to outcome unknown and blocks retr
     assert.equal(recovered.status, "recorded");
     assert.equal(recovered.record?.state, "outcome_unknown");
     assert.equal(recovered.record?.evidence, null);
+    assert.equal(
+      recovered.record?.schemaVersion === TESTNET_STATE_SCHEMA_VERSION
+        ? recovered.record.diagnostic?.stage
+        : null,
+      "canonical_port_unknown",
+    );
     const retry = await restarted.reserve(DIGEST_A);
     assert.equal(retry.status, "unavailable");
     assert.equal(retry.code, "testnet_state_outcome_unknown");
@@ -326,7 +344,7 @@ test("confirmed state stores only normalized public evidence and blocks replay",
   });
 });
 
-test("explicit outcome unknown is terminal and carries no payload", async () => {
+test("explicit outcome unknown atomically stores only an allowlisted diagnostic", async () => {
   await withTemporaryWorkspace(async (workspaceRoot) => {
     const adapter = new LocalTestnetStateAdapter({
       workspaceRoot,
@@ -341,14 +359,140 @@ test("explicit outcome unknown is terminal and carries no payload", async () => 
     }
     const finalized = await adapter.finalize(reserved.reservationId, {
       status: "outcome_unknown",
+      diagnostic: diagnostic(),
     });
     assert.equal(finalized.status, "recorded");
     assert.equal(finalized.code, "testnet_state_outcome_unknown");
     const inspection = await adapter.inspect(DIGEST_A);
     assert.equal(inspection.record?.state, "outcome_unknown");
     assert.equal(inspection.record?.evidence, null);
+    assert.equal(
+      inspection.record?.schemaVersion === TESTNET_STATE_SCHEMA_VERSION
+        ? inspection.record.diagnostic?.stage
+        : null,
+      "upstream_verify",
+    );
+    const raw = await readFile(
+      join(
+        workspaceRoot,
+        TESTNET_LOCAL_STATE_DIRECTORY,
+        `${DIGEST_A}.json`,
+      ),
+      "utf8",
+    );
+    assert.doesNotMatch(raw, new RegExp(SECRET_SENTINEL, "u"));
     const retry = await adapter.reserve(DIGEST_A);
     assert.equal(retry.code, "testnet_state_outcome_unknown");
+  });
+});
+
+test("unknown diagnostics fail closed without persisting raw or secret data", async () => {
+  await withTemporaryWorkspace(async (workspaceRoot) => {
+    const adapter = new LocalTestnetStateAdapter({
+      workspaceRoot,
+      now: fixedClock("2026-08-24T10:13:00.000Z"),
+    });
+    const reserved = await adapter.reserve(DIGEST_A);
+    if (reserved.status !== "reserved") {
+      assert.fail("reservation unexpectedly unavailable");
+    }
+    const result = await adapter.finalize(reserved.reservationId, {
+      status: "outcome_unknown",
+      diagnostic: {
+        stage: "upstream_verify",
+        code: "unknown_raw_code",
+        reason: SECRET_SENTINEL,
+        retryAllowed: false,
+      } as TestnetCanonicalDiagnostic,
+    });
+    assert.equal(result.status, "unavailable");
+    assert.equal(result.code, "testnet_state_diagnostic_invalid");
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET_SENTINEL, "u"));
+    const raw = await readFile(
+      join(
+        workspaceRoot,
+        TESTNET_LOCAL_STATE_DIRECTORY,
+        `${DIGEST_A}.json`,
+      ),
+      "utf8",
+    );
+    assert.doesNotMatch(raw, new RegExp(SECRET_SENTINEL, "u"));
+    assert.equal((JSON.parse(raw) as { readonly state: string }).state, "attempted");
+  });
+});
+
+test("terminal diagnostic mismatch fails closed and preserves the first capture", async () => {
+  await withTemporaryWorkspace(async (workspaceRoot) => {
+    const adapter = new LocalTestnetStateAdapter({
+      workspaceRoot,
+      now: fixedClock(
+        "2026-08-24T10:14:00.000Z",
+        "2026-08-24T10:15:00.000Z",
+      ),
+    });
+    const reserved = await adapter.reserve(DIGEST_A);
+    if (reserved.status !== "reserved") {
+      assert.fail("reservation unexpectedly unavailable");
+    }
+    const first = await adapter.finalize(reserved.reservationId, {
+      status: "outcome_unknown",
+      diagnostic: diagnostic("upstream_verify"),
+    });
+    assert.equal(first.status, "recorded");
+    const mismatch = await adapter.finalize(reserved.reservationId, {
+      status: "outcome_unknown",
+      diagnostic: diagnostic("canonical_port_unknown"),
+    });
+    assert.equal(mismatch.status, "unavailable");
+    assert.equal(mismatch.code, "testnet_state_diagnostic_mismatch");
+    const inspection = await adapter.inspect(DIGEST_A);
+    assert.equal(
+      inspection.record?.schemaVersion === TESTNET_STATE_SCHEMA_VERSION
+        ? inspection.record.diagnostic?.stage
+        : null,
+      "upstream_verify",
+    );
+  });
+});
+
+test("legacy schema-v1 terminal records remain readable and byte-identical", async () => {
+  await withTemporaryWorkspace(async (workspaceRoot) => {
+    const stateRoot = join(workspaceRoot, TESTNET_LOCAL_STATE_DIRECTORY);
+    await mkdir(stateRoot, { recursive: true });
+    const legacy = JSON.stringify({
+      schemaVersion: TESTNET_LEGACY_STATE_SCHEMA_VERSION,
+      requestDigest: DIGEST_A,
+      reservationId: `tstate_${DIGEST_A}`,
+      state: "outcome_unknown",
+      admittedAt: "2026-08-24T10:16:00.000Z",
+      attemptedAt: "2026-08-24T10:16:00.000Z",
+      completedAt: "2026-08-24T10:17:00.000Z",
+      evidence: null,
+    });
+    const recordPath = join(stateRoot, `${DIGEST_A}.json`);
+    await writeFile(recordPath, legacy, "utf8");
+    const adapter = new LocalTestnetStateAdapter({ workspaceRoot });
+    const inspection = await adapter.inspect(DIGEST_A);
+    assert.equal(inspection.status, "recorded");
+    assert.equal(inspection.record?.schemaVersion, 1);
+    assert.equal(await readFile(recordPath, "utf8"), legacy);
+  });
+});
+
+test("partial state writes fail closed without diagnostic inference", async () => {
+  await withTemporaryWorkspace(async (workspaceRoot) => {
+    const stateRoot = join(workspaceRoot, TESTNET_LOCAL_STATE_DIRECTORY);
+    await mkdir(stateRoot, { recursive: true });
+    await writeFile(
+      join(stateRoot, `${DIGEST_A}.json`),
+      `{"schemaVersion":2,"requestDigest":"${DIGEST_A}"`,
+      "utf8",
+    );
+    const adapter = new LocalTestnetStateAdapter({ workspaceRoot });
+    const result = await adapter.inspect(DIGEST_A);
+    assert.equal(result.status, "unavailable");
+    assert.equal(result.code, "testnet_state_record_invalid");
+    assert.doesNotMatch(JSON.stringify(result), /upstream_verify|canonical_port_unknown/u);
   });
 });
 

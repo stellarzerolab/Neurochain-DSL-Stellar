@@ -155,20 +155,24 @@ created only in memory with `@stellar/stellar-sdk@16.2.0`; the pinned
 `@x402/stellar@2.23.0` client owns auth-entry construction/signing and the
 pinned facilitator owns verification. No settle call is available through the
 runner. The
-`LocalTestnetStateAdapter` stores schema-v1 admission state and strict public
-evidence beneath the ignored `.local-testnet-state/` directory. Exclusive
+`LocalTestnetStateAdapter` stores schema-v2 admission state, allowlisted
+redacted terminal diagnostics and strict public evidence beneath the ignored
+`.local-testnet-state/` directory. Exact schema-v1 terminal records remain
+readable and are never migrated or rewritten. Exclusive
 request locks, same-directory atomic replacement and restart reconciliation
 make duplicate, replay, concurrent reservation and interrupted attempts fail
 closed. An interrupted attempt becomes terminal `outcome_unknown` and is not
 retried automatically.
 
-The state schema excludes credentials, signer handles, payment payloads, auth
-entries, signed transaction XDR and raw upstream responses. It accepts only
-request/reservation identifiers, timestamps, state, and the harness's strict
-public evidence envelope. Corrupt or unknown records, unexpected files, path
-escape and symlink state roots are rejected. This is a local non-production
-harness adapter, not the service handler's production store or a settlement
-runtime.
+The current state schema excludes credentials, signer handles, payment
+payloads, auth entries, signed transaction XDR, raw errors and raw upstream
+responses. It accepts only request/reservation identifiers, timestamps, state,
+an exact allowlisted diagnostic for `outcome_unknown`, and the harness's strict
+public evidence envelope for `confirmed`. Diagnostic capture and terminal
+finalization are one atomic write. Corrupt or unknown records, unknown
+diagnostics, digest mismatch, partial writes, unexpected files, path escape and
+symlink state roots are rejected. This is a local non-production harness
+adapter, not the service handler's production store or a settlement runtime.
 
 The first explicitly approved live attempt created one ephemeral keypair and
 Friendbot funded its public account in ledger 4310008 (transaction
@@ -223,12 +227,12 @@ retroactive interpretation of the three live attempts. The pure
 `testnet-outcome-capture-postmortem.ts` contract and its versioned fixture prove
 that the authoritative live identity is
 `execute_result.plan.requestDigest`; the dry-run digest is intentionally
-different and must never be used as the expected execute digest. They also lock
-three current loss windows: a caller can compare against the wrong digest, the
-returned redacted result wrapper can be discarded before durable capture, and
-schema-v1 state finalization currently persists only terminal status rather
-than the allowlisted diagnostic. No existing local state record is read,
-rewritten or assigned a diagnostic by this postmortem.
+different and must never be used as the expected execute digest. Schema-v2
+state finalization now atomically persists the exact allowlisted diagnostic
+from the returned result wrapper. This closes the wrapper-loss and status-only
+capture gaps while leaving the wrong-dry-run-digest comparison as an explicit
+caller hazard. No existing schema-v1 local state record is rewritten, migrated
+or assigned a diagnostic.
 
 The verify-result stage additionally uses an exact allowlist of 30
 `invalidReason` codes inventoried from pinned `@x402/stellar@2.23.0`. A known
@@ -316,11 +320,13 @@ does not replace the canonical package or upstream E2E suite.
   `test/testnet-live-conformance.test.ts`.
 - Offline outcome-capture postmortem and digest-authority fixture:
   `services/x402-stellar-facilitator/src/testnet-outcome-capture-postmortem.ts`,
-  `fixtures/testnet-outcome-capture-postmortem-v1.expected.json` and
+  `fixtures/testnet-outcome-capture-postmortem-v1.expected.json`,
+  `fixtures/testnet-outcome-capture-postmortem-v2.expected.json` and
   `test/testnet-outcome-capture-postmortem.test.ts`.
 - Local-only atomic testnet state adapter, safe schema fixture and recovery
   tests: `services/x402-stellar-facilitator/src/testnet-state-adapter.ts`,
-  `fixtures/testnet-state-v1.expected.json` and
+  `fixtures/testnet-state-v1.expected.json`,
+  `fixtures/testnet-state-v2.expected.json` and
   `test/testnet-state-adapter.test.ts`.
 - Stable result codes include `conformance_plan_ready`,
   `spec_drift_detected`, `invalid_dependency_boundary`,
