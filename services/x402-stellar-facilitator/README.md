@@ -207,6 +207,15 @@ a stage to any of the three terminal records, does not authorize another
 credential or network attempt, and does not change the settlement or submit
 boundary.
 
+The executable offline postmortem in
+`src/testnet-outcome-capture-postmortem.ts` locks the execute result plan digest
+as the only authoritative digest for an attempted request. Its versioned
+fixture proves that the dry-run digest is intentionally different and records
+the three current capture gaps: wrong-digest comparison, caller loss of the
+returned redacted wrapper, and schema-v1 state persistence of terminal status
+without the diagnostic. The postmortem uses injected offline ports only and
+does not inspect or change the three existing local state records.
+
 The safe default command remains offline:
 
 ```powershell

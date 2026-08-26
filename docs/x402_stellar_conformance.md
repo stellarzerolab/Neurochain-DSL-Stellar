@@ -208,8 +208,8 @@ retain the redacted result wrapper. The diagnostic stage or `detailCode` is not
 guessed after the fact. Public evidence is recorded in
 `examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-26.json`.
 
-The next offline checkpoint adds a versioned, machine-readable diagnostic to
-the harness result. The adapter maps credential, official-endpoint allowlist,
+The offline diagnostic checkpoint adds a versioned, machine-readable diagnostic
+to the harness result. The adapter maps credential, official-endpoint allowlist,
 supported snapshot, Friendbot, payer/recipient Horizon readiness,
 payment-payload creation, pinned upstream verify, verify-result validation,
 public-evidence validation and state finalization failures to stable codes. An
@@ -217,6 +217,18 @@ unknown adapter failure maps to `canonical_port_unknown`. All diagnostics are
 non-retryable and contain only a fixed stage, code and reason; raw exceptions,
 credentials, auth entries, payment payloads and signed XDR remain inside the
 private boundary.
+
+The follow-up postmortem is executable offline evidence rather than a
+retroactive interpretation of the three live attempts. The pure
+`testnet-outcome-capture-postmortem.ts` contract and its versioned fixture prove
+that the authoritative live identity is
+`execute_result.plan.requestDigest`; the dry-run digest is intentionally
+different and must never be used as the expected execute digest. They also lock
+three current loss windows: a caller can compare against the wrong digest, the
+returned redacted result wrapper can be discarded before durable capture, and
+schema-v1 state finalization currently persists only terminal status rather
+than the allowlisted diagnostic. No existing local state record is read,
+rewritten or assigned a diagnostic by this postmortem.
 
 The verify-result stage additionally uses an exact allowlist of 30
 `invalidReason` codes inventoried from pinned `@x402/stellar@2.23.0`. A known
@@ -302,6 +314,10 @@ does not replace the canonical package or upstream E2E suite.
   `src/testnet-live-conformance.ts`,
   `test/testnet-conformance-harness.test.ts` and
   `test/testnet-live-conformance.test.ts`.
+- Offline outcome-capture postmortem and digest-authority fixture:
+  `services/x402-stellar-facilitator/src/testnet-outcome-capture-postmortem.ts`,
+  `fixtures/testnet-outcome-capture-postmortem-v1.expected.json` and
+  `test/testnet-outcome-capture-postmortem.test.ts`.
 - Local-only atomic testnet state adapter, safe schema fixture and recovery
   tests: `services/x402-stellar-facilitator/src/testnet-state-adapter.ts`,
   `fixtures/testnet-state-v1.expected.json` and
