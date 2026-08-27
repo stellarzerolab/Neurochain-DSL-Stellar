@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "message_type": "evaluation_response",
+  "request_id": "reference-blocked-001",
+  "decision": "blocked",
+  "exit_code": 4,
+  "reason_code": "contract_policy",
+  "action_plan": {
+    "schema_version": 1,
+    "actions": [
+      {
+        "kind": "soroban_contract_invoke",
+        "contract_id": "CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+        "function": "swap",
+        "args": {
+          "amount": "10"
+        }
+      }
+    ]
+  },
+  "action_plan_hash": "56d9e0d72ac23793d836d25fd2cacfe2e99fd39bed03a8fdc815faf252601f99",
+  "authority_grants": {
+    "payment_verification": false,
+    "payment_settlement": false,
+    "guardrail_override": false,
+    "wallet_signing": false,
+    "stellar_submission": false
+  },
+  "underlying_action_submit_allowed": false
+}

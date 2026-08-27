@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "discovery_arguments": {
+    "schemaVersion": 1,
+    "query": "stellar guardrails",
+    "type": "mcp",
+    "network": "stellar:testnet",
+    "extensions": "bazaar",
+    "limit": 10
+  },
+  "evaluation_request": {
+    "schema_version": 1,
+    "message_type": "evaluation_request",
+    "request_id": "reference-blocked-001",
+    "resource_id": "mcp:https://api.example.com/mcp#plan_stellar_action",
+    "operation": "plan_and_evaluate",
+    "network": "stellar:testnet",
+    "intent_text": "Invoke swap with amount 10 on CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ"
+  },
+  "paid_call_arguments": {
+    "schemaVersion": 1,
+    "requestId": "reference-blocked-001",
+    "resourceKey": "mcp:https://api.example.com/mcp#plan_stellar_action",
+    "arguments": {
+      "intent_text": "Invoke swap with amount 10 on CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+      "network": "stellar:testnet"
+    }
+  }
+}

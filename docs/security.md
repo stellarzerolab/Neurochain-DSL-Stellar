@@ -151,6 +151,23 @@ transaction submission, service dispatch, underlying execution or ActionPlan
 submit. Live testnet evidence is recorded only after a separately gated run
 has produced the corresponding public ledger result.
 
+### Local x402 non-bypass reference path
+
+The offline reference coordinator binds local Bazaar discovery, trusted x402
+access-state inspection, a trusted typed ActionPlan and deterministic policy
+response, and the existing exact single-use paid-call capability gate. An
+untrusted request cannot provide its own ActionPlan, policy result, settled
+state, authority grant, or capability decision. A blocked or
+requires-approval policy result never reaches the capability gate.
+
+Even after an approved decision and exact access consumption, only the named
+service-call capability may be true. Payment, proof, approval, settlement,
+signing, underlying execution, service dispatch, wallet, shell, RPC submit,
+and ActionPlan-submit remain false. The coordinator has no listener, network
+client, signer, dispatcher, or submit function. See
+`docs/x402_local_reference_path.md` and
+`tests/x402_local_reference_path.rs` for the machine-checked boundary.
+
 ```yaml
 name: Security & Quality
 

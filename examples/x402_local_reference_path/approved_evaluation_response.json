@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "message_type": "evaluation_response",
+  "request_id": "reference-approved-001",
+  "decision": "approved",
+  "exit_code": null,
+  "reason_code": "approved",
+  "action_plan": {
+    "schema_version": 1,
+    "actions": [
+      {
+        "kind": "stellar_account_balance",
+        "account": "GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P",
+        "asset": "XLM"
+      }
+    ]
+  },
+  "action_plan_hash": "026f7c54ccbafac0bac1624d98b18b93bdbd0a9450e3ea522d9ba6826a930818",
+  "authority_grants": {
+    "payment_verification": false,
+    "payment_settlement": false,
+    "guardrail_override": false,
+    "wallet_signing": false,
+    "stellar_submission": false
+  },
+  "underlying_action_submit_allowed": false
+}

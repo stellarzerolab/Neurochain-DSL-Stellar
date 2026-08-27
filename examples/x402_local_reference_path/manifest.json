@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "catalog_fixture": "../x402_bazaar_catalog/mcp_tool.json",
+  "scenarios": [
+    {
+      "name": "approved",
+      "request_fixture": "approved_request.json",
+      "evaluation_response_fixture": "approved_evaluation_response.json",
+      "expected_outcome": "capability_ready",
+      "expected_capability_code": "service_call_authorized",
+      "expected_access_consumed": true
+    },
+    {
+      "name": "blocked",
+      "request_fixture": "blocked_request.json",
+      "evaluation_response_fixture": "blocked_evaluation_response.json",
+      "expected_outcome": "policy_blocked",
+      "expected_capability_code": "policy_blocked",
+      "expected_access_consumed": false
+    }
+  ],
+  "authority": {
+    "paymentAllowed": false,
+    "proofAllowed": false,
+    "approvalAllowed": false,
+    "settlementAllowed": false,
+    "signingAllowed": false,
+    "underlyingExecutionAllowed": false,
+    "serviceDispatchAllowed": false,
+    "walletAccessAllowed": false,
+    "shellAccessAllowed": false,
+    "rpcSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false
+  }
+}
