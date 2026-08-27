@@ -46,8 +46,8 @@ The separate `services/x402-stellar-facilitator` workspace is gated in CI
 with Node 24.19.0, pnpm 11.19.0, an exact frozen lockfile, and dependency
 install scripts disabled. The committed 49-package inventory rejects
 AGPL/GPL/LGPL/SSPL and unknown runtime licenses; package/version, readiness
-summary, evidence-path, and authority drift fail closed. The 24-case readiness
-record distinguishes verified offline evidence from service-boundary,
+summary, exact evidence-reference, and authority drift fail closed. The
+24-case readiness record distinguishes verified offline evidence from service-boundary,
 credential/network, upstream `upto`, and independent-review blockers. Neither
 the CI gate nor a `verified_offline` status grants payment, credential,
 network, signing, settlement, dispatch, transaction-submit, or ActionPlan-

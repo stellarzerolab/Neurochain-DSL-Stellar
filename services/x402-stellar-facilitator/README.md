@@ -263,6 +263,9 @@ bypassed.
 The current evidence status is checked in at
 `examples/x402_stellar_conformance/readiness.json`. It grants no payment,
 network, credential, signing, settlement, dispatch, transaction-submit, or
-ActionPlan-submit authority. CI installation may fetch only the exact frozen
-dependency closure; all conformance and readiness tests run without external
-Stellar or x402 service calls.
+ActionPlan-submit authority. Its exact evidence references now include the
+canonical offline reference while the canonical-client live E2E case remains
+`approval_blocked`. CI installation may fetch only the exact frozen dependency
+closure; the CI gate also runs the default-off `testnet:plan`, and all
+conformance/readiness commands run without external Stellar or x402 service
+calls.

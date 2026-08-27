@@ -33,6 +33,81 @@ const EXPECTED_CASE_STATUS: Readonly<Record<string, ReadinessStatus>> = Object.f
   third_party_security_review: "approval_blocked",
 });
 
+const EXPECTED_CASE_EVIDENCE_REFS: Readonly<Record<string, readonly string[]>> =
+  Object.freeze({
+    standard_surface: ["services/x402-stellar-facilitator/test/service-handlers.test.ts"],
+    supported_exact_both_networks: [
+      "services/x402-stellar-facilitator/fixtures/supported-v2.expected.json",
+    ],
+    supported_are_fees_sponsored: [
+      "services/x402-stellar-facilitator/fixtures/supported-v2.expected.json",
+    ],
+    wire_v2_payload_transaction: [
+      "services/x402-stellar-facilitator/test/service-handlers.test.ts",
+    ],
+    exact_canonical_client_e2e: [
+      "services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json",
+      "services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json",
+      "services/x402-stellar-facilitator/fixtures/testnet-upstream-verify-reasons-v1.expected.json",
+      "services/x402-stellar-facilitator/test/testnet-live-conformance.test.ts",
+      "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json",
+      "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-26.json",
+      "services/x402-stellar-facilitator/fixtures/testnet-canonical-reference-v1.expected.json",
+      "services/x402-stellar-facilitator/test/testnet-canonical-reference.test.ts",
+    ],
+    exact_keypair_auth: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_custom_check_auth: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_sep41_seven_decimals: ["docs/x402_stellar_conformance.md"],
+    exact_tampered_signature_reject: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_asset_mismatch_reject: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_amount_mismatch_reject: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_recipient_mismatch_reject: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_expired_auth_reject: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_replay_reject: [
+      "services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json",
+    ],
+    exact_auth_structure_reject: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_facilitator_non_custodial: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+    ],
+    exact_simulation_balance_change_reject: ["docs/x402_stellar_conformance.md"],
+    exact_missing_trustline_reject: ["docs/x402_stellar_conformance.md"],
+    rejections_non_null_reason: [
+      "services/x402-stellar-facilitator/fixtures/verify-rejection-v2.expected.json",
+      "services/x402-stellar-facilitator/fixtures/settle-rejection-v2.expected.json",
+    ],
+    upto_stellar_upstream_spec: ["examples/x402_stellar_conformance/plan.json"],
+    upto_single_use_time_bound_cap: ["examples/x402_stellar_conformance/plan.json"],
+    spec_drift_gate: [
+      "examples/x402_stellar_conformance/adversarial_patches.json",
+      "examples/x402_stellar_conformance/readiness_adversarial_patches.json",
+      ".github/workflows/ci.yml",
+      "services/x402-stellar-facilitator/test/readiness-status.test.ts",
+    ],
+    observability_and_audit: [
+      "services/x402-stellar-facilitator/test/service-handlers.test.ts",
+      "services/x402-stellar-facilitator/fixtures/testnet-error-stages-v1.expected.json",
+      "services/x402-stellar-facilitator/fixtures/testnet-upstream-verify-reasons-v1.expected.json",
+    ],
+    third_party_security_review: ["docs/x402_stellar_conformance.md"],
+  });
+
 const EXPECTED_SUMMARY = Object.freeze({
   totalCases: 24,
   verifiedOffline: 9,
@@ -205,10 +280,14 @@ function parseCases(value: unknown): readonly ReadinessCase[] {
       fail("readiness_case_mismatch", `case ${id} does not match the pinned readiness status`);
     }
     seen.add(id);
+    const evidenceRefs = parseEvidenceRefs(entry.evidenceRefs, id);
+    if (JSON.stringify(evidenceRefs) !== JSON.stringify(EXPECTED_CASE_EVIDENCE_REFS[id])) {
+      fail("readiness_evidence_ref_drift", `case ${id} evidence refs do not match the checkpoint`);
+    }
     return {
       id,
       status: expectedStatus,
-      evidenceRefs: parseEvidenceRefs(entry.evidenceRefs, id),
+      evidenceRefs,
       reason: boundedString(entry.reason, "readiness_case_mismatch", `${id}.reason`, 512),
     };
   });
@@ -250,7 +329,7 @@ export function parseOfflineReadiness(value: unknown): OfflineReadinessRecord {
   );
   if (
     record.schemaVersion !== 1 ||
-    record.recordedAt !== "2026-08-24" ||
+    record.recordedAt !== "2026-08-27" ||
     record.planRef !== "examples/x402_stellar_conformance/plan.json"
   ) {
     fail("readiness_envelope_invalid", "readiness envelope does not match the pinned checkpoint");

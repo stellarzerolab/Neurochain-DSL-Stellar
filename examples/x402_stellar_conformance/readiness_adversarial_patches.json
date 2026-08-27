@@ -38,5 +38,10 @@
     "name": "evidence_path_traversal",
     "operation": "inject_traversal_evidence",
     "expectedCode": "readiness_evidence_ref_invalid"
+  },
+  {
+    "name": "evidence_path_replaced_with_unrelated_file",
+    "operation": "replace_evidence_with_unrelated_checked_in_file",
+    "expectedCode": "readiness_evidence_ref_drift"
   }
 ]

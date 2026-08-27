@@ -33,6 +33,8 @@ jobs:
         run: pnpm run build
       - name: Node built-in tests
         run: pnpm test
+      - name: Default-off testnet plan
+        run: pnpm run testnet:plan
 
   fmt_clippy:
     name: Format + Clippy

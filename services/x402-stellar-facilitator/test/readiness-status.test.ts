@@ -70,6 +70,11 @@ function applyOperation(value: Record<string, unknown>, operation: string): void
     case "inject_traversal_evidence":
       findCase(value, "standard_surface").evidenceRefs = ["../private/credential.json"];
       break;
+    case "replace_evidence_with_unrelated_checked_in_file":
+      findCase(value, "standard_surface").evidenceRefs = [
+        "docs/x402_stellar_conformance.md",
+      ];
+      break;
     default:
       assert.fail(`unknown readiness operation ${operation}`);
   }
@@ -96,7 +101,32 @@ test("machine-readable readiness records the actual 24-case offline boundary", a
     readiness.cases.filter(({ status }) => status === "verified_offline").length,
     9,
   );
+  assert.deepEqual(
+    readiness.cases.find(({ id }) => id === "exact_canonical_client_e2e")?.evidenceRefs.slice(-2),
+    [
+      "services/x402-stellar-facilitator/fixtures/testnet-canonical-reference-v1.expected.json",
+      "services/x402-stellar-facilitator/test/testnet-canonical-reference.test.ts",
+    ],
+  );
+  assert.equal(
+    readiness.cases.find(({ id }) => id === "exact_canonical_client_e2e")?.status,
+    "approval_blocked",
+  );
   assert.ok(Object.values(readiness.authorityBoundary).every((allowed) => !allowed));
+});
+
+test("CI runs the complete offline TypeScript readiness gate", async () => {
+  const workflow = await readFile(resolve(REPO_ROOT, ".github/workflows/ci.yml"), "utf8");
+  for (const required of [
+    "pnpm install --frozen-lockfile --ignore-scripts",
+    "pnpm run check:supply-chain",
+    "pnpm run typecheck",
+    "pnpm run build",
+    "pnpm test",
+    "pnpm run testnet:plan",
+  ]) {
+    assert.ok(workflow.includes(required), `CI missing ${required}`);
+  }
 });
 
 test("every readiness evidence ref is a checked-in repository file", async () => {

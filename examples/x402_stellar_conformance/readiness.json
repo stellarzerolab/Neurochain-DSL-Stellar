@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-08-24",
+  "recordedAt": "2026-08-27",
   "planRef": "examples/x402_stellar_conformance/plan.json",
   "packageSnapshot": {
     "node": "24.19.0",
@@ -55,9 +55,11 @@
         "services/x402-stellar-facilitator/fixtures/testnet-upstream-verify-reasons-v1.expected.json",
         "services/x402-stellar-facilitator/test/testnet-live-conformance.test.ts",
         "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-25.json",
-        "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-26.json"
+        "examples/x402_stellar_conformance/testnet-supported-verify-attempt-2026-08-26.json",
+        "services/x402-stellar-facilitator/fixtures/testnet-canonical-reference-v1.expected.json",
+        "services/x402-stellar-facilitator/test/testnet-canonical-reference.test.ts"
       ],
-      "reason": "Three bounded dedicated testnet attempts confirmed public Friendbot funding but returned terminal outcome_unknown before strict canonical verify evidence; the third redacted result wrapper was not retained after a local post-run digest assertion mismatch, and another credential or network attempt still requires explicit approval."
+      "reason": "The canonical offline reference now locks supported, verify-result, digest, wrapper, and state parity, but three bounded dedicated testnet attempts still ended terminally in outcome_unknown without strict live canonical verify evidence; another credential or network attempt requires explicit approval."
     },
     {
       "id": "exact_keypair_auth",
@@ -161,8 +163,13 @@
     {
       "id": "spec_drift_gate",
       "status": "verified_offline",
-      "evidenceRefs": ["examples/x402_stellar_conformance/adversarial_patches.json"],
-      "reason": "Pinned source, protocol, package, license, coverage, and authority drift fail closed in offline tests."
+      "evidenceRefs": [
+        "examples/x402_stellar_conformance/adversarial_patches.json",
+        "examples/x402_stellar_conformance/readiness_adversarial_patches.json",
+        ".github/workflows/ci.yml",
+        "services/x402-stellar-facilitator/test/readiness-status.test.ts"
+      ],
+      "reason": "Pinned source, protocol, package, license, coverage, exact evidence, authority, and offline CI-command drift fail closed in tests."
     },
     {
       "id": "observability_and_audit",

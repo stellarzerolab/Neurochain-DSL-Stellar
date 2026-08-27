@@ -1,6 +1,6 @@
 # Offline @x402/stellar conformance preparation
 
-Date: 2026-08-26
+Date: 2026-08-27
 
 Status: versioned offline coverage plan plus machine-readable readiness status,
 approved exact-version package bootstrap, supply-chain gate, upstream API
@@ -34,8 +34,12 @@ evidence record. It does not rewrite the historical preparation plan. Its 24
 cases distinguish nine `verified_offline` results, two
 `service_boundary_pending` results, eleven `approval_blocked` results, and two
 `upstream_blocked` results. The TypeScript validator rejects case/status,
-package, summary, evidence-path, or authority drift and verifies that every
-referenced evidence file exists in the repository.
+package, summary, exact evidence-reference, or authority drift and verifies
+that every referenced evidence file exists in the repository. The canonical
+offline reference is pinned as evidence for `exact_canonical_client_e2e`, but
+that case remains `approval_blocked`: offline parity is not live canonical
+verify evidence and does not reinterpret the three terminal `outcome_unknown`
+attempts.
 
 ## Pinned source snapshot
 
@@ -355,7 +359,8 @@ does not replace the canonical package or upstream E2E suite.
   `test/readiness-status.test.ts`.
 - GitHub quality gate: `.github/workflows/ci.yml` uses Node 24.19.0 and
   pnpm 11.19.0, installs the frozen lockfile with dependency scripts disabled,
-  then runs the supply-chain, strict typecheck, build, and Node test gates.
+  then runs the supply-chain, strict typecheck, build, Node test, and default-
+  off `testnet:plan` gates.
   The install is a CI supply-chain step; the conformance tests themselves do
   not call Stellar, x402 services, or the package registry.
 
