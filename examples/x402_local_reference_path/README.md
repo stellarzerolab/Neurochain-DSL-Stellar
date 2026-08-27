@@ -21,3 +21,17 @@ settled access is ready.
 Everything here is offline and local. The fixtures contain no credential,
 signature, payment payload, transaction envelope, network command, listener,
 service dispatch, or submit path.
+
+From the repository root, an external developer can run both scenarios through
+the existing coordinator with one network-disabled command:
+
+```bash
+cargo run --offline --quiet --example x402_local_reference_path
+```
+
+The command compares the actual result with the manifest expectations and
+prints the machine-checkable shape locked by `quickstart_output.json`. The
+approved scenario reaches the exact capability gate once with no dispatch. The
+blocked scenario leaves that gate untouched. All signing, underlying
+execution, service-dispatch, wallet, shell, RPC-submit, and ActionPlan-submit
+fields remain false.

@@ -1,0 +1,82 @@
+{
+  "authorityBoundary": {
+    "actionPlanSubmitAllowed": false,
+    "approvalAllowed": false,
+    "paymentAllowed": false,
+    "proofAllowed": false,
+    "rpcSubmitAllowed": false,
+    "serviceDispatchAllowed": false,
+    "settlementAllowed": false,
+    "shellAccessAllowed": false,
+    "signingAllowed": false,
+    "underlyingExecutionAllowed": false,
+    "walletAccessAllowed": false
+  },
+  "credentialRequired": false,
+  "networkRequired": false,
+  "offline": true,
+  "path": [
+    "bazaar_discovery",
+    "x402_access_state",
+    "typed_action_plan",
+    "deterministic_policy",
+    "approved_or_blocked",
+    "exact_capability_gate"
+  ],
+  "scenarios": [
+    {
+      "authority": {
+        "actionPlanSubmitAllowed": false,
+        "approvalAllowed": false,
+        "paymentAllowed": false,
+        "proofAllowed": false,
+        "rpcSubmitAllowed": false,
+        "serviceDispatchAllowed": false,
+        "settlementAllowed": false,
+        "shellAccessAllowed": false,
+        "signingAllowed": false,
+        "underlyingExecutionAllowed": false,
+        "walletAccessAllowed": false
+      },
+      "capability": {
+        "accessConsumed": true,
+        "code": "service_call_authorized",
+        "gateCalls": 1,
+        "serviceCallAllowed": true,
+        "serviceDispatchAllowed": false
+      },
+      "decision": "approved",
+      "exitCode": null,
+      "name": "approved",
+      "outcome": "capability_ready"
+    },
+    {
+      "authority": {
+        "actionPlanSubmitAllowed": false,
+        "approvalAllowed": false,
+        "paymentAllowed": false,
+        "proofAllowed": false,
+        "rpcSubmitAllowed": false,
+        "serviceDispatchAllowed": false,
+        "settlementAllowed": false,
+        "shellAccessAllowed": false,
+        "signingAllowed": false,
+        "underlyingExecutionAllowed": false,
+        "walletAccessAllowed": false
+      },
+      "capability": {
+        "accessConsumed": false,
+        "code": "policy_blocked",
+        "gateCalls": 0,
+        "serviceCallAllowed": false,
+        "serviceDispatchAllowed": false
+      },
+      "decision": "blocked",
+      "exitCode": 4,
+      "name": "blocked",
+      "outcome": "policy_blocked"
+    }
+  ],
+  "schemaVersion": 1,
+  "status": "local_reference_ready"
+}

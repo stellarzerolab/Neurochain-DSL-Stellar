@@ -80,6 +80,18 @@ feeds the same fixtures through the existing TypeScript Bazaar and evaluation
 adapters and locks the same ordering and no-dispatch result. Versioned fixtures
 live in `examples/x402_local_reference_path/`.
 
+The external-developer quickstart and role ownership table are documented in
+`docs/x402_local_reference_quickstart.md`. Its single offline integration
+command is:
+
+```bash
+cargo run --offline --quiet --example x402_local_reference_path
+```
+
+The command uses this coordinator directly, runs the same approved and blocked
+fixtures, and checks the no-dispatch, wallet, RPC, and ActionPlan-submit
+boundary before emitting its deterministic JSON report.
+
 This is offline integration evidence, not live x402 verification or
 settlement evidence. It does not modify the existing intent, policy, flow,
 submit, or exit-code semantics. Network access, real service dispatch,

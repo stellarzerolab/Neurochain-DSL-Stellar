@@ -459,11 +459,25 @@ Start here:
 - `docs/models.md` - model pack download, verification, and release notes
 - `docs/product_direction_mcp_skills.md` - MCP and Skills product direction
 - `docs/public_demo_flow.md` - simplified Plan -> Evaluate -> Prove -> Verify public demo path
+- `docs/x402_local_reference_quickstart.md` - one-command offline Bazaar/x402 -> ActionPlan -> policy -> capability quickstart
 - `docs/security.md` - security, CI, audit, and runtime safety notes
 - `docs/troubleshooting.md` - common local development issues
 - `examples/mcp_v0_no_submit_contract/` - machine-checkable MCP v0 no-submit fixtures
 - `examples/mcp_v0_stdio_client/` - stdio host config and process-level no-submit smoke client
+- `examples/x402_local_reference_path/` - versioned approved/blocked fixtures for the local non-bypass reference path
 - `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
+
+Run the complete local x402 reference path without credentials, network,
+wallet access, service dispatch, or ActionPlan-submit:
+
+```bash
+cargo run --offline --quiet --example x402_local_reference_path
+```
+
+The command executes Bazaar discovery, trusted local x402 access state, typed
+ActionPlan evaluation, deterministic policy, and the separate capability gate
+for both approved and blocked fixtures. It performs no dispatch and emits a
+machine-checkable all-false execution/signing/wallet/RPC/submit boundary.
 
 ## Development Checks
 
