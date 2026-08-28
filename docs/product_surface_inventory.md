@@ -27,6 +27,45 @@ ActionPlan, deterministic policy decision, ZK evidence and capability gate.
 Payment, proof and approval do not grant signing, settlement, service dispatch,
 underlying execution, RPC submit, transaction submit or ActionPlan submit.
 
+## Canonical vocabulary
+
+The versioned inventory is the machine-readable vocabulary source. The same
+terms mean the same thing on every surface:
+
+| Stage | Meaning | Authority boundary |
+| --- | --- | --- |
+| `Plan` | Convert an intent or deterministic input into a typed ActionPlan preview. | No payment, proof, approval, capability, execution or submit authority. |
+| `Evaluate` | Apply deterministic policy and produce a decision. | A policy result is information, not an effect grant. |
+| `Prove` | Optionally bind the ActionPlan, policy and decision to a public ZK artifact. | Proof is evidence, not approval or execution permission. |
+| `Verify` | Optionally verify the proof and its bindings. | Verification does not issue a capability or submit the ActionPlan. |
+| `Capability gate` | Separately evaluate an exact host-controlled capability after all required prior state. | The local reference may issue one exact service-call capability; it still exposes no dispatch, signer, wallet, RPC or submit route. |
+
+The canonical policy decisions are:
+
+| Decision | Meaning | Current boundary |
+| --- | --- | --- |
+| `not_evaluated` | A plan or access envelope exists, but deterministic policy has not run. | Terminal no-submit. |
+| `approved` | Deterministic policy passed. | Not proof, human approval, capability, execution, signing or submit permission. |
+| `requires_approval` | Policy passed, but a separate owner or human approval is required. | Terminal no-submit in the current core surfaces. |
+| `blocked` | Policy or safety validation failed closed. | Terminal no-submit; exit `3`, `4` or `5` identifies the guardrail class where the surface exposes an exit code. |
+
+Transport `status`, payment `state`, proof verification state and capability
+`outcome` are separate fields. None should be interpreted as a policy decision
+or execution authority merely because it says `ok`, `finalized`, `verified` or
+`ready`.
+
+## Cross-surface translation
+
+| Surface | Product role | Canonical fields or representation |
+| --- | --- | --- |
+| CLI | One-shot and machine-readable planning. | Typed ActionPlan plus stable process exit `3` / `4` / `5`; plan-only without `--flow`. |
+| REPL | Human learning and diagnostics. | The same ActionPlan and guardrail meanings; use `--no-flow` for the canonical plan-only path. |
+| `.nc` | Advanced deterministic scripting. | The same plan, policy and exit semantics as CLI/REPL/API, with unsafe build-time effects separately gated. |
+| MCP | Agent integration. | `decision`, `exit_code`, proof/verification fields and `underlying_action_submit_allowed=false`. |
+| API | Backend integration. | `/stellar/intent-plan` exposes `ok`, `blocked`, `requires_approval`, `exit_code` and `plan`; the x402 envelope exposes `decision.status` separately from `payment.state`. |
+| x402/Bazaar | Discovery, payment-state and access. | `decision` stays separate from `capability.outcome`; only the exact gate can produce `serviceCallAllowed=true`, and the reference never dispatches. |
+| ZK | Optional evidence and proof verification. | `attested_decision.status` plus binding/verification state; `submit_allowed` remains false. |
+
 ## Classification rule
 
 | Class | Meaning now | Product action |
@@ -57,6 +96,10 @@ the manual acceptance pass.
 - The core human REPL recommendation is explicit `--no-flow`.
 - The current zero-argument REPL compatibility default enables flow. It is
   therefore classified as advanced, not used as the default product quickstart.
+- REPL `help` now labels itself a compatibility reference because it still
+  includes advanced operator actions. `help all` calls wallet, network,
+  Friendbot, policy and model configuration `Advanced operator setup`, matching
+  this inventory. Command availability and behavior remain unchanged.
 - `.nc` remains the advanced deterministic scripting surface.
 - `--flow` and especially `--yes` remain advanced execution controls and are
   outside the default Plan -> Evaluate -> Prove -> Verify walkthrough.

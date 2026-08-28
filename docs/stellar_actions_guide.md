@@ -10,6 +10,28 @@ Keep this document in sync with implementation details, edge cases, examples, an
 
 **simulate -> preview -> confirm -> submit**
 
+This is the advanced CLI/REPL/`.nc` reference. The shared product vocabulary is:
+
+```text
+Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision
+```
+
+- `Plan` creates the typed ActionPlan.
+- `Evaluate` returns `not_evaluated`, `approved`, `requires_approval` or
+  `blocked` from deterministic policy.
+- `Prove` and `Verify` add optional evidence; neither grants execution.
+- An `approved` policy decision is not a capability, signing permission or
+  submit permission.
+- A capability decision belongs to a separate host-controlled gate. The
+  default CLI, REPL, `.nc`, MCP and planning API paths do not issue one.
+
+Surface roles are documented in
+[`docs/product_surface_inventory.md`](product_surface_inventory.md). In the
+REPL, `help` is a compatibility reference that still lists advanced commands,
+and `help all` groups wallet, network, Friendbot, model and policy settings as
+`Advanced operator setup`. Use `--no-flow` for the canonical plan-only REPL
+path. This wording does not change command, flow, guardrail or exit behavior.
+
 Currently supported actions:
 
 - **FundTestnet** via Friendbot

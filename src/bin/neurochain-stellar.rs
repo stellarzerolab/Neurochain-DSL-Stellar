@@ -4114,9 +4114,20 @@ fn print_repl_current_asset_allowlist(runtime: &RuntimeSettings) -> bool {
     false
 }
 
+const CANONICAL_STAGES_HELP: &str =
+    "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.";
+const REPL_ROLE_HELP: &str =
+    "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.";
+const APPROVAL_BOUNDARY_HELP: &str =
+    "Approved is a policy decision, not execution or submit permission.";
+
 fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debug: bool) {
     const HELP_COL_WIDTH: usize = 58;
-    println!("Stellar REPL quick start:");
+    println!("Stellar REPL compatibility quick reference:");
+    println!("{CANONICAL_STAGES_HELP}");
+    println!("{REPL_ROLE_HELP}");
+    println!("{APPROVAL_BOUNDARY_HELP}");
+    println!("Commands below include advanced operator actions retained for compatibility.");
     let quick_rows = [
         ("AI: \"models/intent_stellar/model.onnx\"", ""),
         ("network: testnet", ""),
@@ -4187,7 +4198,7 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
     println!(
         "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
     );
-    println!("- restart with --no-flow if you want plan-only REPL");
+    println!("- restart with --no-flow for the canonical plan-only REPL path");
     println!("- ZK Guardrail never grants permission to submit the underlying ActionPlan.");
 }
 
@@ -4329,6 +4340,9 @@ fn print_repl_hint_line() {
 
 fn print_repl_help_all() {
     println!("Stellar REPL commands (all):");
+    println!("{CANONICAL_STAGES_HELP}");
+    println!("{REPL_ROLE_HELP}");
+    println!("{APPROVAL_BOUNDARY_HELP}");
     println!();
 
     let core_setup = [
@@ -4388,7 +4402,7 @@ fn print_repl_help_all() {
             "set NC_CONTRACT_POLICY_DIR equivalent",
         ),
     ];
-    print_repl_help_section("Core setup (value required)", &core_setup);
+    print_repl_help_section("Advanced operator setup (value required)", &core_setup);
     println!(
         "Note: REPL startup default is `asset_allowlist: XLM`; override with `asset_allowlist: ...`."
     );

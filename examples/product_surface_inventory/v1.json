@@ -8,6 +8,103 @@
     "verified_decision",
     "separate_exact_capability_gate"
   ],
+  "canonicalVocabulary": {
+    "stages": [
+      {
+        "id": "plan",
+        "meaning": "Convert an intent or deterministic input into a typed ActionPlan preview",
+        "mayIssueExactServiceCallCapability": false,
+        "executionOrSubmitAuthorityGranted": false
+      },
+      {
+        "id": "evaluate",
+        "meaning": "Apply deterministic policy and return not_evaluated, approved, requires_approval or blocked",
+        "mayIssueExactServiceCallCapability": false,
+        "executionOrSubmitAuthorityGranted": false
+      },
+      {
+        "id": "prove",
+        "meaning": "Optionally bind the evaluated decision to a public ZK artifact",
+        "mayIssueExactServiceCallCapability": false,
+        "executionOrSubmitAuthorityGranted": false
+      },
+      {
+        "id": "verify",
+        "meaning": "Optionally verify the proof and its ActionPlan and policy bindings",
+        "mayIssueExactServiceCallCapability": false,
+        "executionOrSubmitAuthorityGranted": false
+      },
+      {
+        "id": "capability_gate",
+        "meaning": "Separately decide whether an exact single-use host capability may be issued",
+        "mayIssueExactServiceCallCapability": true,
+        "executionOrSubmitAuthorityGranted": false
+      }
+    ],
+    "decisions": [
+      {
+        "id": "not_evaluated",
+        "meaning": "A plan or access envelope exists but deterministic policy has not produced a decision",
+        "terminalNoSubmit": true,
+        "executionAuthorityGranted": false
+      },
+      {
+        "id": "approved",
+        "meaning": "Deterministic policy passed; this is not proof, capability, execution, signing or submit permission",
+        "terminalNoSubmit": false,
+        "executionAuthorityGranted": false
+      },
+      {
+        "id": "requires_approval",
+        "meaning": "Policy passed but a separate owner or human approval is still required",
+        "terminalNoSubmit": true,
+        "executionAuthorityGranted": false
+      },
+      {
+        "id": "blocked",
+        "meaning": "Policy or safety validation failed closed with the surface-specific reason and exit code",
+        "terminalNoSubmit": true,
+        "executionAuthorityGranted": false
+      }
+    ],
+    "surfaceRoles": [
+      {
+        "id": "cli",
+        "role": "One-shot and machine-readable planning",
+        "defaultBoundary": "plan_only_without_flow"
+      },
+      {
+        "id": "repl",
+        "role": "Human learning and diagnostics",
+        "defaultBoundary": "use_no_flow_for_canonical_plan_only_path"
+      },
+      {
+        "id": "nc",
+        "role": "Advanced deterministic scripting",
+        "defaultBoundary": "plan_only_without_flow"
+      },
+      {
+        "id": "mcp",
+        "role": "Agent integration through five read-only no-submit tools",
+        "defaultBoundary": "read_only_no_submit"
+      },
+      {
+        "id": "api",
+        "role": "Backend integration through explicit listener-hosted contracts",
+        "defaultBoundary": "listener_and_effects_require_operator_action"
+      },
+      {
+        "id": "x402_bazaar",
+        "role": "Discovery, payment state and access without NeuroChain execution authority",
+        "defaultBoundary": "access_is_not_execution"
+      },
+      {
+        "id": "zk",
+        "role": "Optional decision evidence and proof verification",
+        "defaultBoundary": "proof_is_not_execution"
+      }
+    ]
+  },
   "classifications": [
     "core",
     "advanced",

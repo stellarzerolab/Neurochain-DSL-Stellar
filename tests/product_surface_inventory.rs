@@ -97,6 +97,103 @@ fn inventory_has_unique_ids_valid_classes_and_existing_evidence() {
 }
 
 #[test]
+fn canonical_vocabulary_defines_shared_stages_decisions_and_surface_roles() {
+    let inventory = inventory();
+    let vocabulary = inventory["canonicalVocabulary"]
+        .as_object()
+        .expect("canonicalVocabulary must be an object");
+
+    let stages = vocabulary["stages"]
+        .as_array()
+        .expect("canonical stages must be an array");
+    let stage_ids: BTreeSet<&str> = stages
+        .iter()
+        .map(|stage| required_string(stage, "id"))
+        .collect();
+    assert_eq!(
+        stage_ids,
+        BTreeSet::from(["capability_gate", "evaluate", "plan", "prove", "verify"])
+    );
+    let capability_issuing_stages: BTreeSet<&str> = stages
+        .iter()
+        .filter(|stage| {
+            stage["mayIssueExactServiceCallCapability"]
+                .as_bool()
+                .expect("stage capability flag must be a boolean")
+        })
+        .map(|stage| required_string(stage, "id"))
+        .collect();
+    assert_eq!(
+        capability_issuing_stages,
+        BTreeSet::from(["capability_gate"])
+    );
+    for stage in stages {
+        assert_eq!(
+            stage["executionOrSubmitAuthorityGranted"].as_bool(),
+            Some(false),
+            "canonical stage `{}` must not grant execution or submit authority",
+            required_string(stage, "id")
+        );
+        assert!(!required_string(stage, "meaning").trim().is_empty());
+    }
+
+    let decisions = vocabulary["decisions"]
+        .as_array()
+        .expect("canonical decisions must be an array");
+    let decision_ids: BTreeSet<&str> = decisions
+        .iter()
+        .map(|decision| required_string(decision, "id"))
+        .collect();
+    assert_eq!(
+        decision_ids,
+        BTreeSet::from(["approved", "blocked", "not_evaluated", "requires_approval"])
+    );
+    for decision in decisions {
+        assert_eq!(
+            decision["executionAuthorityGranted"].as_bool(),
+            Some(false),
+            "canonical decision `{}` must not grant execution authority",
+            required_string(decision, "id")
+        );
+        assert!(decision["terminalNoSubmit"].is_boolean());
+        assert!(!required_string(decision, "meaning").trim().is_empty());
+    }
+
+    let surface_roles = vocabulary["surfaceRoles"]
+        .as_array()
+        .expect("surfaceRoles must be an array");
+    let surface_ids: BTreeSet<&str> = surface_roles
+        .iter()
+        .map(|surface| required_string(surface, "id"))
+        .collect();
+    assert_eq!(
+        surface_ids,
+        BTreeSet::from(["api", "cli", "mcp", "nc", "repl", "x402_bazaar", "zk"])
+    );
+    for surface in surface_roles {
+        assert!(!required_string(surface, "role").trim().is_empty());
+        assert!(!required_string(surface, "defaultBoundary")
+            .trim()
+            .is_empty());
+    }
+
+    let help_source = fs::read_to_string(repo_root().join("src/bin/neurochain-stellar.rs"))
+        .expect("Stellar CLI source must be readable");
+    for marker in [
+        "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
+        "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
+        "Approved is a policy decision, not execution or submit permission.",
+        "Advanced operator setup (value required)",
+    ] {
+        assert!(
+            help_source.contains(marker),
+            "canonical vocabulary marker `{marker}` must remain in REPL help"
+        );
+    }
+    assert!(!help_source.contains("Core setup (value required)"));
+}
+
+#[test]
 fn inventory_covers_every_compiled_binary() {
     let inventory = inventory();
     let expected: BTreeMap<&str, &str> = array(&inventory, "binaries")

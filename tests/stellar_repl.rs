@@ -192,7 +192,16 @@ fn stellar_repl_help_and_exit_work() {
         .assert()
         .success()
         .stdout(contains("NeuroChain Stellar REPL"))
-        .stdout(contains("Stellar REPL quick start"))
+        .stdout(contains("Stellar REPL compatibility quick reference"))
+        .stdout(contains(
+            "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
+        ))
+        .stdout(contains(
+            "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
+        ))
+        .stdout(contains(
+            "Approved is a policy decision, not execution or submit permission.",
+        ))
         .stdout(contains("help dsl"))
         .stdout(contains("zk.demo approved"))
         .stdout(contains("zk.stellar.attest approved"))
@@ -354,7 +363,10 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         &stdout,
         &[
             "Stellar REPL commands (all):",
-            "Core setup (value required):",
+            "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
+            "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
+            "Approved is a policy decision, not execution or submit permission.",
+            "Advanced operator setup (value required):",
             "Toggles (on/off):",
             "Prompt/Action commands:",
             "ZK Guardrail:",
@@ -494,9 +506,9 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(stdout.contains(&template_swap_row));
     assert!(stdout.contains(&template_parity_row));
 
-    let core_start = stdout
-        .find("Core setup (value required):")
-        .expect("core setup header");
+    let advanced_setup_start = stdout
+        .find("Advanced operator setup (value required):")
+        .expect("advanced operator setup header");
     let toggle_start = stdout.find("Toggles (on/off):").expect("toggle header");
     let prompt_start = stdout
         .find("Prompt/Action commands:")
@@ -507,14 +519,15 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         .expect("soroban v2 header");
     let utility_start = stdout.find("Utility commands:").expect("utility header");
 
-    let core_section = &stdout[core_start..toggle_start];
+    let advanced_setup_section = &stdout[advanced_setup_start..toggle_start];
     let toggle_section = &stdout[toggle_start..prompt_start];
     let prompt_section = &stdout[prompt_start..zk_start];
     let zk_section = &stdout[zk_start..soroban_v2_start];
     let soroban_v2_section = &stdout[soroban_v2_start..utility_start];
 
-    assert!(core_section.contains("intent_threshold: <f32>"));
-    assert!(!core_section.contains("txrep"));
+    assert!(advanced_setup_section.contains("intent_threshold: <f32>"));
+    assert!(!advanced_setup_section.contains("txrep"));
+    assert!(!stdout.contains("Core setup (value required):"));
 
     assert!(toggle_section.contains("txrep"));
     assert!(toggle_section.contains("x402"));
