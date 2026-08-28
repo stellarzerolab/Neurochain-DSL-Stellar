@@ -204,6 +204,44 @@ fn approved_path_reaches_only_the_exact_capability_without_dispatch_or_submit() 
 }
 
 #[test]
+fn requires_approval_is_terminal_without_capability_consumption() {
+    let catalog = catalog();
+    let access = RecordingAccessState::new(X402LocalAccessState::SettledAccessReady);
+    let mut evaluation =
+        RecordingEvaluation::returning(response("approval_required_evaluation_response.json"));
+    let mut capability = RecordingCapabilityGate::with([BazaarPaidCallAccessDecision::Authorized]);
+
+    let result = run_x402_local_reference_path(
+        &catalog,
+        &access,
+        &mut evaluation,
+        Some(&mut capability),
+        request("approval_required_request.json"),
+    )
+    .expect("requires-approval reference path is a valid terminal outcome");
+
+    assert_eq!(result.outcome, X402LocalReferenceOutcome::ApprovalRequired);
+    assert_eq!(
+        result.evaluation.decision,
+        neurochain::x402_service_boundary::X402BoundaryDecision::RequiresApproval
+    );
+    assert_eq!(result.evaluation.exit_code, None);
+    assert_eq!(result.evaluation.reason_code, "approval_required");
+    assert!(!result.capability_gate.service_call_allowed);
+    assert!(!result.capability_gate.access_consumed);
+    assert!(!result.capability_gate.service_dispatch_allowed);
+    assert_eq!(result.capability_gate.code, "approval_required");
+    assert!(result.capability_gate.paid_call_result.is_none());
+    assert!(capability.bindings.is_empty());
+    assert_eq!(evaluation.requests.len(), 1);
+    assert_eq!(access.keys.borrow().len(), 1);
+    assert_all_false(
+        &serde_json::to_value(result.authority).expect("serialize authority"),
+        11,
+    );
+}
+
+#[test]
 fn blocked_policy_never_reaches_or_consumes_the_capability_gate() {
     let catalog = catalog();
     let access = RecordingAccessState::new(X402LocalAccessState::SettledAccessReady);
@@ -333,7 +371,7 @@ fn access_preview_and_atomic_exact_consume_are_both_required() {
 fn versioned_fixtures_and_docs_lock_the_same_non_bypass_path() {
     let manifest = read_fixture("manifest.json");
     assert_eq!(manifest["schema_version"], 1);
-    assert_eq!(manifest["scenarios"].as_array().map(Vec::len), Some(2));
+    assert_eq!(manifest["scenarios"].as_array().map(Vec::len), Some(3));
     assert_all_false(&manifest["authority"], 11);
 
     for scenario in manifest["scenarios"].as_array().expect("scenario array") {

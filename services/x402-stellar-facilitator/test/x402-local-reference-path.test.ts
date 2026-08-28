@@ -223,6 +223,21 @@ test("approved fixture follows discovery, access, policy, then exact capability"
   assert.equal(result.serviceDispatchAllowed, false);
 });
 
+test("requires-approval fixture remains terminal before the capability gate", async () => {
+  const result = await runScenario(
+    "approval_required_request.json",
+    "approval_required_evaluation_response.json",
+  );
+  assert.deepEqual(result.events, [
+    "bazaar_discovery",
+    "settled_access_ready",
+    "typed_action_plan_and_policy",
+  ]);
+  assert.equal(result.decision, "requires_approval");
+  assert.equal(result.serviceCallAllowed, false);
+  assert.equal(result.serviceDispatchAllowed, false);
+});
+
 test("blocked fixture never reaches the capability gate", async () => {
   const result = await runScenario(
     "blocked_request.json",

@@ -10,7 +10,7 @@ settlement, service dispatch, signing, execution, or submit path
 `src/x402_local_reference_path.rs` composes the already versioned boundaries
 into one local path:
 
-`Bazaar discovery -> x402 access state -> typed ActionPlan -> deterministic policy -> approved/blocked -> exact capability gate`
+`Bazaar discovery -> x402 access state -> typed ActionPlan -> deterministic policy -> approved/requires_approval/blocked -> exact capability gate`
 
 The implementation does not add a workflow engine or a second guardrail
 language. `BazaarCatalog` and `search_stellar_bazaar` own discovery, a trusted
@@ -53,8 +53,8 @@ or unavailable exact capability also remains denied after approval.
 
 ## Authority boundary
 
-The reference result keeps all of these false in both approved and blocked
-scenarios:
+The reference result keeps all of these false in approved,
+`requires_approval`, and blocked scenarios:
 
 - payment, proof, approval, and settlement authority;
 - signing, wallet, and shell access;
@@ -70,10 +70,11 @@ around the capability gate.
 
 ## Evidence and limits
 
-`tests/x402_local_reference_path.rs` runs one approved and one exit-4 blocked
-scenario through the same coordinator. It also covers request binding
-tampering, evaluation authority escalation, unsettled access, replay denial,
-and the invariant that blocked policy never touches the capability gate. The
+`tests/x402_local_reference_path.rs` runs approved, terminal
+`requires_approval`, and exit-4 blocked scenarios through the same coordinator.
+It also covers request binding tampering, evaluation authority escalation,
+unsettled access, replay denial, and the invariant that neither approval wait
+nor blocked policy touches the capability gate. The
 Node built-in parity test
 `services/x402-stellar-facilitator/test/x402-local-reference-path.test.ts`
 feeds the same fixtures through the existing TypeScript Bazaar and evaluation
@@ -88,9 +89,10 @@ command is:
 cargo run --offline --quiet --example x402_local_reference_path
 ```
 
-The command uses this coordinator directly, runs the same approved and blocked
-fixtures, and checks the no-dispatch, wallet, RPC, and ActionPlan-submit
-boundary before emitting its deterministic JSON report.
+The command uses this coordinator directly, runs the same approved,
+`requires_approval`, and blocked fixtures, and checks the no-dispatch, wallet,
+RPC, and ActionPlan-submit boundary before emitting its deterministic JSON
+report.
 
 This is offline integration evidence, not live x402 verification or
 settlement evidence. It does not modify the existing intent, policy, flow,

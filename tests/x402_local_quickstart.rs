@@ -22,6 +22,8 @@ fn quickstart_report_matches_the_versioned_offline_fixture() {
     }
     assert_eq!(actual["scenarios"][0]["capability"]["gateCalls"], 1);
     assert_eq!(actual["scenarios"][1]["capability"]["gateCalls"], 0);
+    assert_eq!(actual["scenarios"][1]["decision"], "requires_approval");
+    assert_eq!(actual["scenarios"][2]["capability"]["gateCalls"], 0);
 }
 
 #[test]
@@ -36,6 +38,7 @@ fn developer_docs_lock_the_single_offline_command_and_role_boundaries() {
             "cargo run --offline --quiet --example x402_local_reference_path",
             "Bazaar discovery",
             "typed ActionPlan",
+            "requires_approval",
             "capability gate",
             "no dispatch",
             "wallet",

@@ -11,6 +11,14 @@
       "expected_access_consumed": true
     },
     {
+      "name": "requires_approval",
+      "request_fixture": "approval_required_request.json",
+      "evaluation_response_fixture": "approval_required_evaluation_response.json",
+      "expected_outcome": "approval_required",
+      "expected_capability_code": "approval_required",
+      "expected_access_consumed": false
+    },
+    {
       "name": "blocked",
       "request_fixture": "blocked_request.json",
       "evaluation_response_fixture": "blocked_evaluation_response.json",

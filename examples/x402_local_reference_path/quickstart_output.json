@@ -20,7 +20,7 @@
     "x402_access_state",
     "typed_action_plan",
     "deterministic_policy",
-    "approved_or_blocked",
+    "approved_requires_approval_or_blocked",
     "exact_capability_gate"
   ],
   "scenarios": [
@@ -49,6 +49,32 @@
       "exitCode": null,
       "name": "approved",
       "outcome": "capability_ready"
+    },
+    {
+      "authority": {
+        "actionPlanSubmitAllowed": false,
+        "approvalAllowed": false,
+        "paymentAllowed": false,
+        "proofAllowed": false,
+        "rpcSubmitAllowed": false,
+        "serviceDispatchAllowed": false,
+        "settlementAllowed": false,
+        "shellAccessAllowed": false,
+        "signingAllowed": false,
+        "underlyingExecutionAllowed": false,
+        "walletAccessAllowed": false
+      },
+      "capability": {
+        "accessConsumed": false,
+        "code": "approval_required",
+        "gateCalls": 0,
+        "serviceCallAllowed": false,
+        "serviceDispatchAllowed": false
+      },
+      "decision": "requires_approval",
+      "exitCode": null,
+      "name": "requires_approval",
+      "outcome": "approval_required"
     },
     {
       "authority": {

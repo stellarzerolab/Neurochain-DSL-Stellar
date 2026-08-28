@@ -85,6 +85,12 @@ fn fixture(name: &str) -> Result<&'static str, String> {
         "approved_evaluation_response.json" => Ok(include_str!(
             "x402_local_reference_path/approved_evaluation_response.json"
         )),
+        "approval_required_request.json" => Ok(include_str!(
+            "x402_local_reference_path/approval_required_request.json"
+        )),
+        "approval_required_evaluation_response.json" => Ok(include_str!(
+            "x402_local_reference_path/approval_required_evaluation_response.json"
+        )),
         "blocked_request.json" => Ok(include_str!(
             "x402_local_reference_path/blocked_request.json"
         )),
@@ -126,11 +132,15 @@ pub fn quickstart_report() -> Result<Value, String> {
             "quickstart manifest must name the canonical local catalog fixture".to_string(),
         );
     }
-    if manifest.scenarios.len() != 2
+    if manifest.scenarios.len() != 3
         || manifest.scenarios[0].name != "approved"
-        || manifest.scenarios[1].name != "blocked"
+        || manifest.scenarios[1].name != "requires_approval"
+        || manifest.scenarios[2].name != "blocked"
     {
-        return Err("quickstart manifest must contain approved then blocked".to_string());
+        return Err(
+            "quickstart manifest must contain approved, requires_approval, then blocked"
+                .to_string(),
+        );
     }
     all_false_authority("manifest authority", &manifest.authority)?;
 
@@ -215,7 +225,7 @@ pub fn quickstart_report() -> Result<Value, String> {
             "x402_access_state",
             "typed_action_plan",
             "deterministic_policy",
-            "approved_or_blocked",
+            "approved_requires_approval_or_blocked",
             "exact_capability_gate"
         ],
         "scenarios": reports,

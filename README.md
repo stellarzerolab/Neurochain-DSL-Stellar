@@ -464,7 +464,7 @@ Start here:
 - `docs/troubleshooting.md` - common local development issues
 - `examples/mcp_v0_no_submit_contract/` - machine-checkable MCP v0 no-submit fixtures
 - `examples/mcp_v0_stdio_client/` - stdio host config and process-level no-submit smoke client
-- `examples/x402_local_reference_path/` - versioned approved/blocked fixtures for the local non-bypass reference path
+- `examples/x402_local_reference_path/` - versioned approved/requires_approval/blocked fixtures for the local non-bypass reference path
 - `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
 
 Run the complete local x402 reference path without credentials, network,
@@ -476,8 +476,9 @@ cargo run --offline --quiet --example x402_local_reference_path
 
 The command executes Bazaar discovery, trusted local x402 access state, typed
 ActionPlan evaluation, deterministic policy, and the separate capability gate
-for both approved and blocked fixtures. It performs no dispatch and emits a
-machine-checkable all-false execution/signing/wallet/RPC/submit boundary.
+for approved, requires_approval, and blocked fixtures. It performs no dispatch
+and emits a machine-checkable all-false execution/signing/wallet/RPC/submit
+boundary.
 
 ## Development Checks
 
