@@ -204,17 +204,31 @@ These same codes are used across CLI, REPL, `.nc` scripts, and `/api/stellar/int
 
 ## Repository Binaries
 
-Main binaries:
+Core product binaries:
 
-- `neurochain-stellar` - Stellar CLI, REPL, `.nc` runner, ActionPlan builder, flow runner
-- `neurochain-server` - REST API server, including `POST /api/stellar/intent-plan`
-- `neurochain` - base NeuroChain DSL interpreter
+- `neurochain-stellar` - Stellar one-shot CLI, REPL and `.nc` runner; use
+  `--no-flow` for the recommended plan-only human path
+- `neurochain-mcp-v0-stdio` - default agent-facing read-only/no-submit MCP
+  runtime
 
-Utility binaries:
+Advanced integration binaries:
 
+- `neurochain-server` - long-lived REST API host, including
+  `POST /api/stellar/intent-plan`
+- `neurochain` - base non-Stellar NeuroChain DSL interpreter
+
+Internal development and conformance binaries:
+
+- `neurochain-stellar-demo-server`
+- `neurochain-agent-repl`
+- `eval-intent-stellar`
+- `neurochain-mcp-v0-client-smoke`
+- `neurochain-mcp-v0-fixture-runner`
 - `txrep-to-action`
 - `txrep-to-jsonl`
-- `neurochain-stellar-demo-server`
+
+The complete classification and drift-checked source inventory is in
+[`docs/product_surface_inventory.md`](docs/product_surface_inventory.md).
 
 ## Prerequisites
 
@@ -452,6 +466,7 @@ The endpoint uses the same intent core and guardrail behavior as CLI, REPL, and 
 
 Start here:
 
+- `docs/product_surface_inventory.md` - canonical Core / Advanced / Internal product surface map and manual review questions
 - `docs/stellar_actions_guide.md` - full Stellar CLI, REPL, `.nc`, flow, guardrail, and API reference
 - `docs/getting_started.md` - base NeuroChain quickstart
 - `docs/language.md` - `.nc` language guide

@@ -1,0 +1,462 @@
+{
+  "schemaVersion": 1,
+  "canonicalFlow": [
+    "intent",
+    "typed_action_plan",
+    "deterministic_policy",
+    "optional_zk_proof",
+    "verified_decision",
+    "separate_exact_capability_gate"
+  ],
+  "classifications": [
+    "core",
+    "advanced",
+    "internal",
+    "deprecated_candidate"
+  ],
+  "defaultAuthority": {
+    "paymentAllowed": false,
+    "proofGrantsApproval": false,
+    "approvalGranted": false,
+    "settlementAllowed": false,
+    "signingAllowed": false,
+    "underlyingExecutionAllowed": false,
+    "serviceDispatchAllowed": false,
+    "walletAllowed": false,
+    "shellAllowed": false,
+    "rpcSubmitAllowed": false,
+    "transactionSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false
+  },
+  "binaries": [
+    {
+      "id": "binary.neurochain-stellar",
+      "name": "neurochain-stellar",
+      "path": "src/bin/neurochain-stellar.rs",
+      "classification": "core",
+      "role": "Stellar one-shot CLI, interactive REPL and .nc runner"
+    },
+    {
+      "id": "binary.neurochain-mcp-v0-stdio",
+      "name": "neurochain-mcp-v0-stdio",
+      "path": "src/bin/neurochain-mcp-v0-stdio.rs",
+      "classification": "core",
+      "role": "Default agent-facing read-only and no-submit MCP runtime"
+    },
+    {
+      "id": "binary.neurochain-server",
+      "name": "neurochain-server",
+      "path": "src/bin/neurochain-server.rs",
+      "classification": "advanced",
+      "role": "Long-lived HTTP integration host; starting a listener is an explicit operator action"
+    },
+    {
+      "id": "binary.neurochain",
+      "name": "neurochain",
+      "path": "src/main.rs",
+      "classification": "advanced",
+      "role": "Base non-Stellar NeuroChain DSL interpreter"
+    },
+    {
+      "id": "binary.neurochain-stellar-demo-server",
+      "name": "neurochain-stellar-demo-server",
+      "path": "src/bin/neurochain-stellar-demo-server.rs",
+      "classification": "internal",
+      "role": "Hosted WebSocket REPL adapter"
+    },
+    {
+      "id": "binary.neurochain-agent-repl",
+      "name": "neurochain-agent-repl",
+      "path": "src/bin/neurochain-agent-repl.rs",
+      "classification": "internal",
+      "role": "Legacy local development client for the external /api/agent/chat surface"
+    },
+    {
+      "id": "binary.eval-intent-stellar",
+      "name": "eval-intent-stellar",
+      "path": "src/bin/eval-intent-stellar.rs",
+      "classification": "internal",
+      "role": "Intent model dataset evaluation utility"
+    },
+    {
+      "id": "binary.neurochain-mcp-v0-client-smoke",
+      "name": "neurochain-mcp-v0-client-smoke",
+      "path": "src/bin/neurochain-mcp-v0-client-smoke.rs",
+      "classification": "internal",
+      "role": "Process-level MCP conformance client"
+    },
+    {
+      "id": "binary.neurochain-mcp-v0-fixture-runner",
+      "name": "neurochain-mcp-v0-fixture-runner",
+      "path": "src/bin/neurochain-mcp-v0-fixture-runner.rs",
+      "classification": "internal",
+      "role": "MCP contract fixture and parity runner"
+    },
+    {
+      "id": "binary.txrep-to-action",
+      "name": "txrep-to-action",
+      "path": "src/bin/txrep-to-action.rs",
+      "classification": "internal",
+      "role": "TxRep development conversion utility"
+    },
+    {
+      "id": "binary.txrep-to-jsonl",
+      "name": "txrep-to-jsonl",
+      "path": "src/bin/txrep-to-jsonl.rs",
+      "classification": "internal",
+      "role": "TxRep dataset conversion utility"
+    }
+  ],
+  "cliModes": [
+    {
+      "id": "cli.intent-plan",
+      "classification": "core",
+      "entrypoint": "neurochain-stellar --intent-text <intent>",
+      "role": "One-shot typed ActionPlan preview; plan-only unless --flow is explicitly supplied"
+    },
+    {
+      "id": "cli.file-plan",
+      "classification": "core",
+      "entrypoint": "neurochain-stellar <file.nc|plan.json>",
+      "role": "Deterministic file or ActionPlan processing; plan-only unless --flow is explicitly supplied"
+    },
+    {
+      "id": "cli.repl-plan-only",
+      "classification": "core",
+      "entrypoint": "neurochain-stellar --no-flow",
+      "role": "Recommended human learning and diagnosis mode without preview or submit effects"
+    },
+    {
+      "id": "cli.nc-scripting",
+      "classification": "advanced",
+      "entrypoint": "neurochain-stellar <file.nc>",
+      "role": "Advanced deterministic scripting surface; not the first quickstart"
+    },
+    {
+      "id": "cli.flow",
+      "classification": "advanced",
+      "entrypoint": "neurochain-stellar <input> --flow [--yes]",
+      "role": "Explicit simulate, preview, confirmation and possible submit path; outside the default product walkthrough"
+    },
+    {
+      "id": "cli.repl-default-flow",
+      "classification": "advanced",
+      "entrypoint": "neurochain-stellar",
+      "role": "Current compatibility default starts REPL with flow enabled; retain until manual product review"
+    }
+  ],
+  "cliFlags": [
+    {
+      "id": "cli-flag.help",
+      "flag": "--help",
+      "classification": "core",
+      "role": "Print the CLI usage and safety boundary"
+    },
+    {
+      "id": "cli-flag.help-short",
+      "flag": "-h",
+      "classification": "core",
+      "role": "Short alias for --help"
+    },
+    {
+      "id": "cli-flag.no-flow",
+      "flag": "--no-flow",
+      "classification": "core",
+      "role": "Force the recommended plan-only mode"
+    },
+    {
+      "id": "cli-flag.intent-text",
+      "flag": "--intent-text",
+      "classification": "core",
+      "role": "Provide a one-shot natural-language Stellar intent"
+    },
+    {
+      "id": "cli-flag.intent-model",
+      "flag": "--intent-model",
+      "classification": "advanced",
+      "role": "Override the local intent model path"
+    },
+    {
+      "id": "cli-flag.intent-threshold",
+      "flag": "--intent-threshold",
+      "classification": "advanced",
+      "role": "Override the intent confidence threshold"
+    },
+    {
+      "id": "cli-flag.debug",
+      "flag": "--debug",
+      "classification": "advanced",
+      "role": "Enable local intent pipeline diagnostics"
+    },
+    {
+      "id": "cli-flag.repl",
+      "flag": "--repl",
+      "classification": "advanced",
+      "role": "Select REPL explicitly; pair with --no-flow for the core no-submit path"
+    },
+    {
+      "id": "cli-flag.flow",
+      "flag": "--flow",
+      "classification": "advanced",
+      "role": "Enable simulate, preview, confirmation and possible submit effects"
+    },
+    {
+      "id": "cli-flag.yes",
+      "flag": "--yes",
+      "classification": "advanced",
+      "role": "Skip the final flow confirmation in controlled operation"
+    },
+    {
+      "id": "cli-flag.yes-short",
+      "flag": "-y",
+      "classification": "advanced",
+      "role": "Short alias for --yes"
+    }
+  ],
+  "replCommandGroups": [
+    {
+      "id": "repl.core-observe",
+      "classification": "core",
+      "role": "Understand configuration and produce or inspect no-submit decisions",
+      "markers": [
+        "help",
+        "help all",
+        "help dsl",
+        "show setup",
+        "show config",
+        "set stellar intent from AI:",
+        "zk.demo approved",
+        "zk.demo requires_approval",
+        "zk.demo blocked",
+        "zk.stellar.verify approved|requires_approval|blocked|last",
+        "zk status",
+        "exit"
+      ]
+    },
+    {
+      "id": "repl.advanced-configuration",
+      "classification": "advanced",
+      "role": "Operator configuration, policy, wallet, network, manual action and diagnostic commands",
+      "markers": [
+        "AI:",
+        "intent_threshold: <f32>",
+        "network: testnet|mainnet|public",
+        "wallet: <stellar-key-alias>",
+        "wallet_generate: <alias>",
+        "wallet_bootstrap: <alias>",
+        "horizon: https://...",
+        "friendbot: https://...|off",
+        "stellar_cli: <bin>",
+        "simulate_flag: \"--send no\"",
+        "zk_contract: C...",
+        "zk_instruction_leeway: 10000000",
+        "asset_allowlist: XLM,USDC:G...",
+        "soroban_allowlist: C1:transfer,C2",
+        "contract_policy: <path>",
+        "contract_policy_dir: <dir>",
+        "txrep",
+        "txrep off",
+        "allowlist_enforce",
+        "allowlist_enforce off",
+        "contract_policy_enforce",
+        "contract_policy_enforce off",
+        "debug",
+        "debug off",
+        "set <var> from AI:",
+        "soroban.contract.deploy alias=\"...\" wasm=\"...\"",
+        "macro from AI:",
+        "plain text prompt",
+        "stellar.* / soroban.* lines",
+        "setup testnet"
+      ]
+    },
+    {
+      "id": "repl.advanced-soroban-templates",
+      "classification": "advanced",
+      "role": "Policy-backed Soroban template discovery and examples",
+      "markers": [
+        "template registry",
+        "claim_rewards",
+        "deposit",
+        "swap",
+        "parity"
+      ]
+    },
+    {
+      "id": "repl.advanced-zk-effects",
+      "classification": "advanced",
+      "role": "Explicit local file inspection and separately gated Stellar state-changing proof operations",
+      "markers": [
+        "zk.verify action_plan=\"...\" proof=\"...\"",
+        "zk.stellar.attest approved|requires_approval|blocked|last",
+        "zk.stellar.consume approved|requires_approval|blocked|last"
+      ]
+    },
+    {
+      "id": "repl.x402-lite-compatibility",
+      "classification": "deprecated_candidate",
+      "role": "Legacy x402-lite teaching flow retained unchanged pending manual compatibility review",
+      "markers": [
+        "x402",
+        "x402 off",
+        "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
+        "x402.finalize challenge_id=\"last\""
+      ]
+    }
+  ],
+  "mcpTools": [
+    {
+      "id": "mcp.plan-stellar-action",
+      "name": "plan_stellar_action",
+      "classification": "core",
+      "role": "Create a canonical typed ActionPlan preview"
+    },
+    {
+      "id": "mcp.evaluate-guardrails",
+      "name": "evaluate_guardrails",
+      "classification": "core",
+      "role": "Return approved, requires_approval or blocked from deterministic policy"
+    },
+    {
+      "id": "mcp.prove-guardrail-decision",
+      "name": "prove_guardrail_decision",
+      "classification": "core",
+      "role": "Bind and inspect a public ZK artifact without granting execution authority"
+    },
+    {
+      "id": "mcp.verify-zk-on-stellar",
+      "name": "verify_zk_on_stellar",
+      "classification": "core",
+      "role": "Perform configured read-only Soroban verification"
+    },
+    {
+      "id": "mcp.get-guardrail-status",
+      "name": "get_guardrail_status",
+      "classification": "core",
+      "role": "Summarize the latest observational guardrail and proof state"
+    }
+  ],
+  "apiRoutes": [
+    {
+      "id": "api.stellar-intent-plan",
+      "server": "neurochain-server",
+      "source": "src/bin/neurochain-server.rs",
+      "prefix": "/api",
+      "path": "/stellar/intent-plan",
+      "classification": "core",
+      "role": "Server integration for the canonical typed plan and policy result"
+    },
+    {
+      "id": "api.stellar-zk-attestation-view",
+      "server": "neurochain-server",
+      "source": "src/bin/neurochain-server.rs",
+      "prefix": "/api",
+      "path": "/stellar/zk-attestation/view",
+      "classification": "core",
+      "role": "Read-only local ZK artifact binding view"
+    },
+    {
+      "id": "api.x402-stellar-intent-plan",
+      "server": "neurochain-server",
+      "source": "src/bin/neurochain-server.rs",
+      "prefix": "/api",
+      "path": "/x402/stellar/intent-plan",
+      "classification": "advanced",
+      "role": "Paid ingress envelope; live settlement and service dispatch remain outside the default path"
+    },
+    {
+      "id": "api.base-analyze",
+      "server": "neurochain-server",
+      "source": "src/bin/neurochain-server.rs",
+      "prefix": "/api",
+      "path": "/analyze",
+      "classification": "advanced",
+      "role": "Base NeuroChain DSL analysis endpoint"
+    },
+    {
+      "id": "api.demo-repl-websocket",
+      "server": "neurochain-stellar-demo-server",
+      "source": "src/bin/neurochain-stellar-demo-server.rs",
+      "prefix": "/api",
+      "path": "/stellar/repl/ws",
+      "classification": "internal",
+      "role": "Hosted demo transport rather than a primary product contract"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "contract.mcp-v0-no-submit",
+      "path": "examples/mcp_v0_no_submit_contract/schema.json",
+      "classification": "core",
+      "role": "Machine-checkable MCP no-submit response contract"
+    },
+    {
+      "id": "contract.x402-local-reference",
+      "path": "examples/x402_local_reference_path/manifest.json",
+      "classification": "core",
+      "role": "Versioned approved, requires_approval and blocked local integration manifest"
+    },
+    {
+      "id": "contract.x402-service-boundary",
+      "path": "examples/x402_service_boundary/schema.json",
+      "classification": "advanced",
+      "role": "Rust and TypeScript authority boundary"
+    },
+    {
+      "id": "contract.x402-response",
+      "path": "examples/x402_response_contract/schema.json",
+      "classification": "advanced",
+      "role": "Agent and frontend response contract"
+    },
+    {
+      "id": "contract.x402-facilitator-adapter",
+      "path": "examples/x402_facilitator_adapter/schema.json",
+      "classification": "internal",
+      "role": "Facilitator transport and state-machine parity contract"
+    },
+    {
+      "id": "contract.x402-conformance",
+      "path": "examples/x402_stellar_conformance/schema.json",
+      "classification": "internal",
+      "role": "Readiness and upstream conformance evidence schema"
+    }
+  ],
+  "quickstarts": [
+    {
+      "id": "quickstart.product-direction",
+      "path": "docs/public_demo_flow.md",
+      "classification": "core",
+      "role": "Shortest Plan, Evaluate, Prove and Verify product story"
+    },
+    {
+      "id": "quickstart.x402-local-reference",
+      "path": "docs/x402_local_reference_quickstart.md",
+      "classification": "core",
+      "role": "One-command credential-free and network-free non-bypass integration"
+    },
+    {
+      "id": "quickstart.mcp-v0",
+      "path": "docs/mcp_v0_tool_contract.md",
+      "classification": "core",
+      "role": "Agent integration contract and process-level examples"
+    },
+    {
+      "id": "quickstart.stellar-actions",
+      "path": "docs/stellar_actions_guide.md",
+      "classification": "advanced",
+      "role": "Full CLI, REPL, .nc, policy and flow reference"
+    },
+    {
+      "id": "quickstart.zk-evidence-package",
+      "path": "hackathons/stellar-real-world-zk/README.md",
+      "classification": "advanced",
+      "role": "Raw RISC Zero, Groth16, Soroban and evidence reproduction package"
+    },
+    {
+      "id": "quickstart.base-dsl",
+      "path": "docs/getting_started.md",
+      "classification": "advanced",
+      "role": "Base non-Stellar DSL onboarding"
+    }
+  ]
+}
