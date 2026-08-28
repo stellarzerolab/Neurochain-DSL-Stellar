@@ -167,13 +167,13 @@ before changing compatibility behavior:
 
 1. Should zero-argument `neurochain-stellar` remain flow-enabled, or should the
    first-run default become plan-only?
-2. Should the short `help` output continue to show wallet generation,
-   Friendbot bootstrap and testnet attestation, or move them only to
-   `help all`?
+2. Does the short `help` core subset give enough first-run orientation while
+   wallet generation, Friendbot bootstrap, testnet attestation and the other
+   advanced commands remain discoverable in `help all`?
 3. Should the x402-lite REPL commands remain as advanced compatibility aliases,
    be redirected to the canonical access path, or be deprecated later?
-4. Should the root README lead with MCP, the local x402 reference path or the
-   human plan-only CLI after real first-run testing?
+4. Does the root README's whole-product offline quickstart work as the first
+   run, or does manual use reveal a better core entrypoint?
 
 These are product choices, not defects. They stay unchanged until the manual
 acceptance pass supplies evidence and explicit direction.

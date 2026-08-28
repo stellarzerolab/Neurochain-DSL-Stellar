@@ -4123,68 +4123,24 @@ const APPROVAL_BOUNDARY_HELP: &str =
 
 fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debug: bool) {
     const HELP_COL_WIDTH: usize = 58;
-    println!("Stellar REPL compatibility quick reference:");
+    println!("Stellar REPL core quick start:");
     println!("{CANONICAL_STAGES_HELP}");
     println!("{REPL_ROLE_HELP}");
     println!("{APPROVAL_BOUNDARY_HELP}");
-    println!("Commands below include advanced operator actions retained for compatibility.");
+    println!("Restart with --no-flow before planning; advanced commands remain in `help all`.");
     let quick_rows = [
-        ("AI: \"models/intent_stellar/model.onnx\"", ""),
-        ("network: testnet", ""),
-        ("wallet: nc-testnet", ""),
         (
-            "wallet_generate: demo-alias",
-            "(create key alias + set wallet)",
+            "plain text intent",
+            "(Plan -> typed ActionPlan in --no-flow mode)",
         ),
         (
-            "wallet_bootstrap: demo-alias",
-            "(generate key + friendbot fund + set wallet)",
-        ),
-        (
-            "asset_allowlist: XLM,USDC:GISSUER",
-            "(change allowed assets; default startup is XLM)",
-        ),
-        ("txrep", "(optional preview on)"),
-        ("x402", "(optional x402-lite mode on)"),
-        ("allowlist_enforce", "(optional hard-fail on allowlist)"),
-        ("contract_policy: <path>", "(optional policy file)"),
-        ("contract_policy_enforce", "(optional hard-fail on policy)"),
-        (
-            "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
-            "(create x402-lite challenge)",
-        ),
-        (
-            "x402.finalize challenge_id=\"last\"",
-            "(finalize latest challenge -> typed payment plan)",
-        ),
-        ("zk.demo approved", "(inspect bundled proof; never submits)"),
-        (
-            "zk.stellar.verify approved",
-            "(verify on Soroban; read-only and repeatable)",
-        ),
-        (
-            "zk.stellar.attest approved",
-            "(submit testnet verification tx + explorer link)",
+            "zk.demo approved|requires_approval|blocked",
+            "(inspect bundled public binding; never submits)",
         ),
         ("zk status", "(show local binding + last Stellar result)"),
-        ("debug", "(optional intent trace on)"),
-        (
-            "set <var> from AI: \"...\"",
-            "(store model prediction to variable)",
-        ),
-        (
-            "set stellar intent from AI: \"...\"",
-            "(classify prompt -> ActionPlan)",
-        ),
-        (
-            "soroban.contract.deploy alias=\"...\" wasm=\"...\"",
-            "(manual deploy action)",
-        ),
-        ("help all", "(show every command)"),
+        ("show setup", "(inspect the current session boundary)"),
+        ("help all", "(advanced operator + compatibility commands)"),
         ("help dsl", "(show normal NeuroChain DSL help)"),
-        ("show setup", "(print active setup)"),
-        ("show config", "(print active config)"),
-        ("setup testnet", "(set network+horizon+friendbot baseline)"),
         ("exit", ""),
     ];
     for (command, desc) in quick_rows {
@@ -4194,11 +4150,9 @@ fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debu
             println!("- {:<HELP_COL_WIDTH$} {}", command, desc);
         }
     }
-    println!("- Toggle commands are listed in `help all` under Toggles (on/off).");
     println!(
-        "- REPL startup default asset_allowlist is XLM; change it with `asset_allowlist: ...`."
+        "- help all retains wallet, network, x402-lite, policy, flow, and ZK operator commands."
     );
-    println!("- restart with --no-flow for the canonical plan-only REPL path");
     println!("- ZK Guardrail never grants permission to submit the underlying ActionPlan.");
 }
 

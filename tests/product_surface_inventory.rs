@@ -194,6 +194,78 @@ fn canonical_vocabulary_defines_shared_stages_decisions_and_surface_roles() {
 }
 
 #[test]
+fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfaces() {
+    let readme =
+        fs::read_to_string(repo_root().join("README.md")).expect("README must be readable");
+    let start = readme
+        .find("## Start Here: Offline Product Path")
+        .expect("README must expose the offline product start first");
+    let advanced_zk = readme
+        .find("## Advanced Evidence: ZK")
+        .expect("README must retain advanced ZK evidence");
+    assert!(
+        start < advanced_zk,
+        "core start must precede advanced evidence"
+    );
+    assert_eq!(
+        readme
+            .matches("cargo run --offline --quiet --example product_local_quickstart")
+            .count(),
+        1,
+        "README must have exactly one canonical first-run command"
+    );
+    for marker in [
+        "Plan -> Evaluate -> optional Prove -> Verify -> separate capability gate",
+        "cryptographicallyVerified=false",
+        "stellarVerificationRequired=true",
+        "neurochain-stellar --no-flow",
+        "neurochain-mcp-v0-stdio",
+        "POST /api/stellar/intent-plan",
+        "`.nc`",
+    ] {
+        assert!(
+            readme.contains(marker),
+            "README missing core marker `{marker}`"
+        );
+    }
+
+    let help_source = fs::read_to_string(repo_root().join("src/bin/neurochain-stellar.rs"))
+        .expect("Stellar CLI source must be readable");
+    let quick_start = help_source
+        .find("fn print_repl_help_quick")
+        .expect("short help function must exist");
+    let all_start = help_source
+        .find("fn print_repl_help_all")
+        .expect("full help function must exist");
+    let quick_help = &help_source[quick_start..all_start];
+    for marker in [
+        "Stellar REPL core quick start",
+        "Restart with --no-flow before planning",
+        "plain text intent",
+        "zk.demo approved|requires_approval|blocked",
+        "help all",
+    ] {
+        assert!(quick_help.contains(marker), "short help missing `{marker}`");
+    }
+    for advanced in [
+        "wallet_generate: demo-alias",
+        "wallet_bootstrap: demo-alias",
+        "x402.request to=",
+        "zk.stellar.attest approved",
+        "soroban.contract.deploy alias=",
+    ] {
+        assert!(
+            !quick_help.contains(advanced),
+            "short help must leave advanced command `{advanced}` to help all"
+        );
+        assert!(
+            help_source[all_start..].contains(advanced.split(' ').next().unwrap()),
+            "help all must retain advanced command family `{advanced}`"
+        );
+    }
+}
+
+#[test]
 fn inventory_covers_every_compiled_binary() {
     let inventory = inventory();
     let expected: BTreeMap<&str, &str> = array(&inventory, "binaries")

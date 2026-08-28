@@ -192,7 +192,7 @@ fn stellar_repl_help_and_exit_work() {
         .assert()
         .success()
         .stdout(contains("NeuroChain Stellar REPL"))
-        .stdout(contains("Stellar REPL compatibility quick reference"))
+        .stdout(contains("Stellar REPL core quick start"))
         .stdout(contains(
             "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
         ))
@@ -202,9 +202,10 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains(
             "Approved is a policy decision, not execution or submit permission.",
         ))
+        .stdout(contains("Restart with --no-flow before planning"))
+        .stdout(contains("plain text intent"))
         .stdout(contains("help dsl"))
-        .stdout(contains("zk.demo approved"))
-        .stdout(contains("zk.stellar.attest approved"))
+        .stdout(contains("zk.demo approved|requires_approval|blocked"))
         .stdout(contains(
             "ZK Guardrail never grants permission to submit the underlying ActionPlan.",
         ))
@@ -212,9 +213,11 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("claim_rewards").not())
         .stdout(contains("deposit").not())
         .stdout(contains("swap").not())
-        .stdout(contains(
-            "Toggle commands are listed in `help all` under Toggles (on/off).",
-        ))
+        .stdout(contains("wallet_generate").not())
+        .stdout(contains("wallet_bootstrap").not())
+        .stdout(contains("setup testnet").not())
+        .stdout(contains("zk.stellar.attest").not())
+        .stdout(contains("soroban.contract.deploy").not())
         .stdout(contains("Exiting"));
 }
 

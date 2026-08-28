@@ -6,7 +6,52 @@ The core idea is simple: natural-language intent is never turned directly into a
 
 This repository contains the Stellar integration layer for NeuroChain DSL.
 
-## Current ZK Milestone
+## Start Here: Offline Product Path
+
+Run the whole local product path before choosing an integration surface:
+
+```powershell
+cargo run --offline --quiet --example product_local_quickstart
+```
+
+The checked-in scenarios run one coordinator through:
+
+```text
+Bazaar discovery -> x402 access state -> typed ActionPlan (Plan)
+-> deterministic policy (Evaluate) -> optional ZK proof artifact
+-> local binding Verify -> separate exact capability gate
+```
+
+The machine-readable report includes `approved`, `requires_approval`, and
+`blocked`. Only `approved` reaches the exact single-use service-call capability
+gate, and even then service dispatch remains false. The quickstart needs no
+credential, keypair, listener, or network call and grants no payment, proof,
+approval, settlement, signing, execution, wallet, shell, RPC, transaction
+submit, or ActionPlan-submit authority.
+
+The bundled Groth16 artifacts are real evidence fixtures, but this local run
+checks their public binding only. It reports `cryptographicallyVerified=false`
+and `stellarVerificationRequired=true`; it does not claim a live Stellar
+verification.
+
+After this first run, choose the surface that matches the caller:
+
+| Caller | Surface | Default role |
+| --- | --- | --- |
+| Script or CI | `neurochain-stellar` one-shot CLI | plan-only machine JSON unless `--flow` is explicit |
+| Human | `neurochain-stellar --no-flow` REPL | learning and diagnostics |
+| AI agent | `neurochain-mcp-v0-stdio` | read-only/no-submit MCP integration |
+| Backend | `POST /api/stellar/intent-plan` | typed service integration |
+| Deterministic program | `.nc` | advanced scripting |
+
+See [`docs/product_local_quickstart.md`](docs/product_local_quickstart.md) for
+the exact evidence boundary and
+[`docs/product_surface_inventory.md`](docs/product_surface_inventory.md) for
+the Core/Advanced/Internal classification. The remaining sections are product
+architecture, advanced operation, or reproducible evidence—not competing first
+steps.
+
+## Advanced Evidence: ZK
 
 The repository now includes **NeuroChain ZK Guardrail Attestation**, a complete
 RISC Zero and Soroban proof path for private owner policies:
@@ -74,14 +119,15 @@ downloads, or Docker image pulls after prerequisites are cached:
 powershell -ExecutionPolicy Bypass -File hackathons/stellar-real-world-zk/scripts/run_demo_rehearsal.ps1 -IncludeLocalnet -OfflineLocalnet
 ```
 
-## Current Product Direction
+## Product Scope
 
-The post-hackathon direction is to package NeuroChain as a small no-submit MCP
-and Skills guardrail surface for AI agents, bots, scripts, schedulers, and
-backend automations. The product shape is intentionally narrow:
+The current direction is one narrow guardrail-and-capability product exposed
+through role-specific surfaces. MCP and Skills serve AI agents, the CLI and
+REPL serve local users, `.nc` serves deterministic scripts, and the API serves
+backend integrations. They share one product shape:
 
 ```text
-Plan -> Evaluate -> Prove -> Verify -> no automatic submit
+Plan -> Evaluate -> optional Prove -> Verify -> separate capability gate
 ```
 
 Raven and Stellar Skills are useful development-time guidance and packaging
@@ -95,7 +141,7 @@ The completion audit for the MCP/Skill last-mile objective is
 For the public walkthrough, start with
 [`docs/public_demo_flow.md`](docs/public_demo_flow.md).
 
-## MCP And Skill Release Status
+## Advanced Evidence: MCP And Skill Release Status
 
 The MCP v0 path is a runtime-backed read-only guardrail surface:
 
@@ -139,20 +185,19 @@ Current boundary status:
   with a valid signed testnet payment, and reviewed with production pricing and
   receiver configuration. No live settlement is enabled by default.
 
-## What It Does
+## Product Architecture
 
-`neurochain-stellar` supports one unified workflow across `.nc` scripts, an interactive REPL, and the server API:
+Every surface uses the same product stages:
 
 ```text
-natural language / .nc command
-  -> local ONNX intent classification
-  -> typed ActionPlan JSON
-  -> allowlist / contract policy / intent safety checks
-  -> simulate
-  -> preview
-  -> explicit confirmation
-  -> submit, only when flow mode is enabled
+Intent -> typed ActionPlan -> deterministic policy -> optional ZK proof
+-> verified decision -> separate exact capability gate
 ```
+
+Payment, proof, approval, settlement, a service-call capability, signing,
+execution, and submission are separate authorities. The advanced CLI/REPL/`.nc`
+flow can simulate, preview, confirm, and submit only when flow mode is explicit;
+it is not the default product quickstart.
 
 Supported Stellar actions include:
 
@@ -285,7 +330,7 @@ models/intent_stellar/model.onnx
 
 See `docs/models.md` for release and verification details.
 
-## Browser Demo Quickstart
+## Advanced: Hosted Browser Demo
 
 The browser-based CLI demo uses a server-side `neurochain-stellar` REPL. You do not need local binary commands in that mode; type REPL commands into the demo input.
 
@@ -329,7 +374,7 @@ Demo operating model:
 - Keep `XLM` in the allowlist unless you intentionally want to block XLM operations.
 - In hosted demo sessions, idle timeout can clear session-local key material; re-run setup if the session expires.
 
-## Quickstart: Plan-Only ActionPlan
+## Core Usage: One-Shot Plan-Only ActionPlan
 
 Plan-only mode is the safest first run. It builds JSON but does not simulate or submit.
 
@@ -349,18 +394,19 @@ With intent debugging:
 cargo run --release --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to G..." --debug
 ```
 
-## Quickstart: Interactive REPL
+## Core Usage: Plan-Only Interactive REPL
 
-Start the Stellar REPL:
-
-```bash
-cargo run --release --bin neurochain-stellar
-```
-
-Plan-only REPL:
+Start the canonical plan-only REPL:
 
 ```bash
 cargo run --release --bin neurochain-stellar -- --no-flow
+```
+
+The zero-argument compatibility REPL remains available, but it starts with flow
+enabled and is therefore an advanced operator path:
+
+```bash
+cargo run --release --bin neurochain-stellar
 ```
 
 Useful REPL setup commands:
@@ -376,7 +422,7 @@ help
 help all
 ```
 
-## Testnet Flow With Confirmation
+## Advanced: Testnet Flow With Confirmation
 
 `--flow` enables simulate/preview/confirm/submit for file and intent runs.
 
@@ -390,7 +436,7 @@ Only use `--yes` when you intentionally want to skip the final prompt, usually i
 cargo run --release --bin neurochain-stellar -- examples/stellar_actions_example.nc --flow --yes
 ```
 
-## Contract Invoke Example
+## Advanced: Contract Invoke Example
 
 Plan-only:
 
@@ -410,10 +456,18 @@ For policy-controlled Soroban invokes, see:
 - `contracts/CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ/policy.json`
 - `docs/stellar_actions_guide.md`
 
-## x402 Paid Ingress
+## Advanced: x402 Paid Ingress
 
 This repo includes controlled x402 payment-required flows in REPL and `.nc`
 scripts, plus a server-side paid ingress envelope for Stellar intent planning.
+
+To inspect only the lower-level offline Bazaar discovery -> typed ActionPlan ->
+policy -> requires_approval/approved/blocked -> capability gate boundary, with
+no dispatch, run:
+
+```powershell
+cargo run --offline --quiet --example x402_local_reference_path
+```
 
 REPL sketch:
 
@@ -433,7 +487,7 @@ verification, attestation, nullifier consume, or submit permission. The current
 product boundary is documented in
 [`docs/x402_facilitator_phase3.md`](docs/x402_facilitator_phase3.md).
 
-## Server API
+## Advanced: Server API
 
 Start the API server:
 
@@ -466,6 +520,7 @@ The endpoint uses the same intent core and guardrail behavior as CLI, REPL, and 
 
 Start here:
 
+- `docs/product_local_quickstart.md` - one-command whole-product offline path and exact verification boundary
 - `docs/product_surface_inventory.md` - canonical Core / Advanced / Internal product surface map and manual review questions
 - `docs/stellar_actions_guide.md` - full Stellar CLI, REPL, `.nc`, flow, guardrail, and API reference
 - `docs/getting_started.md` - base NeuroChain quickstart
@@ -481,19 +536,6 @@ Start here:
 - `examples/mcp_v0_stdio_client/` - stdio host config and process-level no-submit smoke client
 - `examples/x402_local_reference_path/` - versioned approved/requires_approval/blocked fixtures for the local non-bypass reference path
 - `skills/neurochain-stellar-guardrails/SKILL.md` - no-submit Stellar guardrail skill draft
-
-Run the complete local x402 reference path without credentials, network,
-wallet access, service dispatch, or ActionPlan-submit:
-
-```bash
-cargo run --offline --quiet --example x402_local_reference_path
-```
-
-The command executes Bazaar discovery, trusted local x402 access state, typed
-ActionPlan evaluation, deterministic policy, and the separate capability gate
-for approved, requires_approval, and blocked fixtures. It performs no dispatch
-and emits a machine-checkable all-false execution/signing/wallet/RPC/submit
-boundary.
 
 ## Development Checks
 

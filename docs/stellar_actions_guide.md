@@ -404,9 +404,15 @@ Wallet startup behavior:
 - `setup testnet` does not set the wallet automatically.
 - Default REPL `asset_allowlist` is `XLM`, unless overridden by environment or command.
 
+The short `help` output is the core learning path. It first tells the user to
+restart with `--no-flow`, then shows only plain-text planning, bundled local ZK
+inspection, status/setup inspection, documentation and exit. Wallet, network,
+Friendbot, x402-lite, policy, flow, Stellar verification/attestation and manual
+action commands remain available under `help all`.
+
 REPL commands from `help all`:
 
-Core setup, value required:
+Advanced operator setup, value required:
 
 - `AI: "path"` -> set intent model path
 - `intent_threshold: <f32>` -> set intent confidence threshold

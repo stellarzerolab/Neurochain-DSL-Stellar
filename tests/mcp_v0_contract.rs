@@ -1222,7 +1222,7 @@ fn root_readme_summarizes_mcp_skill_zk_and_x402_release_boundaries() {
     let readme = fs::read_to_string("README.md").expect("read root README");
 
     for required in [
-        "## MCP And Skill Release Status",
+        "## Advanced Evidence: MCP And Skill Release Status",
         "verify_guardrails_skill_release_candidate.ps1",
         "release_candidate=true",
         "published=false",
