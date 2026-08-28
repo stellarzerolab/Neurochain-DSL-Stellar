@@ -520,6 +520,12 @@
   ],
   "quickstarts": [
     {
+      "id": "quickstart.product-local-reference",
+      "path": "docs/product_local_quickstart.md",
+      "classification": "core",
+      "role": "One-command offline whole-product path with local ZK binding and a separate exact capability gate"
+    },
+    {
       "id": "quickstart.product-direction",
       "path": "docs/public_demo_flow.md",
       "classification": "core",

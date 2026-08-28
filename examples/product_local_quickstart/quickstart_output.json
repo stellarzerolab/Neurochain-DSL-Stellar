@@ -1,0 +1,199 @@
+{
+  "authorityBoundary": {
+    "actionPlanSubmitAllowed": false,
+    "approvalAllowed": false,
+    "paymentAllowed": false,
+    "proofAllowed": false,
+    "rpcSubmitAllowed": false,
+    "serviceDispatchAllowed": false,
+    "settlementAllowed": false,
+    "shellAccessAllowed": false,
+    "signingAllowed": false,
+    "transactionSubmitAllowed": false,
+    "underlyingExecutionAllowed": false,
+    "walletAccessAllowed": false
+  },
+  "credentialRequired": false,
+  "listenerRequired": false,
+  "networkRequired": false,
+  "offline": true,
+  "path": [
+    "bazaar_discovery",
+    "x402_access_state",
+    "typed_action_plan",
+    "deterministic_policy",
+    "optional_zk_proof_artifact",
+    "local_zk_binding_verify",
+    "separate_exact_capability_gate"
+  ],
+  "scenarios": [
+    {
+      "actionPlanHash": "86911159cf10da6bb306e7edb0db91ec09bcec401413d1f5a25cbcb9b5faddfb",
+      "authority": {
+        "actionPlanSubmitAllowed": false,
+        "approvalAllowed": false,
+        "paymentAllowed": false,
+        "proofAllowed": false,
+        "rpcSubmitAllowed": false,
+        "serviceDispatchAllowed": false,
+        "settlementAllowed": false,
+        "shellAccessAllowed": false,
+        "signingAllowed": false,
+        "transactionSubmitAllowed": false,
+        "underlyingExecutionAllowed": false,
+        "walletAccessAllowed": false
+      },
+      "capability": {
+        "accessConsumed": true,
+        "code": "service_call_authorized",
+        "gateCalls": 1,
+        "serviceCallAllowed": true,
+        "serviceDispatchAllowed": false
+      },
+      "decision": "approved",
+      "evaluationReasonCode": "approved",
+      "exitCode": null,
+      "name": "approved",
+      "outcome": "capability_ready",
+      "zkEvidence": {
+        "actionPlanProjectionValidated": true,
+        "artifactPresent": true,
+        "authority": {
+          "actionPlanSubmitAllowed": false,
+          "approvalAllowed": false,
+          "paymentAllowed": false,
+          "proofAllowed": false,
+          "rpcSubmitAllowed": false,
+          "serviceDispatchAllowed": false,
+          "settlementAllowed": false,
+          "shellAccessAllowed": false,
+          "signingAllowed": false,
+          "transactionSubmitAllowed": false,
+          "underlyingExecutionAllowed": false,
+          "walletAccessAllowed": false
+        },
+        "cryptographicallyVerified": false,
+        "localBinding": "binding_validated",
+        "privatePolicyRevealed": false,
+        "proofActionPlanHash": "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+        "proofKind": "groth16",
+        "proofReasonCode": "passed",
+        "source": "neurochain_zk_attestation_view",
+        "stellarVerificationRequired": true
+      }
+    },
+    {
+      "actionPlanHash": "86911159cf10da6bb306e7edb0db91ec09bcec401413d1f5a25cbcb9b5faddfb",
+      "authority": {
+        "actionPlanSubmitAllowed": false,
+        "approvalAllowed": false,
+        "paymentAllowed": false,
+        "proofAllowed": false,
+        "rpcSubmitAllowed": false,
+        "serviceDispatchAllowed": false,
+        "settlementAllowed": false,
+        "shellAccessAllowed": false,
+        "signingAllowed": false,
+        "transactionSubmitAllowed": false,
+        "underlyingExecutionAllowed": false,
+        "walletAccessAllowed": false
+      },
+      "capability": {
+        "accessConsumed": false,
+        "code": "approval_required",
+        "gateCalls": 0,
+        "serviceCallAllowed": false,
+        "serviceDispatchAllowed": false
+      },
+      "decision": "requires_approval",
+      "evaluationReasonCode": "approval_required",
+      "exitCode": null,
+      "name": "requires_approval",
+      "outcome": "approval_required",
+      "zkEvidence": {
+        "actionPlanProjectionValidated": true,
+        "artifactPresent": true,
+        "authority": {
+          "actionPlanSubmitAllowed": false,
+          "approvalAllowed": false,
+          "paymentAllowed": false,
+          "proofAllowed": false,
+          "rpcSubmitAllowed": false,
+          "serviceDispatchAllowed": false,
+          "settlementAllowed": false,
+          "shellAccessAllowed": false,
+          "signingAllowed": false,
+          "transactionSubmitAllowed": false,
+          "underlyingExecutionAllowed": false,
+          "walletAccessAllowed": false
+        },
+        "cryptographicallyVerified": false,
+        "localBinding": "binding_validated",
+        "privatePolicyRevealed": false,
+        "proofActionPlanHash": "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+        "proofKind": "groth16",
+        "proofReasonCode": "approval_threshold",
+        "source": "neurochain_zk_attestation_view",
+        "stellarVerificationRequired": true
+      }
+    },
+    {
+      "actionPlanHash": "86911159cf10da6bb306e7edb0db91ec09bcec401413d1f5a25cbcb9b5faddfb",
+      "authority": {
+        "actionPlanSubmitAllowed": false,
+        "approvalAllowed": false,
+        "paymentAllowed": false,
+        "proofAllowed": false,
+        "rpcSubmitAllowed": false,
+        "serviceDispatchAllowed": false,
+        "settlementAllowed": false,
+        "shellAccessAllowed": false,
+        "signingAllowed": false,
+        "transactionSubmitAllowed": false,
+        "underlyingExecutionAllowed": false,
+        "walletAccessAllowed": false
+      },
+      "capability": {
+        "accessConsumed": false,
+        "code": "policy_blocked",
+        "gateCalls": 0,
+        "serviceCallAllowed": false,
+        "serviceDispatchAllowed": false
+      },
+      "decision": "blocked",
+      "evaluationReasonCode": "allowlist",
+      "exitCode": 3,
+      "name": "blocked",
+      "outcome": "policy_blocked",
+      "zkEvidence": {
+        "actionPlanProjectionValidated": true,
+        "artifactPresent": true,
+        "authority": {
+          "actionPlanSubmitAllowed": false,
+          "approvalAllowed": false,
+          "paymentAllowed": false,
+          "proofAllowed": false,
+          "rpcSubmitAllowed": false,
+          "serviceDispatchAllowed": false,
+          "settlementAllowed": false,
+          "shellAccessAllowed": false,
+          "signingAllowed": false,
+          "transactionSubmitAllowed": false,
+          "underlyingExecutionAllowed": false,
+          "walletAccessAllowed": false
+        },
+        "cryptographicallyVerified": false,
+        "localBinding": "binding_validated",
+        "privatePolicyRevealed": false,
+        "proofActionPlanHash": "a008efa4f3ecbdf88b9bcc3ed4c7672994136f16074e8fddd6bb8192ea7970cd",
+        "proofKind": "groth16",
+        "proofReasonCode": "allowlist",
+        "source": "neurochain_zk_attestation_view",
+        "stellarVerificationRequired": true
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "status": "product_local_reference_ready",
+  "verificationBoundary": "local_binding_only_cryptographic_stellar_verify_not_run"
+}

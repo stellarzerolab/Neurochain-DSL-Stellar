@@ -136,10 +136,15 @@ WebSocket route is internal hosted-demo transport.
 
 ### x402/Bazaar
 
-The local reference quickstart is the core onboarding evidence. The facilitator
-adapter, service boundary, response contract and conformance schemas remain
-advanced or internal implementation contracts. They do not establish live
-canonical-client E2E, production settlement or service dispatch.
+The whole-product local quickstart is the primary core onboarding evidence. It
+connects the existing Bazaar/x402 reference coordinator, typed ActionPlan,
+deterministic policy, bundled ZK evidence and separate exact capability gate in
+one offline command. Its Verify step is local public binding validation, not
+cryptographic Stellar verification. The lower-level x402 local quickstart
+remains core integration evidence. The facilitator adapter, service boundary,
+response contract and conformance schemas remain advanced or internal
+implementation contracts. Neither quickstart establishes live canonical-client
+E2E, production settlement or service dispatch.
 
 The REPL commands `x402`, `x402.request` and `x402.finalize` are retained as a
 deprecated candidate because the older x402-lite teaching flow overlaps with

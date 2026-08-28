@@ -10,6 +10,7 @@ pub mod lexer;
 pub mod mcp_v0_fixture;
 pub mod mcp_v0_runtime;
 pub mod parser;
+pub mod product_local_reference_path;
 pub mod soroban_deep;
 pub mod x402_audit;
 pub mod x402_bazaar;

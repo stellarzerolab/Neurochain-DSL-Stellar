@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "discovery_arguments": {
+    "schemaVersion": 1,
+    "query": "stellar guardrails",
+    "type": "mcp",
+    "network": "stellar:testnet",
+    "extensions": "bazaar",
+    "limit": 10
+  },
+  "evaluation_request": {
+    "schema_version": 1,
+    "message_type": "evaluation_request",
+    "request_id": "product-approval-required-001",
+    "resource_id": "mcp:https://api.example.com/mcp#plan_stellar_action",
+    "operation": "plan_and_evaluate",
+    "network": "stellar:testnet",
+    "intent_text": "Purchase 500000000 USDC credits for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX"
+  },
+  "paid_call_arguments": {
+    "schemaVersion": 1,
+    "requestId": "product-approval-required-001",
+    "resourceKey": "mcp:https://api.example.com/mcp#plan_stellar_action",
+    "arguments": {
+      "intent_text": "Purchase 500000000 USDC credits for GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX",
+      "network": "stellar:testnet"
+    }
+  }
+}

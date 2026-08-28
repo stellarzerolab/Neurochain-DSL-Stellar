@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "message_type": "evaluation_response",
+  "request_id": "product-approval-required-001",
+  "decision": "requires_approval",
+  "exit_code": null,
+  "reason_code": "approval_required",
+  "action_plan": {
+    "schema_version": 1,
+    "actions": [
+      {
+        "kind": "soroban_contract_invoke",
+        "contract_id": "CDLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ",
+        "function": "purchase_credits",
+        "args": {
+          "amount": "500000000",
+          "asset": "USDC",
+          "recipient": "GCAL4PIFKWOIFO6YT4T7TSSES7SJCWV7HN7XAUTNFFSGQK74RFUSAJBX"
+        }
+      }
+    ]
+  },
+  "action_plan_hash": "86911159cf10da6bb306e7edb0db91ec09bcec401413d1f5a25cbcb9b5faddfb",
+  "authority_grants": {
+    "payment_verification": false,
+    "payment_settlement": false,
+    "guardrail_override": false,
+    "wallet_signing": false,
+    "stellar_submission": false
+  },
+  "underlying_action_submit_allowed": false
+}

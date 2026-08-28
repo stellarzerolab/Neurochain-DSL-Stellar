@@ -137,6 +137,13 @@ pub struct X402LocalReferencePathResult {
     pub authority: X402LocalReferenceAuthority,
 }
 
+pub(crate) struct PreparedX402LocalReferencePath {
+    pub discovery: BazaarMcpSearchResult,
+    pub access_state: X402LocalAccessState,
+    pub evaluation: X402ServiceEvaluationResponse,
+    paid_call_arguments: Value,
+}
+
 pub fn run_x402_local_reference_path(
     catalog: &BazaarCatalog,
     access_state_port: &dyn X402LocalAccessStatePort,
@@ -144,6 +151,17 @@ pub fn run_x402_local_reference_path(
     capability_gate: Option<&mut dyn BazaarPaidCallAccessGate>,
     request: X402LocalReferencePathRequest,
 ) -> Result<X402LocalReferencePathResult, String> {
+    let prepared =
+        prepare_x402_local_reference_path(catalog, access_state_port, evaluation_port, request)?;
+    complete_x402_local_reference_path(catalog, capability_gate, prepared)
+}
+
+pub(crate) fn prepare_x402_local_reference_path(
+    catalog: &BazaarCatalog,
+    access_state_port: &dyn X402LocalAccessStatePort,
+    evaluation_port: &mut dyn X402LocalEvaluationPort,
+    request: X402LocalReferencePathRequest,
+) -> Result<PreparedX402LocalReferencePath, String> {
     validate_reference_request(&request)?;
 
     let discovery = execute_bazaar_mcp_search(Some(catalog), request.discovery_arguments.clone());
@@ -192,13 +210,30 @@ pub fn run_x402_local_reference_path(
         return Err("evaluation response request_id does not match the request".to_string());
     }
 
+    Ok(PreparedX402LocalReferencePath {
+        discovery,
+        access_state,
+        evaluation,
+        paid_call_arguments: request.paid_call_arguments,
+    })
+}
+
+pub(crate) fn complete_x402_local_reference_path(
+    catalog: &BazaarCatalog,
+    capability_gate: Option<&mut dyn BazaarPaidCallAccessGate>,
+    prepared: PreparedX402LocalReferencePath,
+) -> Result<X402LocalReferencePathResult, String> {
+    let PreparedX402LocalReferencePath {
+        discovery,
+        access_state,
+        evaluation,
+        paid_call_arguments,
+    } = prepared;
+
     let (outcome, capability_gate) = match evaluation.decision {
         X402BoundaryDecision::Approved => {
-            let result = execute_bazaar_mcp_paid_call(
-                Some(catalog),
-                capability_gate,
-                request.paid_call_arguments,
-            );
+            let result =
+                execute_bazaar_mcp_paid_call(Some(catalog), capability_gate, paid_call_arguments);
             let outcome = if result.ok {
                 X402LocalReferenceOutcome::CapabilityReady
             } else {

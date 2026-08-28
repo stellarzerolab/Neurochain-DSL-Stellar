@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "catalog_fixture": "../x402_bazaar_catalog/mcp_tool.json",
+  "zk_action_plan_fixture": "../../hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json",
+  "scenarios": [
+    {
+      "name": "approved",
+      "request_fixture": "approved_request.json",
+      "evaluation_response_fixture": "approved_evaluation_response.json",
+      "zk_proof_fixture": "../../hackathons/stellar-real-world-zk/fixtures/groth16_approved.json",
+      "expected_outcome": "capability_ready",
+      "expected_capability_code": "service_call_authorized",
+      "expected_access_consumed": true,
+      "expected_proof_reason_code": "passed"
+    },
+    {
+      "name": "requires_approval",
+      "request_fixture": "approval_required_request.json",
+      "evaluation_response_fixture": "approval_required_evaluation_response.json",
+      "zk_proof_fixture": "../../hackathons/stellar-real-world-zk/fixtures/groth16_requires_approval.json",
+      "expected_outcome": "approval_required",
+      "expected_capability_code": "approval_required",
+      "expected_access_consumed": false,
+      "expected_proof_reason_code": "approval_threshold"
+    },
+    {
+      "name": "blocked",
+      "request_fixture": "blocked_request.json",
+      "evaluation_response_fixture": "blocked_evaluation_response.json",
+      "zk_proof_fixture": "../../hackathons/stellar-real-world-zk/fixtures/groth16_blocked_exit_3.json",
+      "expected_outcome": "policy_blocked",
+      "expected_capability_code": "policy_blocked",
+      "expected_access_consumed": false,
+      "expected_proof_reason_code": "allowlist"
+    }
+  ],
+  "authority": {
+    "paymentAllowed": false,
+    "proofAllowed": false,
+    "approvalAllowed": false,
+    "settlementAllowed": false,
+    "signingAllowed": false,
+    "underlyingExecutionAllowed": false,
+    "serviceDispatchAllowed": false,
+    "walletAccessAllowed": false,
+    "shellAccessAllowed": false,
+    "rpcSubmitAllowed": false,
+    "transactionSubmitAllowed": false,
+    "actionPlanSubmitAllowed": false
+  }
+}
