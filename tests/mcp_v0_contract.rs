@@ -319,6 +319,48 @@ fn mcp_v0_stdio_lists_only_safe_tools() {
 }
 
 #[test]
+fn mcp_v0_stdio_describes_canonical_stages_decisions_and_capability_boundary() {
+    let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    let description = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .and_then(|tool| tool["description"].as_str())
+            .unwrap_or_else(|| panic!("missing description for {name}"))
+    };
+
+    assert!(description("plan_stellar_action").starts_with("Plan:"));
+    assert!(description("plan_stellar_action").contains("decision not_evaluated"));
+    assert!(description("evaluate_guardrails").starts_with("Evaluate:"));
+    for decision in ["not_evaluated", "approved", "requires_approval", "blocked"] {
+        assert!(
+            description("evaluate_guardrails").contains(decision),
+            "evaluate description missing {decision}"
+        );
+    }
+    assert!(description("prove_guardrail_decision").starts_with("Optional Prove:"));
+    assert!(description("verify_zk_on_stellar").starts_with("Verify:"));
+    assert!(description("get_guardrail_status").starts_with("Status:"));
+    assert!(description("get_guardrail_status")
+        .contains("separate exact capability gate is not exposed by MCP v0"));
+}
+
+#[test]
+fn mcp_v0_docs_match_discovery_vocabulary() {
+    let docs = fs::read_to_string("docs/mcp_v0_tool_contract.md")
+        .expect("MCP v0 tool contract must be readable");
+    for marker in [
+        "Plan -> Evaluate -> optional Prove -> Verify -> Status",
+        "not_evaluated | approved | requires_approval | blocked",
+        "The separate exact capability gate is not exposed by MCP v0.",
+        "`approved` remains a policy decision",
+    ] {
+        assert!(docs.contains(marker), "MCP docs missing {marker}");
+    }
+}
+
+#[test]
 fn mcp_v0_stdio_advertises_real_plan_runtime_input() {
     let value = run_ready_mcp_stdio(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
     let tools = value["result"]["tools"].as_array().expect("tools array");
@@ -1506,10 +1548,20 @@ fn mcp_v0_stdio_initializes_with_read_only_no_submit_capabilities() {
         false
     );
     assert_eq!(result["serverInfo"]["name"], "neurochain-mcp-v0-stdio");
-    assert!(result["instructions"]
+    let instructions = result["instructions"]
         .as_str()
-        .expect("initialize instructions")
-        .contains("never grant signing"));
+        .expect("initialize instructions");
+    for marker in [
+        "Plan -> Evaluate -> optional Prove -> Verify -> Status",
+        "not_evaluated | approved | requires_approval | blocked",
+        "The separate exact capability gate is not exposed by MCP v0.",
+        "never grant signing",
+    ] {
+        assert!(
+            instructions.contains(marker),
+            "initialize instructions missing {marker}"
+        );
+    }
 
     let excluded = result["capabilities"]["experimental"]["neurochainNoSubmit"]["excludedTools"]
         .as_array()

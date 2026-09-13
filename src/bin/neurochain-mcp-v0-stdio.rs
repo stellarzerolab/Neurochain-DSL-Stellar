@@ -214,6 +214,13 @@ fn initialize_result(request: &Value) -> Result<Value, String> {
         MCP_PROTOCOL_VERSION
     };
 
+    let instructions = format!(
+        "Read-only no-submit runtime. MCP stages: {}. Policy decisions: {}. {} plan_stellar_action, evaluate_guardrails, prove_guardrail_decision, and verify_zk_on_stellar use local NeuroChain runtime paths; explicit fixtures remain for conformance. Responses never grant signing, broadcast, nullifier-consume, attestation, or underlying ActionPlan submit authority.",
+        neurochain::mcp_v0_fixture::MCP_PRODUCT_STAGES,
+        neurochain::mcp_v0_fixture::MCP_POLICY_DECISIONS,
+        neurochain::mcp_v0_fixture::MCP_CAPABILITY_BOUNDARY,
+    );
+
     Ok(json!({
         "protocolVersion": protocol_version,
         "capabilities": {
@@ -234,7 +241,7 @@ fn initialize_result(request: &Value) -> Result<Value, String> {
             "title": "NeuroChain MCP V0 Read-Only Runtime",
             "version": env!("CARGO_PKG_VERSION")
         },
-        "instructions": "Read-only no-submit runtime. plan_stellar_action, evaluate_guardrails, prove_guardrail_decision, and verify_zk_on_stellar use local NeuroChain runtime paths; explicit fixtures remain for conformance. All responses never grant signing, broadcast, nullifier-consume, attestation, or underlying ActionPlan submit authority."
+        "instructions": instructions
     }))
 }
 

@@ -9,6 +9,18 @@ the local ZK attestation-view validator, `verify_zk_on_stellar` to the
 read-only Soroban verification path, and `get_guardrail_status` to an
 observational status view over the latest MCP structured result.
 
+MCP discovery exposes the same product vocabulary directly in its
+`initialize` instructions and `tools/list` descriptions:
+
+```text
+Plan -> Evaluate -> optional Prove -> Verify -> Status
+not_evaluated | approved | requires_approval | blocked
+```
+
+The separate exact capability gate is not exposed by MCP v0. In particular,
+`approved` remains a policy decision and never grants execution or submit
+authority.
+
 Machine-checkable response fixtures live in:
 
 ```text

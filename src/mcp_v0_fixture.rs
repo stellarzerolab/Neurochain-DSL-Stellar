@@ -16,6 +16,11 @@ pub const EXCLUDED_TOOLS: &[&str] = &[
     "configure_server",
 ];
 
+pub const MCP_PRODUCT_STAGES: &str = "Plan -> Evaluate -> optional Prove -> Verify -> Status";
+pub const MCP_POLICY_DECISIONS: &str = "not_evaluated | approved | requires_approval | blocked";
+pub const MCP_CAPABILITY_BOUNDARY: &str =
+    "The separate exact capability gate is not exposed by MCP v0.";
+
 struct Fixture {
     name: &'static str,
     tool: &'static str,
@@ -617,20 +622,20 @@ pub fn validate_no_secret_like_fields(context: &str, value: &Value) -> Result<()
     walk(context, value, "$")
 }
 
-fn tool_description(tool: &str) -> &'static str {
+fn tool_description(tool: &str) -> String {
     match tool {
-        "plan_stellar_action" => {
-            "Classify a Stellar intent locally and preview the real typed ActionPlan without submit capability."
-        }
-        "evaluate_guardrails" => {
-            "Evaluate the canonical ActionPlan with configured NeuroChain guardrails without submitting."
-        }
-        "prove_guardrail_decision" => {
-            "Inspect a public ZK artifact against its exact typed ActionPlan without cryptographic verification or submit capability."
-        }
-        "verify_zk_on_stellar" => "Return read-only Stellar verification status.",
-        "get_guardrail_status" => "Return the final no-submit guardrail status view.",
-        _ => "Unknown MCP v0 fixture tool.",
+        "plan_stellar_action" => "Plan: classify a Stellar intent locally and preview the real typed ActionPlan with decision not_evaluated and no submit capability.".to_string(),
+        "evaluate_guardrails" => format!(
+            "Evaluate: apply configured NeuroChain guardrails to the canonical ActionPlan. Policy decisions: {MCP_POLICY_DECISIONS}. No decision grants execution or submit capability."
+        ),
+        "prove_guardrail_decision" => "Optional Prove: inspect a public ZK artifact against its exact typed ActionPlan without cryptographic verification or submit capability.".to_string(),
+        "verify_zk_on_stellar" =>
+            "Verify: return read-only Stellar proof verification status without submit capability."
+                .to_string(),
+        "get_guardrail_status" => format!(
+            "Status: return the final no-submit guardrail status view. {MCP_CAPABILITY_BOUNDARY}"
+        ),
+        _ => "Unknown MCP v0 fixture tool.".to_string(),
     }
 }
 
