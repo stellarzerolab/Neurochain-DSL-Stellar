@@ -10,11 +10,21 @@ Bazaar discovery -> x402 access state -> typed ActionPlan -> deterministic polic
 Run one command from the repository root:
 
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart
+cargo run --offline --quiet --example product_local_quickstart -- --human
 ```
 
 The command reads only checked-in fixtures. It needs no credential, keypair,
 network connection, listener or persistent store.
+
+`--human` renders a compact human-readable view with the three decisions,
+capability-gate calls, ZK boundary and the all-false authority boundary. The
+default remains the stable machine-readable JSON contract:
+
+```powershell
+cargo run --offline --quiet --example product_local_quickstart
+```
+
+Unknown output arguments fail closed with a usage error.
 
 ## What each layer owns
 

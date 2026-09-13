@@ -11,7 +11,7 @@ This repository contains the Stellar integration layer for NeuroChain DSL.
 Run the whole local product path before choosing an integration surface:
 
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart
+cargo run --offline --quiet --example product_local_quickstart -- --human
 ```
 
 The checked-in scenarios run one coordinator through:
@@ -22,12 +22,13 @@ Bazaar discovery -> x402 access state -> typed ActionPlan (Plan)
 -> local binding Verify -> separate exact capability gate
 ```
 
-The machine-readable report includes `approved`, `requires_approval`, and
-`blocked`. Only `approved` reaches the exact single-use service-call capability
-gate, and even then service dispatch remains false. The quickstart needs no
-credential, keypair, listener, or network call and grants no payment, proof,
-approval, settlement, signing, execution, wallet, shell, RPC, transaction
-submit, or ActionPlan-submit authority.
+The human-readable view includes `approved`, `requires_approval`, and `blocked`
+with a short decision and authority summary. Omit `-- --human` to retain the
+complete machine-readable JSON contract. Only `approved` reaches the exact
+single-use service-call capability gate, and even then service dispatch remains
+false. The quickstart needs no credential, keypair, listener, or network call
+and grants no payment, proof, approval, settlement, signing, execution, wallet,
+shell, RPC, transaction submit, or ActionPlan-submit authority.
 
 The bundled Groth16 artifacts are real evidence fixtures, but this local run
 checks their public binding only. It reports `cryptographicallyVerified=false`

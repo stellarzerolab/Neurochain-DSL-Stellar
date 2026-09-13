@@ -153,6 +153,41 @@ fn quickstart_report_matches_the_versioned_whole_product_fixture() {
 }
 
 #[test]
+fn human_output_matches_the_versioned_readable_fixture() {
+    let actual = quickstart::quickstart_output(&["--human".to_string()])
+        .expect("render human product quickstart");
+    let expected =
+        include_str!("../examples/product_local_quickstart/quickstart_output.txt").trim_end();
+    assert_eq!(actual, expected);
+
+    for required in [
+        "Mode: offline fixtures; credentials=no; network=no; listener=no",
+        "- approved",
+        "- requires_approval",
+        "- blocked",
+        "Authority boundary: ALL FALSE",
+        "Cryptographic Stellar verification: not run; still required separately",
+        "no payment, approval, settlement, signing, dispatch, execution, wallet, shell, RPC or submit authority was used",
+    ] {
+        assert!(actual.contains(required), "human output missing {required}");
+    }
+}
+
+#[test]
+fn default_output_stays_machine_json_and_unknown_arguments_fail_closed() {
+    let actual = quickstart::quickstart_output(&[]).expect("render default JSON output");
+    let actual: Value = serde_json::from_str(&actual).expect("default output must remain JSON");
+    let expected = quickstart::quickstart_report().expect("run product local quickstart");
+    assert_eq!(actual, expected);
+
+    assert_eq!(
+        quickstart::quickstart_output(&["--unknown".to_string()])
+            .expect_err("unknown output option must fail closed"),
+        "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human]"
+    );
+}
+
+#[test]
 fn mismatched_proof_decision_fails_before_capability_consumption() {
     let (result, gate_calls) =
         run_with_evidence(parse(ACTION_PLAN_JSON), parse(REQUIRES_APPROVAL_PROOF_JSON));
@@ -184,6 +219,9 @@ fn developer_docs_lock_the_offline_command_and_verification_boundary() {
         let docs = fs::read_to_string(path).unwrap_or_else(|error| panic!("read {path}: {error}"));
         for required in [
             "cargo run --offline --quiet --example product_local_quickstart",
+            "--human",
+            "machine-readable",
+            "human-readable",
             "local",
             "cryptographic",
             "credential",

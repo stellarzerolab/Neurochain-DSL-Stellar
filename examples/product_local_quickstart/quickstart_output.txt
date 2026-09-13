@@ -1,0 +1,35 @@
+NeuroChain local product quickstart
+===================================
+Mode: offline fixtures; credentials=no; network=no; listener=no
+Path: Bazaar discovery -> x402 access state -> typed ActionPlan -> deterministic policy -> optional ZK proof artifact -> local binding Verify -> separate exact capability gate
+
+Scenarios
+---------
+- approved
+  Policy: approved (reason: approved; exit: none)
+  Outcome: capability_ready
+  Capability gate: calls=1; exact service-call capability=yes; dispatch=no
+  Guidance: Exact service-call capability is ready locally; no dispatch or execution occurred.
+- requires_approval
+  Policy: requires_approval (reason: approval_required; exit: none)
+  Outcome: approval_required
+  Capability gate: calls=0; exact service-call capability=no; dispatch=no
+  Guidance: Explicit approval is still required; the capability gate was not called.
+- blocked
+  Policy: blocked (reason: allowlist; exit: 3)
+  Outcome: policy_blocked
+  Capability gate: calls=0; exact service-call capability=no; dispatch=no
+  Guidance: Stop; policy blocked this ActionPlan and the capability gate was not called.
+
+ZK evidence boundary
+--------------------
+Artifact: bundled Groth16 proof fixtures
+Local binding and ActionPlan projection: validated
+Cryptographic Stellar verification: not run; still required separately
+Private policy revealed: no
+
+Authority boundary: ALL FALSE
+payment, proof, approval, settlement, signing, underlying execution, service dispatch, wallet, shell, RPC submit, transaction submit, ActionPlan submit
+Result: no payment, approval, settlement, signing, dispatch, execution, wallet, shell, RPC or submit authority was used.
+
+For the complete machine contract, rerun without --human.

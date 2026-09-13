@@ -144,6 +144,27 @@ fn all_false_authority(
     Ok(())
 }
 
+fn required_str<'a>(value: &'a Value, pointer: &str) -> Result<&'a str, String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("product human report missing string {pointer}"))
+}
+
+fn required_bool(value: &Value, pointer: &str) -> Result<bool, String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| format!("product human report missing boolean {pointer}"))
+}
+
+fn required_u64(value: &Value, pointer: &str) -> Result<u64, String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("product human report missing unsigned integer {pointer}"))
+}
+
 fn local_catalog() -> Result<BazaarCatalog, String> {
     let candidate: BazaarCatalogCandidate = parse_json("catalog fixture", CATALOG_JSON)?;
     let mut catalog = BazaarCatalog::default();
@@ -308,16 +329,180 @@ pub fn quickstart_report() -> Result<Value, String> {
     }))
 }
 
+pub fn human_readable_report(report: &Value) -> Result<String, String> {
+    if report.pointer("/schemaVersion").and_then(Value::as_u64) != Some(1)
+        || required_str(report, "/status")? != "product_local_reference_ready"
+        || !required_bool(report, "/offline")?
+        || required_bool(report, "/credentialRequired")?
+        || required_bool(report, "/networkRequired")?
+        || required_bool(report, "/listenerRequired")?
+    {
+        return Err("product human report requires the schema-v1 offline result".to_string());
+    }
+
+    let authority = report
+        .pointer("/authorityBoundary")
+        .ok_or_else(|| "product human report missing authority boundary".to_string())?;
+    all_false_authority("human report authority boundary", authority, 12)?;
+
+    let expected_path = json!([
+        "bazaar_discovery",
+        "x402_access_state",
+        "typed_action_plan",
+        "deterministic_policy",
+        "optional_zk_proof_artifact",
+        "local_zk_binding_verify",
+        "separate_exact_capability_gate"
+    ]);
+    if report.pointer("/path") != Some(&expected_path) {
+        return Err("product human report path drifted".to_string());
+    }
+
+    let scenarios = report
+        .pointer("/scenarios")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "product human report missing scenarios".to_string())?;
+    if scenarios.len() != 3 {
+        return Err("product human report requires exactly three scenarios".to_string());
+    }
+
+    let mut lines = vec![
+        "NeuroChain local product quickstart".to_string(),
+        "===================================".to_string(),
+        "Mode: offline fixtures; credentials=no; network=no; listener=no".to_string(),
+        "Path: Bazaar discovery -> x402 access state -> typed ActionPlan -> deterministic policy -> optional ZK proof artifact -> local binding Verify -> separate exact capability gate".to_string(),
+        String::new(),
+        "Scenarios".to_string(),
+        "---------".to_string(),
+    ];
+
+    for scenario in scenarios {
+        let name = required_str(scenario, "/name")?;
+        let decision = required_str(scenario, "/decision")?;
+        let reason = required_str(scenario, "/evaluationReasonCode")?;
+        let outcome = required_str(scenario, "/outcome")?;
+        let gate_calls = required_u64(scenario, "/capability/gateCalls")?;
+        let service_call_allowed = required_bool(scenario, "/capability/serviceCallAllowed")?;
+        let dispatch_allowed = required_bool(scenario, "/capability/serviceDispatchAllowed")?;
+        if dispatch_allowed {
+            return Err(format!(
+                "product human report refuses dispatch authority for {name}"
+            ));
+        }
+
+        let (expected_decision, expected_outcome, expected_calls, expected_service_call, guidance) =
+            match name {
+                "approved" => (
+                    "approved",
+                    "capability_ready",
+                    1,
+                    true,
+                    "Exact service-call capability is ready locally; no dispatch or execution occurred.",
+                ),
+                "requires_approval" => (
+                    "requires_approval",
+                    "approval_required",
+                    0,
+                    false,
+                    "Explicit approval is still required; the capability gate was not called.",
+                ),
+                "blocked" => (
+                    "blocked",
+                    "policy_blocked",
+                    0,
+                    false,
+                    "Stop; policy blocked this ActionPlan and the capability gate was not called.",
+                ),
+                _ => return Err(format!("product human report found unknown scenario {name}")),
+            };
+        if decision != expected_decision
+            || outcome != expected_outcome
+            || gate_calls != expected_calls
+            || service_call_allowed != expected_service_call
+        {
+            return Err(format!(
+                "product human report scenario {name} drifted from its expected boundary"
+            ));
+        }
+
+        let exit_code = match scenario.pointer("/exitCode") {
+            Some(Value::Null) => "none".to_string(),
+            Some(Value::Number(value)) if value.as_u64().is_some() => value.to_string(),
+            _ => {
+                return Err(format!(
+                    "product human report scenario {name} has an invalid exit code"
+                ))
+            }
+        };
+        let service_call = if service_call_allowed { "yes" } else { "no" };
+
+        lines.extend([
+            format!("- {name}"),
+            format!("  Policy: {decision} (reason: {reason}; exit: {exit_code})"),
+            format!("  Outcome: {outcome}"),
+            format!(
+                "  Capability gate: calls={gate_calls}; exact service-call capability={service_call}; dispatch=no"
+            ),
+            format!("  Guidance: {guidance}"),
+        ]);
+    }
+
+    if required_str(report, "/verificationBoundary")?
+        != "local_binding_only_cryptographic_stellar_verify_not_run"
+    {
+        return Err("product human report verification boundary drifted".to_string());
+    }
+    for (index, scenario) in scenarios.iter().enumerate() {
+        if !required_bool(scenario, "/zkEvidence/artifactPresent")?
+            || !required_bool(scenario, "/zkEvidence/actionPlanProjectionValidated")?
+            || required_str(scenario, "/zkEvidence/localBinding")? != "binding_validated"
+            || required_bool(scenario, "/zkEvidence/cryptographicallyVerified")?
+            || !required_bool(scenario, "/zkEvidence/stellarVerificationRequired")?
+            || required_bool(scenario, "/zkEvidence/privatePolicyRevealed")?
+        {
+            return Err(format!(
+                "product human report ZK boundary drifted for scenario {index}"
+            ));
+        }
+    }
+
+    lines.extend([
+        String::new(),
+        "ZK evidence boundary".to_string(),
+        "--------------------".to_string(),
+        "Artifact: bundled Groth16 proof fixtures".to_string(),
+        "Local binding and ActionPlan projection: validated".to_string(),
+        "Cryptographic Stellar verification: not run; still required separately".to_string(),
+        "Private policy revealed: no".to_string(),
+        String::new(),
+        "Authority boundary: ALL FALSE".to_string(),
+        "payment, proof, approval, settlement, signing, underlying execution, service dispatch, wallet, shell, RPC submit, transaction submit, ActionPlan submit".to_string(),
+        "Result: no payment, approval, settlement, signing, dispatch, execution, wallet, shell, RPC or submit authority was used.".to_string(),
+        String::new(),
+        "For the complete machine contract, rerun without --human.".to_string(),
+    ]);
+
+    Ok(lines.join("\n"))
+}
+
+pub fn quickstart_output(args: &[String]) -> Result<String, String> {
+    let report = quickstart_report()?;
+    match args {
+        [] => serde_json::to_string_pretty(&report)
+            .map_err(|error| format!("serialize report: {error}")),
+        [flag] if flag == "--human" => human_readable_report(&report),
+        _ => Err(
+            "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human]"
+                .to_string(),
+        ),
+    }
+}
+
 #[cfg(not(test))]
 fn main() {
-    match quickstart_report() {
-        Ok(report) => match serde_json::to_string_pretty(&report) {
-            Ok(encoded) => println!("{encoded}"),
-            Err(error) => {
-                eprintln!("product local quickstart failed: serialize report: {error}");
-                std::process::exit(1);
-            }
-        },
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match quickstart_output(&args) {
+        Ok(output) => println!("{output}"),
         Err(error) => {
             eprintln!("product local quickstart failed: {error}");
             std::process::exit(1);

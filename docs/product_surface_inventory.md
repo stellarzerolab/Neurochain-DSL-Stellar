@@ -139,9 +139,11 @@ WebSocket route is internal hosted-demo transport.
 The whole-product local quickstart is the primary core onboarding evidence. It
 connects the existing Bazaar/x402 reference coordinator, typed ActionPlan,
 deterministic policy, bundled ZK evidence and separate exact capability gate in
-one offline command. Its Verify step is local public binding validation, not
-cryptographic Stellar verification. The lower-level x402 local quickstart
-remains core integration evidence. The facilitator adapter, service boundary,
+one offline command. Humans start with its `--human` view; omitting that option
+preserves the complete machine-readable JSON contract. Its Verify step is local
+public binding validation, not cryptographic Stellar verification. The
+lower-level x402 local quickstart remains core integration evidence. The
+facilitator adapter, service boundary,
 response contract and conformance schemas remain advanced or internal
 implementation contracts. Neither quickstart establishes live canonical-client
 E2E, production settlement or service dispatch.
