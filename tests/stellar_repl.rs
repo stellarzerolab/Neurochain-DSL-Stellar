@@ -197,6 +197,9 @@ fn stellar_repl_help_and_exit_work() {
             "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
         ))
         .stdout(contains(
+            "Policy decisions: not_evaluated | approved | requires_approval | blocked.",
+        ))
+        .stdout(contains(
             "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
         ))
         .stdout(contains(
@@ -386,6 +389,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         &[
             "Stellar REPL commands (all):",
             "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
+            "Policy decisions: not_evaluated | approved | requires_approval | blocked.",
             "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
             "Approved is a policy decision, not execution or submit permission.",
             "Advanced operator setup (value required):",
@@ -579,6 +583,24 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     assert!(soroban_v2_section.contains("deposit"));
     assert!(soroban_v2_section.contains("swap"));
     assert!(soroban_v2_section.contains("REPL, .nc, and /api/stellar/intent-plan"));
+}
+
+#[test]
+fn stellar_cli_help_uses_shared_product_vocabulary() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--help")
+        .assert()
+        .success()
+        .stderr(contains(
+            "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
+        ))
+        .stderr(contains(
+            "Policy decisions: not_evaluated | approved | requires_approval | blocked.",
+        ))
+        .stderr(contains(
+            "Approved is a policy decision, not execution or submit permission.",
+        ));
 }
 
 #[test]

@@ -30,6 +30,9 @@ fn print_usage() {
         "Usage: neurochain-stellar [<file.nc|plan.json>] [--flow|--no-flow] [--yes] [--debug] [--intent-text \"...\"] [--intent-model <path>] [--intent-threshold <f32>]"
     );
     eprintln!("Usage: neurochain-stellar --repl [--flow|--no-flow] [--debug]");
+    eprintln!("{CANONICAL_STAGES_HELP}");
+    eprintln!("{CANONICAL_DECISIONS_HELP}");
+    eprintln!("{APPROVAL_BOUNDARY_HELP}");
     eprintln!("If no args are provided, REPL mode is started (flow enabled by default).");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
@@ -4127,6 +4130,8 @@ fn print_repl_current_asset_allowlist(runtime: &RuntimeSettings) -> bool {
 
 const CANONICAL_STAGES_HELP: &str =
     "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.";
+const CANONICAL_DECISIONS_HELP: &str =
+    "Policy decisions: not_evaluated | approved | requires_approval | blocked.";
 const REPL_ROLE_HELP: &str =
     "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.";
 const APPROVAL_BOUNDARY_HELP: &str =
@@ -4141,6 +4146,7 @@ fn print_repl_help_quick(
     const HELP_COL_WIDTH: usize = 58;
     println!("Stellar REPL core quick start:");
     println!("{CANONICAL_STAGES_HELP}");
+    println!("{CANONICAL_DECISIONS_HELP}");
     println!("{REPL_ROLE_HELP}");
     println!("{APPROVAL_BOUNDARY_HELP}");
     if flow {
@@ -4319,6 +4325,7 @@ fn print_repl_hint_line() {
 fn print_repl_help_all() {
     println!("Stellar REPL commands (all):");
     println!("{CANONICAL_STAGES_HELP}");
+    println!("{CANONICAL_DECISIONS_HELP}");
     println!("{REPL_ROLE_HELP}");
     println!("{APPROVAL_BOUNDARY_HELP}");
     println!();
