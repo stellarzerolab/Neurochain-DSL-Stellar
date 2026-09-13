@@ -202,8 +202,12 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains(
             "Approved is a policy decision, not execution or submit permission.",
         ))
-        .stdout(contains("Restart with --no-flow before planning"))
-        .stdout(contains("plain text intent"))
+        .stdout(contains(
+            "Flow mode is enabled; restart with --no-flow before planning.",
+        ))
+        .stdout(contains(
+            "plain text intent: Transfer 5 XLM to <G-address>",
+        ))
         .stdout(contains("help dsl"))
         .stdout(contains("zk.demo approved|requires_approval|blocked"))
         .stdout(contains(
@@ -219,6 +223,21 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("zk.stellar.attest").not())
         .stdout(contains("soroban.contract.deploy").not())
         .stdout(contains("Exiting"));
+}
+
+#[test]
+fn stellar_repl_quick_help_reports_active_no_flow_session() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--no-flow")
+        .write_stdin("help\n\nexit\n\n")
+        .assert()
+        .success()
+        .stdout(contains(
+            "Flow mode is disabled; plain-text prompts stay plan-only.",
+        ))
+        .stdout(contains("Flow mode is enabled; restart with --no-flow before planning.").not())
+        .stdout(contains("plain text intent: Transfer 5 XLM to <G-address>"));
 }
 
 #[test]
@@ -587,6 +606,15 @@ fn stellar_repl_zk_demo_scenarios_are_proof_only() {
     assert!(stdout.contains("- private_policy_revealed: false"));
     assert!(stdout.contains("- submit_allowed: false"));
     assert!(stdout.contains("- execution_state: blocked"));
+    assert!(stdout.contains(
+        "- operator_guidance: local policy approved; verify evidence before any separately authorized action"
+    ));
+    assert!(stdout.contains(
+        "- operator_guidance: verification is evidence only; explicit action approval is still required"
+    ));
+    assert!(stdout.contains(
+        "- operator_guidance: stop; this ActionPlan is not eligible for an execution capability"
+    ));
     assert!(stdout.contains("ZK Guardrail status:"));
     assert!(stdout.contains("- stellar_verification: not_run"));
     assert!(stdout.contains("- attestation_submitted: false"));

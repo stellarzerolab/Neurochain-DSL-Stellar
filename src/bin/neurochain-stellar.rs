@@ -2330,6 +2330,17 @@ fn print_zk_inspection(inspection: &ZkReplInspection) {
     if let Some(next_step) = response.execution.next_step.as_deref() {
         println!("- next_step: {next_step}");
     }
+    let operator_guidance = match attestation.attested_decision.status.as_str() {
+        "approved" => {
+            "local policy approved; verify evidence before any separately authorized action"
+        }
+        "requires_approval" => {
+            "verification is evidence only; explicit action approval is still required"
+        }
+        "blocked" => "stop; this ActionPlan is not eligible for an execution capability",
+        _ => "stop; the decision is unknown and grants no authority",
+    };
+    println!("- operator_guidance: {operator_guidance}");
 }
 
 #[derive(Debug)]
@@ -4121,17 +4132,30 @@ const REPL_ROLE_HELP: &str =
 const APPROVAL_BOUNDARY_HELP: &str =
     "Approved is a policy decision, not execution or submit permission.";
 
-fn print_repl_help_quick(_cfg: &NetworkConfig, _runtime: &RuntimeSettings, _debug: bool) {
+fn print_repl_help_quick(
+    _cfg: &NetworkConfig,
+    _runtime: &RuntimeSettings,
+    _debug: bool,
+    flow: bool,
+) {
     const HELP_COL_WIDTH: usize = 58;
     println!("Stellar REPL core quick start:");
     println!("{CANONICAL_STAGES_HELP}");
     println!("{REPL_ROLE_HELP}");
     println!("{APPROVAL_BOUNDARY_HELP}");
-    println!("Restart with --no-flow before planning; advanced commands remain in `help all`.");
+    if flow {
+        println!(
+            "Flow mode is enabled; restart with --no-flow before planning. Advanced commands remain in `help all`."
+        );
+    } else {
+        println!(
+            "Flow mode is disabled; plain-text prompts stay plan-only. Advanced commands remain in `help all`."
+        );
+    }
     let quick_rows = [
         (
-            "plain text intent",
-            "(Plan -> typed ActionPlan in --no-flow mode)",
+            "plain text intent: Transfer 5 XLM to <G-address>",
+            "(type directly -> typed ActionPlan; --no-flow never submits)",
         ),
         (
             "zk.demo approved|requires_approval|blocked",
@@ -4571,7 +4595,7 @@ fn run_repl(
                 return 0;
             }
             "help" => {
-                print_repl_help_quick(&flow_cfg, &runtime_settings, debug);
+                print_repl_help_quick(&flow_cfg, &runtime_settings, debug, flow);
                 continue;
             }
             "help all" => {

@@ -1412,6 +1412,19 @@ hash, validate the journal digest and image binding, and display the decision.
 They do not perform the Groth16 pairing check, so the output says
 `cryptographic_verification: required_on_stellar`.
 
+The local result keeps the stable machine field
+`next_step: verify_on_stellar_then_separate_approval`, but the REPL also prints
+decision-aware `operator_guidance`:
+
+- `approved`: the local policy approved, but evidence verification and any
+  later action remain separately authorized operations
+- `requires_approval`: verification is evidence only and explicit action
+  approval is still required
+- `blocked`: stop; the ActionPlan is not eligible for an execution capability
+
+This guidance changes only the human presentation. It does not grant a
+capability, submit an ActionPlan or change the decision/exit semantics.
+
 The local CLI REPL can also inspect caller-selected JSON artifacts:
 
 ```text
