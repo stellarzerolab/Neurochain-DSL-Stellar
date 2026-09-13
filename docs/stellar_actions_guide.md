@@ -989,6 +989,9 @@ Response contains:
 
 - `plan`
   - ActionPlan JSON
+- `decision`
+  - `status = "approved" | "requires_approval" | "blocked"`
+  - `approved`, `blocked`, `requires_approval` and `reason`
 - `blocked`
   - whether the request is blocked
 - `exit_code`
@@ -998,6 +1001,24 @@ Response contains:
   - `5` intent safety
 - `logs`
   - diagnostic messages
+- `underlying_action_submit_allowed = false`
+  - the route never grants execution or ActionPlan-submit authority
+
+The evaluated decision projection is stable across the ordinary and x402
+IntentPlan routes:
+
+| Outcome | `decision.status` | `decision.reason` | `exit_code` |
+| --- | --- | --- | --- |
+| policy pass | `approved` | `null` | omitted |
+| separate approval needed | `requires_approval` | `approval_required` | omitted |
+| allowlist block | `blocked` | `allowlist` | `3` |
+| contract policy block | `blocked` | `contract_policy` | `4` |
+| intent safety block | `blocked` | `intent_safety` | `5` |
+
+`not_evaluated` remains the canonical state for a request that has not reached
+policy evaluation, such as the x402 payment-required response. The ordinary
+route evaluates the request before returning one of the three outcomes above.
+None of these decisions invokes or exposes the separate exact capability gate.
 
 The endpoint uses the same intent core as the CLI:
 
@@ -1579,9 +1600,14 @@ still has:
 - `zk_attestation.verification_state = "binding_validated"`
 - `zk_attestation.cryptographically_verified = false`
 - `zk_attestation.stellar_verification_required = true`
+- `zk_attestation.attested_decision.status = "approved" | "requires_approval" | "blocked"`
 - `execution.state = "blocked"`
 - `execution.submit_allowed = false`
 - `execution.next_step = "verify_on_stellar_then_separate_approval"`
+
+`attested_decision.status` is proof-bound policy evidence, not a capability or
+execution decision. This inspection route does not expose the separate exact
+capability gate.
 
 The genuine cryptographic proof path is also exercised by
 `run_soroban_localnet_e2e.ps1`. It deploys the verifier, router and application,

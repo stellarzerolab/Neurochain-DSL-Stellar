@@ -62,7 +62,7 @@ or execution authority merely because it says `ok`, `finalized`, `verified` or
 | REPL | Human learning and diagnostics. | The same ActionPlan and guardrail meanings; use `--no-flow` for the canonical plan-only path. |
 | `.nc` | Advanced deterministic scripting. | The same plan, policy and exit semantics as CLI/REPL/API, with unsafe build-time effects separately gated. |
 | MCP | Agent integration. | `decision`, `exit_code`, proof/verification fields and `underlying_action_submit_allowed=false`. |
-| API | Backend integration. | `/stellar/intent-plan` exposes `ok`, `blocked`, `requires_approval`, `exit_code` and `plan`; the x402 envelope exposes `decision.status` separately from `payment.state`. |
+| API | Backend integration. | `/stellar/intent-plan` exposes canonical `decision.status`, the compatibility fields and `underlying_action_submit_allowed=false`; the ZK view keeps `attested_decision.status` separate from verification/execution, and the x402 envelope keeps `decision.status` separate from `payment.state`. |
 | x402/Bazaar | Discovery, payment-state and access. | `decision` stays separate from `capability.outcome`; only the exact gate can produce `serviceCallAllowed=true`, and the reference never dispatches. |
 | ZK | Optional evidence and proof verification. | `attested_decision.status` plus binding/verification state; `submit_allowed` remains false. |
 

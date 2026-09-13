@@ -194,6 +194,40 @@ fn canonical_vocabulary_defines_shared_stages_decisions_and_surface_roles() {
 }
 
 #[test]
+fn api_surfaces_expose_canonical_decisions_without_submit_authority() {
+    let server = fs::read_to_string(repo_root().join("src/bin/neurochain-server.rs"))
+        .expect("server source must be readable");
+    for marker in [
+        "struct StellarIntentPlanDecision",
+        "status: &'static str",
+        "underlying_action_submit_allowed: false",
+        "Some(\"approval_required\".to_string())",
+        "Some(3) => \"allowlist\"",
+        "Some(4) => \"contract_policy\"",
+        "Some(5) => \"intent_safety\"",
+    ] {
+        assert!(
+            server.contains(marker),
+            "ordinary IntentPlan API missing canonical marker `{marker}`"
+        );
+    }
+
+    let guide = fs::read_to_string(repo_root().join("docs/stellar_actions_guide.md"))
+        .expect("Stellar guide must be readable");
+    for marker in [
+        "The evaluated decision projection is stable across the ordinary and x402",
+        "`not_evaluated` remains the canonical state for a request that has not reached",
+        "`attested_decision.status` is proof-bound policy evidence, not a capability or",
+        "None of these decisions invokes or exposes the separate exact capability gate.",
+    ] {
+        assert!(
+            guide.contains(marker),
+            "API vocabulary guide missing marker `{marker}`"
+        );
+    }
+}
+
+#[test]
 fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfaces() {
     let readme =
         fs::read_to_string(repo_root().join("README.md")).expect("README must be readable");

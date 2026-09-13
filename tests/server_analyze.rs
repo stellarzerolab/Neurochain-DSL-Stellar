@@ -303,6 +303,27 @@ fn assert_x402_response_contract(
     assert!(resp["logs"].is_array(), "logs must be array: {resp}");
 }
 
+fn assert_stellar_intent_plan_decision(resp: &Value, status: &str, reason: Option<&str>) {
+    assert_eq!(resp["decision"]["status"], status);
+    assert!(
+        resp["decision"]["approved"].is_boolean(),
+        "decision.approved must be boolean: {resp}"
+    );
+    assert!(
+        resp["decision"]["blocked"].is_boolean(),
+        "decision.blocked must be boolean: {resp}"
+    );
+    assert!(
+        resp["decision"]["requires_approval"].is_boolean(),
+        "decision.requires_approval must be boolean: {resp}"
+    );
+    match reason {
+        Some(expected) => assert_eq!(resp["decision"]["reason"], expected),
+        None => assert!(resp["decision"]["reason"].is_null()),
+    }
+    assert_eq!(resp["underlying_action_submit_allowed"], false);
+}
+
 fn assert_schema_required_contains(schema_node: &Value, required_fields: &[&str]) {
     let required = schema_node["required"]
         .as_array()
@@ -1128,10 +1149,27 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
     assert_eq!(resp["ok"], true);
     assert_eq!(resp["blocked"], false);
+    assert_stellar_intent_plan_decision(&resp, "approved", None);
     assert_eq!(
         resp["plan"]["actions"][0]["kind"],
         "stellar_account_balance"
     );
+
+    let body = json!({
+        "model": "intent_stellar",
+        "prompt": format!("Check balance for {account} asset XLM"),
+        "threshold": 0.0,
+        "requires_approval": true
+    })
+    .to_string();
+    let (status, resp_body) = http_post_json(addr, "/api/stellar/intent-plan", &body);
+    assert_eq!(status, 200);
+
+    let resp: serde_json::Value = serde_json::from_str(&resp_body).expect("json parse");
+    assert_eq!(resp["ok"], true);
+    assert_eq!(resp["blocked"], false);
+    assert_eq!(resp["requires_approval"], true);
+    assert_stellar_intent_plan_decision(&resp, "requires_approval", Some("approval_required"));
 
     let body = json!({
         "model": "intent_stellar",
@@ -1146,6 +1184,7 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 5);
+    assert_stellar_intent_plan_decision(&resp, "blocked", Some("intent_safety"));
     assert_eq!(resp["plan"]["actions"][0]["kind"], "unknown");
     let logs = resp["logs"].as_array().cloned().unwrap_or_default();
     assert!(
@@ -1237,6 +1276,7 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 3);
+    assert_stellar_intent_plan_decision(&resp, "blocked", Some("allowlist"));
     let logs = resp["logs"].as_array().cloned().unwrap_or_default();
     assert!(
         logs.iter()
@@ -1265,6 +1305,7 @@ fn api_stellar_intent_plan_smoke_and_blocks() {
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["blocked"], true);
     assert_eq!(resp["exit_code"], 4);
+    assert_stellar_intent_plan_decision(&resp, "blocked", Some("contract_policy"));
 
     let body = json!({
         "model": "intent_stellar",

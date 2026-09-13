@@ -84,6 +84,15 @@ struct StellarIntentPlanReq {
 }
 
 #[derive(Serialize)]
+struct StellarIntentPlanDecision {
+    status: &'static str,
+    approved: bool,
+    blocked: bool,
+    requires_approval: bool,
+    reason: Option<String>,
+}
+
+#[derive(Serialize)]
 struct StellarIntentPlanResp {
     ok: bool,
     blocked: bool,
@@ -93,8 +102,68 @@ struct StellarIntentPlanResp {
     error: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     requires_approval: bool,
+    decision: StellarIntentPlanDecision,
+    underlying_action_submit_allowed: bool,
     plan: ActionPlan,
     logs: Vec<String>,
+}
+
+impl StellarIntentPlanResp {
+    fn new(
+        ok: bool,
+        blocked: bool,
+        exit_code: Option<i32>,
+        error: Option<String>,
+        requires_approval: bool,
+        plan: ActionPlan,
+        logs: Vec<String>,
+    ) -> Self {
+        let status = if blocked {
+            "blocked"
+        } else if requires_approval {
+            "requires_approval"
+        } else if ok {
+            "approved"
+        } else {
+            "not_evaluated"
+        };
+        let reason = if requires_approval {
+            Some("approval_required".to_string())
+        } else if blocked {
+            Some(
+                match exit_code {
+                    Some(3) => "allowlist",
+                    Some(4) => "contract_policy",
+                    Some(5) => "intent_safety",
+                    Some(1) if error.as_deref() == Some("unauthorized") => "unauthorized",
+                    Some(1) => "evaluation_error",
+                    Some(2) => "invalid_request",
+                    _ => "request_blocked",
+                }
+                .to_string(),
+            )
+        } else {
+            None
+        };
+
+        Self {
+            ok,
+            blocked,
+            exit_code,
+            error,
+            requires_approval,
+            decision: StellarIntentPlanDecision {
+                status,
+                approved: ok && !blocked && !requires_approval,
+                blocked,
+                requires_approval,
+                reason,
+            },
+            underlying_action_submit_allowed: false,
+            plan,
+            logs,
+        }
+    }
 }
 
 static REQUIRED_API_KEY: OnceLock<Option<String>> = OnceLock::new();
@@ -547,15 +616,15 @@ async fn api_stellar_intent_plan(
             logs.push("auth: missing or invalid api key".into());
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(StellarIntentPlanResp {
-                    ok: false,
-                    blocked: true,
-                    exit_code: Some(1),
-                    error: Some("unauthorized".to_string()),
-                    requires_approval: false,
-                    plan: ActionPlan::default(),
+                Json(StellarIntentPlanResp::new(
+                    false,
+                    true,
+                    Some(1),
+                    Some("unauthorized".to_string()),
+                    false,
+                    ActionPlan::default(),
                     logs,
-                }),
+                )),
             );
         }
     }
@@ -888,15 +957,15 @@ fn build_stellar_intent_plan_response(
         logs.push("warn: empty prompt".into());
         return (
             StatusCode::OK,
-            Json(StellarIntentPlanResp {
-                ok: false,
-                blocked: true,
-                exit_code: Some(2),
-                error: Some("empty prompt".to_string()),
-                requires_approval: false,
-                plan: ActionPlan::default(),
+            Json(StellarIntentPlanResp::new(
+                false,
+                true,
+                Some(2),
+                Some("empty prompt".to_string()),
+                false,
+                ActionPlan::default(),
                 logs,
-            }),
+            )),
         );
     }
 
@@ -905,15 +974,15 @@ fn build_stellar_intent_plan_response(
         Err(err) => {
             return (
                 StatusCode::OK,
-                Json(StellarIntentPlanResp {
-                    ok: false,
-                    blocked: true,
-                    exit_code: Some(2),
-                    error: Some(err),
-                    requires_approval: false,
-                    plan: ActionPlan::default(),
+                Json(StellarIntentPlanResp::new(
+                    false,
+                    true,
+                    Some(2),
+                    Some(err),
+                    false,
+                    ActionPlan::default(),
                     logs,
-                }),
+                )),
             );
         }
     };
@@ -927,15 +996,15 @@ fn build_stellar_intent_plan_response(
             Err(err) => {
                 return (
                     StatusCode::OK,
-                    Json(StellarIntentPlanResp {
-                        ok: false,
-                        blocked: true,
-                        exit_code: Some(2),
-                        error: Some(format!("invalid intent threshold env: {err}")),
-                        requires_approval: false,
-                        plan: ActionPlan::default(),
+                    Json(StellarIntentPlanResp::new(
+                        false,
+                        true,
+                        Some(2),
+                        Some(format!("invalid intent threshold env: {err}")),
+                        false,
+                        ActionPlan::default(),
                         logs,
-                    }),
+                    )),
                 )
             }
         },
@@ -947,15 +1016,15 @@ fn build_stellar_intent_plan_response(
         Err(err) => {
             return (
                 StatusCode::OK,
-                Json(StellarIntentPlanResp {
-                    ok: false,
-                    blocked: true,
-                    exit_code: Some(1),
-                    error: Some(format!("{err:#}")),
-                    requires_approval: false,
-                    plan: ActionPlan::default(),
+                Json(StellarIntentPlanResp::new(
+                    false,
+                    true,
+                    Some(1),
+                    Some(format!("{err:#}")),
+                    false,
+                    ActionPlan::default(),
                     logs,
-                }),
+                )),
             );
         }
     };
@@ -1084,14 +1153,14 @@ fn build_stellar_intent_plan_response(
 
     (
         StatusCode::OK,
-        Json(StellarIntentPlanResp {
-            ok: !blocked,
+        Json(StellarIntentPlanResp::new(
+            !blocked,
             blocked,
             exit_code,
-            error: None,
+            None,
             requires_approval,
             plan,
             logs,
-        }),
+        )),
     )
 }

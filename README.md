@@ -512,11 +512,16 @@ POST /api/stellar/intent-plan
 The response includes:
 
 - `plan`
+- `decision.status` (`approved`, `requires_approval`, or `blocked` after evaluation)
 - `blocked`
 - `exit_code`
+- `underlying_action_submit_allowed=false`
 - `logs`
 
-The endpoint uses the same intent core and guardrail behavior as CLI, REPL, and `.nc` scripts.
+The endpoint uses the same intent core and guardrail behavior as CLI, REPL, and
+`.nc` scripts. `decision.status` is the policy result; even `approved` does not
+grant execution or submit authority. The separate capability gate is not
+exposed by this route.
 
 ## Documentation
 
