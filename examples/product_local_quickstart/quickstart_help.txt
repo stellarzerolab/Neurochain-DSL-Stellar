@@ -1,0 +1,16 @@
+NeuroChain local product quickstart
+
+Usage:
+  cargo run --offline --quiet --example product_local_quickstart
+  cargo run --offline --quiet --example product_local_quickstart -- --human
+  cargo run --offline --quiet --example product_local_quickstart -- --help
+
+Outputs:
+  default   complete machine-readable schema-v1 JSON
+  --human   compact human-readable decision and authority summary
+  --help    show this help without running the product path
+
+Safety:
+  All modes use checked-in offline fixtures. They require no credential, keypair,
+  network, listener or persistent store and grant no payment, signing, dispatch,
+  execution, wallet, RPC or submit authority.

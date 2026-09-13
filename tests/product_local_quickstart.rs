@@ -183,8 +183,25 @@ fn default_output_stays_machine_json_and_unknown_arguments_fail_closed() {
     assert_eq!(
         quickstart::quickstart_output(&["--unknown".to_string()])
             .expect_err("unknown output option must fail closed"),
-        "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human]"
+        "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human|--help]"
     );
+}
+
+#[test]
+fn help_output_is_successful_and_discovers_both_stable_views() {
+    let actual = quickstart::quickstart_output(&["--help".to_string()])
+        .expect("render product quickstart help");
+    let expected =
+        include_str!("../examples/product_local_quickstart/quickstart_help.txt").trim_end();
+    assert_eq!(actual, expected);
+    for required in [
+        "default   complete machine-readable schema-v1 JSON",
+        "--human   compact human-readable decision and authority summary",
+        "--help    show this help without running the product path",
+        "grant no payment, signing, dispatch",
+    ] {
+        assert!(actual.contains(required), "help output missing {required}");
+    }
 }
 
 #[test]
@@ -220,6 +237,7 @@ fn developer_docs_lock_the_offline_command_and_verification_boundary() {
         for required in [
             "cargo run --offline --quiet --example product_local_quickstart",
             "--human",
+            "--help",
             "machine-readable",
             "human-readable",
             "local",

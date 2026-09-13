@@ -18,6 +18,7 @@ const MANIFEST_JSON: &str = include_str!("product_local_quickstart/manifest.json
 const CATALOG_JSON: &str = include_str!("x402_bazaar_catalog/mcp_tool.json");
 const ZK_ACTION_PLAN_JSON: &str =
     include_str!("../hackathons/stellar-real-world-zk/fixtures/typed_action_plan.json");
+const QUICKSTART_HELP: &str = include_str!("product_local_quickstart/quickstart_help.txt");
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -486,13 +487,13 @@ pub fn human_readable_report(report: &Value) -> Result<String, String> {
 }
 
 pub fn quickstart_output(args: &[String]) -> Result<String, String> {
-    let report = quickstart_report()?;
     match args {
-        [] => serde_json::to_string_pretty(&report)
+        [flag] if flag == "--help" => Ok(QUICKSTART_HELP.trim_end().to_string()),
+        [] => serde_json::to_string_pretty(&quickstart_report()?)
             .map_err(|error| format!("serialize report: {error}")),
-        [flag] if flag == "--human" => human_readable_report(&report),
+        [flag] if flag == "--human" => human_readable_report(&quickstart_report()?),
         _ => Err(
-            "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human]"
+            "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human|--help]"
                 .to_string(),
         ),
     }

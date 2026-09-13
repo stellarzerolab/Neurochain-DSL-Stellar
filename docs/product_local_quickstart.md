@@ -26,6 +26,15 @@ cargo run --offline --quiet --example product_local_quickstart
 
 Unknown output arguments fail closed with a usage error.
 
+Discover both stable views without running the product coordinator:
+
+```powershell
+cargo run --offline --quiet --example product_local_quickstart -- --help
+```
+
+The help path exits successfully, reads no runtime input and preserves the same
+offline/no-authority boundary.
+
 ## What each layer owns
 
 | Layer | Role in this quickstart |

@@ -24,7 +24,8 @@ Bazaar discovery -> x402 access state -> typed ActionPlan (Plan)
 
 The human-readable view includes `approved`, `requires_approval`, and `blocked`
 with a short decision and authority summary. Omit `-- --human` to retain the
-complete machine-readable JSON contract. Only `approved` reaches the exact
+complete machine-readable JSON contract. Use `-- --help` to list both modes
+without running the product coordinator. Only `approved` reaches the exact
 single-use service-call capability gate, and even then service dispatch remains
 false. The quickstart needs no credential, keypair, listener, or network call
 and grants no payment, proof, approval, settlement, signing, execution, wallet,

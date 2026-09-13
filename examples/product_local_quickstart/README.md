@@ -22,6 +22,8 @@ cargo run --offline --quiet --example product_local_quickstart -- --human
 ```
 
 Omit `-- --human` for the unchanged machine-readable JSON output.
+Use `-- --help` to discover both outputs without running the product path; its
+exact successful output is locked in `quickstart_help.txt`.
 
 No credential, network, listener, payment, settlement, signing, dispatch,
 execution or submit authority is used.
