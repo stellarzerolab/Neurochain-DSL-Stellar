@@ -41,7 +41,7 @@ After this first run, choose the surface that matches the caller:
 | Caller | Surface | Default role |
 | --- | --- | --- |
 | Script or CI | `neurochain-stellar` one-shot CLI | plan-only machine JSON unless `--flow` is explicit |
-| Human | `neurochain-stellar --no-flow` REPL | learning and diagnostics |
+| Human | `neurochain-stellar` REPL | plan-only learning and diagnostics by default |
 | AI agent | `neurochain-mcp-v0-stdio` | read-only/no-submit MCP integration |
 | Backend | `POST /api/stellar/intent-plan` | typed service integration |
 | Deterministic program | `.nc` | advanced scripting |
@@ -218,8 +218,9 @@ Supported Stellar actions include:
 NeuroChain is intentionally conservative.
 
 - File and `--intent-text` runs are plan-only unless `--flow` is passed.
-- REPL starts with flow enabled by default, but still shows preview and asks for confirmation before submit.
-- Use `--no-flow` for plan-only REPL sessions.
+- REPL starts plan-only by default. Preview, confirmation and possible submit
+  require an explicit `--flow`.
+- `--no-flow` remains an explicit plan-only compatibility flag.
 - Use `--yes` only for controlled testnet automation; it skips the final prompt.
 - Secret keys should not be written into files or docs. Use Stellar CLI key aliases such as `wallet: nc-testnet`.
 
@@ -253,8 +254,8 @@ These same codes are used across CLI, REPL, `.nc` scripts, and `/api/stellar/int
 
 Core product binaries:
 
-- `neurochain-stellar` - Stellar one-shot CLI, REPL and `.nc` runner; use
-  `--no-flow` for the recommended plan-only human path
+- `neurochain-stellar` - Stellar one-shot CLI, plan-only-by-default REPL and
+  `.nc` runner; use `--flow` only for an explicit operator execution path
 - `neurochain-mcp-v0-stdio` - default agent-facing read-only/no-submit MCP
   runtime
 
@@ -401,15 +402,17 @@ cargo run --release --bin neurochain-stellar -- --intent-text "Transfer 5 XLM to
 Start the canonical plan-only REPL:
 
 ```bash
+cargo run --release --bin neurochain-stellar
+```
+
+The explicit compatibility spelling is equivalent:
+
+```bash
 cargo run --release --bin neurochain-stellar -- --no-flow
 ```
 
-The zero-argument compatibility REPL remains available, but it starts with flow
-enabled and is therefore an advanced operator path:
-
-```bash
-cargo run --release --bin neurochain-stellar
-```
+Only `--flow` opens the advanced preview, confirmation and possible submit
+path.
 
 Useful REPL setup commands:
 
@@ -471,7 +474,13 @@ no dispatch, run:
 cargo run --offline --quiet --example x402_local_reference_path
 ```
 
-REPL sketch:
+The older REPL aliases remain functional as advanced compatibility commands,
+but they are deprecated candidates. New users should start with the product
+quickstart above; backend x402 integration uses
+`POST /api/x402/stellar/intent-plan`. No alias is redirected or removed by
+this checkpoint.
+
+Compatibility sketch:
 
 ```text
 x402

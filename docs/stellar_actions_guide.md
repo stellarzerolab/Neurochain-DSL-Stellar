@@ -29,8 +29,8 @@ Surface roles are documented in
 [`docs/product_surface_inventory.md`](product_surface_inventory.md). In the
 REPL, `help` is a compatibility reference that still lists advanced commands,
 and `help all` groups wallet, network, Friendbot, model and policy settings as
-`Advanced operator setup`. Use `--no-flow` for the canonical plan-only REPL
-path. This wording does not change command, flow, guardrail or exit behavior.
+`Advanced operator setup`. REPL starts plan-only; use `--flow` only for the
+explicit operator execution path.
 
 Currently supported actions:
 
@@ -57,13 +57,13 @@ Currently supported actions:
 Important rule: `cargo run` needs `--` before arguments that should go to the **neurochain-stellar** binary instead of Cargo.
 
 ```powershell
-# CORRECT: REPL, flow enabled by default
+# CORRECT: REPL, plan-only by default
 cargo run --release --bin neurochain-stellar
 
-# CORRECT: plan-only REPL, no simulate/submit
+# CORRECT: explicit plan-only compatibility spelling
 cargo run --release --bin neurochain-stellar -- --no-flow
 
-# CORRECT: explicit flow, optional for REPL
+# CORRECT: explicit flow; may preview, confirm and submit
 cargo run --release --bin neurochain-stellar -- --flow
 
 # WRONG: --flow goes to Cargo and fails with "unexpected argument '--flow'"
@@ -80,16 +80,14 @@ Notes:
 ```powershell
 cd <project-root>
 
-# 1) Normal CLI/REPL run
+# 1) Default plan-only CLI/REPL run
 cargo run --release --bin neurochain-stellar
 
-# 2) Plan-only REPL, if you do not want simulate/submit in this session
-cargo run --release --bin neurochain-stellar -- --no-flow
+# 2) Explicit flow; advanced operator path
+cargo run --release --bin neurochain-stellar -- --flow
 ```
 
-These two commands are the main daily workflow.
-
-Normal REPL runs the flow path by default:
+The second command explicitly opens:
 
 `simulate -> preview -> confirm -> submit`
 
@@ -161,10 +159,15 @@ For debug mode, use the same commands without `--release`.
   - Enables intent pipeline trace:
   - `classify -> slot-parse -> guardrails -> flow`
 
-### x402-lite
+### x402-lite compatibility aliases
 
 - `NC_X402=1`
-  - Enables x402-lite commands in REPL and `.nc` scripts
+  - Enables the advanced `x402`, `x402.request` and `x402.finalize`
+    compatibility commands in REPL and `.nc` scripts
+  - These commands are deprecated candidates. They remain functional and are
+    not redirected or scheduled for removal by this checkpoint.
+  - New users should start with `product_local_quickstart`; backend x402
+    integration uses `POST /api/x402/stellar/intent-plan`.
 
 ### Allowlist, Optional But Recommended
 
@@ -205,7 +208,7 @@ In REPL, the same values can also be set with commands such as `network: ...`, `
 | `NC_ZK_INSTRUCTION_LEEWAY` | Sets the ZK verifier instruction leeway | REPL ZK bridge | `10000000` |
 | `NC_STELLAR_SCRIPT_UNSAFE_EXEC` | Allows trusted `.nc` scripts to run local setup side effects during script build | `.nc` only | off |
 | `NC_TXREP_PREVIEW` | Enables txrep preview | CLI + REPL + `.nc` | off |
-| `NC_X402` | Enables x402-lite commands | CLI + REPL + `.nc` | off |
+| `NC_X402` | Enables deprecated-candidate x402-lite compatibility commands | CLI + REPL + `.nc` | off |
 | `NC_INTENT_STELLAR_MODEL` | Sets the IntentStellar model path | CLI + REPL + `.nc` | `models/intent_stellar/model.onnx` |
 | `NC_INTENT_STELLAR_THRESHOLD` | Sets the intent confidence threshold | CLI + REPL + `.nc` | `0.55` |
 | `NC_INTENT_DEBUG` | Enables intent debug trace | CLI + REPL + `.nc` | off |
@@ -404,9 +407,9 @@ Wallet startup behavior:
 - `setup testnet` does not set the wallet automatically.
 - Default REPL `asset_allowlist` is `XLM`, unless overridden by environment or command.
 
-The short `help` output is the core learning path. It first tells the user to
-restart with `--no-flow`, then shows only plain-text planning, bundled local ZK
-inspection, status/setup inspection, documentation and exit. Wallet, network,
+The short `help` output is the core learning path. It confirms the default
+plan-only mode, then shows plain-text planning, bundled local ZK inspection,
+status/setup inspection, documentation and exit. Wallet, network,
 Friendbot, x402-lite, policy, flow, Stellar verification/attestation and manual
 action commands remain available under `help all`.
 
@@ -435,8 +438,8 @@ Toggles:
 
 - `txrep` -> enable txrep preview in flow
 - `txrep off` -> disable txrep preview in flow
-- `x402` -> enable x402-lite flow commands
-- `x402 off` -> disable x402-lite flow commands
+- `x402` -> deprecated-candidate compatibility alias; enable x402-lite commands
+- `x402 off` -> deprecated-candidate compatibility alias; disable x402-lite commands
 - `allowlist_enforce` -> enable allowlist enforcement
 - `allowlist_enforce off` -> disable allowlist enforcement
 - `contract_policy_enforce` -> enable contract policy enforcement
@@ -453,8 +456,8 @@ Prompt and action commands:
 - `plain text prompt` -> classify prompt into an ActionPlan
 - `stellar.* / soroban.* lines` -> manual action-plan mode
 - `soroban.contract.deploy alias="..." wasm="..."` -> manual deploy action
-- `x402.request to="G..." amount="1" asset_code="XLM"` -> create an x402-lite payment challenge
-- `x402.finalize challenge_id="last"` -> finalize a challenge into a typed `stellar_payment` action
+- `x402.request to="G..." amount="1" asset_code="XLM"` -> deprecated-candidate compatibility alias; create a challenge
+- `x402.finalize challenge_id="last"` -> deprecated-candidate compatibility alias; finalize a typed payment
 
 ZK Guardrail commands:
 
@@ -550,8 +553,9 @@ cargo run --release --bin neurochain-stellar -- examples\golden_path_model_agnos
 
 ## 3.8) `--flow` Versus Plan-Only
 
-- In REPL (`cargo run --bin neurochain-stellar`), flow is enabled by default.
-- `--no-flow` forces REPL plan-only mode with no simulate/submit.
+- In REPL (`cargo run --bin neurochain-stellar`), plan-only is the default.
+- `--flow` is required for preview, confirmation and possible submit.
+- `--no-flow` remains an explicit plan-only compatibility flag.
 - File and `--intent-text` runs without `--flow` print only ActionPlan JSON.
 - File and `--intent-text` runs with `--flow` run:
   - `simulate -> preview -> confirm -> submit`
@@ -562,8 +566,9 @@ cargo run --release --bin neurochain-stellar -- examples\golden_path_model_agnos
 
 Quick summary:
 
-- `cargo run --bin neurochain-stellar` = REPL, flow enabled by default
-- `cargo run --bin neurochain-stellar -- --no-flow` = REPL plan-only
+- `cargo run --bin neurochain-stellar` = REPL plan-only by default
+- `cargo run --bin neurochain-stellar -- --flow` = explicit REPL flow that may submit
+- `cargo run --bin neurochain-stellar -- --no-flow` = explicit plan-only compatibility spelling
 - `cargo run --bin neurochain-stellar -- <input>` = file/intent dry-run
 - `cargo run --bin neurochain-stellar -- <input> --flow` = file/intent run that can submit
 

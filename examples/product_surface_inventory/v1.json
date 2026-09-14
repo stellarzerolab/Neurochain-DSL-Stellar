@@ -220,8 +220,8 @@
     {
       "id": "cli.repl-plan-only",
       "classification": "core",
-      "entrypoint": "neurochain-stellar --no-flow",
-      "role": "Recommended human learning and diagnosis mode without preview or submit effects"
+      "entrypoint": "neurochain-stellar [--repl|--no-flow]",
+      "role": "Default human learning and diagnosis mode without preview or submit effects"
     },
     {
       "id": "cli.nc-scripting",
@@ -236,10 +236,10 @@
       "role": "Explicit simulate, preview, confirmation and possible submit path; outside the default product walkthrough"
     },
     {
-      "id": "cli.repl-default-flow",
+      "id": "cli.repl-explicit-flow",
       "classification": "advanced",
-      "entrypoint": "neurochain-stellar",
-      "role": "Current compatibility default starts REPL with flow enabled; retain until manual product review"
+      "entrypoint": "neurochain-stellar --repl --flow",
+      "role": "Explicit REPL preview, confirmation and possible submit path"
     }
   ],
   "cliFlags": [
@@ -392,7 +392,7 @@
     {
       "id": "repl.x402-lite-compatibility",
       "classification": "deprecated_candidate",
-      "role": "Legacy x402-lite teaching flow retained unchanged pending manual compatibility review",
+      "role": "Advanced x402-lite compatibility aliases retained with visible deprecated-candidate guidance and no redirect or removal",
       "markers": [
         "x402",
         "x402 off",

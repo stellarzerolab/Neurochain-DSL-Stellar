@@ -33,7 +33,7 @@ fn print_usage() {
     eprintln!("{CANONICAL_STAGES_HELP}");
     eprintln!("{CANONICAL_DECISIONS_HELP}");
     eprintln!("{APPROVAL_BOUNDARY_HELP}");
-    eprintln!("If no args are provided, REPL mode is started (flow enabled by default).");
+    eprintln!("If no args are provided, REPL mode starts plan-only.");
     eprintln!("If input is JSON, it is treated as an ActionPlan.");
     eprintln!(
         "Manual .nc lines can start with 'stellar.' or 'soroban.' (comment lines are ignored)."
@@ -91,22 +91,18 @@ fn parse_cli_args(args: &[String]) -> Result<CliArgs> {
     let mut out = CliArgs::default();
     if args.len() <= 1 {
         out.repl = true;
-        out.flow = true;
         return Ok(out);
     }
 
-    let mut flow_explicit = false;
     let mut i = 1usize;
     while i < args.len() {
         match args[i].as_str() {
             "--repl" => out.repl = true,
             "--flow" => {
                 out.flow = true;
-                flow_explicit = true;
             }
             "--no-flow" => {
                 out.flow = false;
-                flow_explicit = true;
             }
             "--debug" => out.debug = true,
             "--yes" | "-y" => out.auto_yes = true,
@@ -164,9 +160,6 @@ fn parse_cli_args(args: &[String]) -> Result<CliArgs> {
             return Err(anyhow!(
                 "--repl cannot be combined with <file> or --intent-text"
             ));
-        }
-        if !flow_explicit {
-            out.flow = true;
         }
         return Ok(out);
     }
@@ -4133,7 +4126,7 @@ const CANONICAL_STAGES_HELP: &str =
 const CANONICAL_DECISIONS_HELP: &str =
     "Policy decisions: not_evaluated | approved | requires_approval | blocked.";
 const REPL_ROLE_HELP: &str =
-    "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.";
+    "REPL role: human learning and diagnostics; plan-only by default; use --flow only for an explicit execution flow.";
 const APPROVAL_BOUNDARY_HELP: &str =
     "Approved is a policy decision, not execution or submit permission.";
 
@@ -4151,7 +4144,7 @@ fn print_repl_help_quick(
     println!("{APPROVAL_BOUNDARY_HELP}");
     if flow {
         println!(
-            "Flow mode is enabled; restart with --no-flow before planning. Advanced commands remain in `help all`."
+            "Flow mode is enabled by explicit --flow; restart without it before planning. Advanced commands remain in `help all`."
         );
     } else {
         println!(
@@ -4181,7 +4174,7 @@ fn print_repl_help_quick(
         }
     }
     println!(
-        "- help all retains wallet, network, x402-lite, policy, flow, and ZK operator commands."
+        "- help all retains wallet, network, deprecated-candidate x402 aliases, policy, flow, and ZK operator commands."
     );
     println!("- ZK Guardrail never grants permission to submit the underlying ActionPlan.");
 }
@@ -4396,8 +4389,14 @@ fn print_repl_help_all() {
     let toggles = [
         ("txrep", "enable txrep preview in flow"),
         ("txrep off", "disable txrep preview in flow"),
-        ("x402", "enable x402-lite flow commands"),
-        ("x402 off", "disable x402-lite flow commands"),
+        (
+            "x402",
+            "deprecated-candidate compatibility alias; enable x402-lite commands",
+        ),
+        (
+            "x402 off",
+            "deprecated-candidate compatibility alias; disable x402-lite commands",
+        ),
         ("allowlist_enforce", "enable allowlist enforce"),
         ("allowlist_enforce off", "disable allowlist enforce"),
         ("contract_policy_enforce", "enable contract policy enforce"),
@@ -4425,11 +4424,11 @@ fn print_repl_help_all() {
         ),
         (
             "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
-            "create x402-lite payment challenge",
+            "deprecated-candidate compatibility alias; create challenge",
         ),
         (
             "x402.finalize challenge_id=\"last\"",
-            "finalize challenge -> execute typed stellar_payment",
+            "deprecated-candidate compatibility alias; finalize typed payment",
         ),
         (
             "macro from AI: \"...\"",
@@ -4562,9 +4561,9 @@ fn run_repl(
     println!(
         "Flow mode: {}",
         if flow {
-            "enabled (default REPL)"
+            "enabled (explicit --flow)"
         } else {
-            "disabled"
+            "disabled (default plan-only)"
         }
     );
     if print_repl_active_settings(&flow_cfg, &runtime_settings, debug, false) {

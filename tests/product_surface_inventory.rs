@@ -181,7 +181,7 @@ fn canonical_vocabulary_defines_shared_stages_decisions_and_surface_roles() {
         .expect("Stellar CLI source must be readable");
     for marker in [
         "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
-        "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
+        "REPL role: human learning and diagnostics; plan-only by default; use --flow only for an explicit execution flow.",
         "Approved is a policy decision, not execution or submit permission.",
         "Advanced operator setup (value required)",
     ] {
@@ -257,7 +257,7 @@ fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfac
         "Plan -> Evaluate -> optional Prove -> Verify -> separate capability gate",
         "cryptographicallyVerified=false",
         "stellarVerificationRequired=true",
-        "neurochain-stellar --no-flow",
+        "| Human | `neurochain-stellar` REPL | plan-only learning and diagnostics by default |",
         "neurochain-mcp-v0-stdio",
         "POST /api/stellar/intent-plan",
         "`.nc`",
@@ -279,7 +279,7 @@ fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfac
     let quick_help = &help_source[quick_start..all_start];
     for marker in [
         "Stellar REPL core quick start",
-        "Flow mode is enabled; restart with --no-flow before planning",
+        "Flow mode is enabled by explicit --flow; restart without it before planning",
         "Flow mode is disabled; plain-text prompts stay plan-only",
         "plain text intent: Transfer 5 XLM to <G-address>",
         "zk.demo approved|requires_approval|blocked",

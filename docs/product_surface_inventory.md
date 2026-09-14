@@ -1,8 +1,8 @@
 # NeuroChain product surface inventory
 
-This document is the first product-convergence checkpoint. It classifies the
-existing product surfaces without deleting, renaming or changing any command,
-route, guardrail, flow or exit-code behavior.
+This document is the product-convergence inventory. It classifies the existing
+surfaces and records the approved plan-only REPL default while preserving
+command names, routes, guardrails and exit codes.
 
 The machine-readable source is
 [`examples/product_surface_inventory/v1.json`](../examples/product_surface_inventory/v1.json).
@@ -59,7 +59,7 @@ or execution authority merely because it says `ok`, `finalized`, `verified` or
 | Surface | Product role | Canonical fields or representation |
 | --- | --- | --- |
 | CLI | One-shot and machine-readable planning. | Typed ActionPlan plus stable process exit `3` / `4` / `5`; plan-only without `--flow`. |
-| REPL | Human learning and diagnostics. | The same ActionPlan and guardrail meanings; use `--no-flow` for the canonical plan-only path. |
+| REPL | Human learning and diagnostics. | The same ActionPlan and guardrail meanings; plan-only by default, with preview, confirmation and possible submit available only through explicit `--flow`. |
 | `.nc` | Advanced deterministic scripting. | The same plan, policy and exit semantics as CLI/REPL/API, with unsafe build-time effects separately gated. |
 | MCP | Agent integration. | `decision`, `exit_code`, proof/verification fields and `underlying_action_submit_allowed=false`. |
 | API | Backend integration. | `/stellar/intent-plan` exposes canonical `decision.status`, the compatibility fields and `underlying_action_submit_allowed=false`; the ZK view keeps `attested_decision.status` separate from verification/execution, and the x402 envelope keeps `decision.status` separate from `payment.state`. |
@@ -73,10 +73,10 @@ or execution authority merely because it says `ok`, `finalized`, `verified` or
 | `Core` | The shortest supported way to understand or integrate the product safely. | Keep prominent and converge terminology. |
 | `Advanced` | Valid operator, scripting, server, flow or raw proof functionality. | Keep available behind explicit advanced documentation. |
 | `Internal` | Conformance, fixture, hosted-demo or data-conversion tooling. | Keep out of the first-run mental model. |
-| `Deprecated candidate` | A compatibility surface that duplicates or conflicts with the canonical story. | Keep unchanged until the manual review explicitly decides its future. |
+| `Deprecated candidate` | A compatibility surface that duplicates or conflicts with the canonical story. | Keep functional as an advanced alias, label it clearly and require a separate decision before redirecting or removing it. |
 
-`Deprecated candidate` is not a deprecation notice. It records a question for
-the manual acceptance pass.
+`Deprecated candidate` records managed deprecation without a removal date. It
+does not silently redirect a command or authorize removal.
 
 ## Recommended entry points
 
@@ -84,7 +84,7 @@ the manual acceptance pass.
 | --- | --- | --- |
 | Agent or automation host | `neurochain-mcp-v0-stdio` and its five MCP tools | The smallest runtime-backed Plan -> Evaluate -> Prove -> Verify -> Status no-submit contract. |
 | Integration developer | `cargo run --offline --quiet --example x402_local_reference_path` | One credential-free and network-free path through Bazaar/x402 access, policy and the separate capability gate. |
-| Human learning locally | `neurochain-stellar --no-flow` | Interactive inspection without preview or submit effects. |
+| Human learning locally | `neurochain-stellar` | Plan-only interactive inspection without preview or submit effects. |
 | Backend integrator | `POST /api/stellar/intent-plan` and `POST /api/stellar/zk-attestation/view` | The canonical plan/policy and read-only proof-binding contracts. Starting the listener remains an explicit operator action. |
 
 ## Surface roles
@@ -93,9 +93,9 @@ the manual acceptance pass.
 
 - The core CLI role is one-shot typed ActionPlan creation from `--intent-text`
   or a checked-in input file without `--flow`.
-- The core human REPL recommendation is explicit `--no-flow`.
-- The current zero-argument REPL compatibility default enables flow. It is
-  therefore classified as advanced, not used as the default product quickstart.
+- The zero-argument REPL and explicit `--repl` mode are plan-only by default.
+  Preview, confirmation and possible submit require explicit `--flow`.
+- `--no-flow` remains supported as an explicit plan-only compatibility flag.
 - REPL `help` now labels itself a compatibility reference because it still
   includes advanced operator actions. `help all` calls wallet, network,
   Friendbot, policy and model configuration `Advanced operator setup`, matching
@@ -148,10 +148,12 @@ response contract and conformance schemas remain advanced or internal
 implementation contracts. Neither quickstart establishes live canonical-client
 E2E, production settlement or service dispatch.
 
-The REPL commands `x402`, `x402.request` and `x402.finalize` are retained as a
-deprecated candidate because the older x402-lite teaching flow overlaps with
-the newer separate access-layer reference path. No behavior changes in this
-checkpoint.
+The REPL commands `x402`, `x402.request` and `x402.finalize` remain functional
+as advanced compatibility aliases and are labelled deprecated candidates. They
+overlap with the newer separate access-layer reference path, so new users are
+directed to the whole-product quickstart and backend integrators to
+`POST /api/x402/stellar/intent-plan`. This checkpoint does not redirect or
+remove the aliases.
 
 ### ZK
 
@@ -162,20 +164,16 @@ reproduction surface. `zk.stellar.attest` and `zk.stellar.consume` remain
 separately gated advanced operations and never grant underlying ActionPlan
 submit authority.
 
-## Manual acceptance questions
+## Manual acceptance decisions
 
-After the automated convergence pass is complete, verify these with the user
-before changing compatibility behavior:
+The manual pass selected the following bounded compatibility behavior:
 
-1. Should zero-argument `neurochain-stellar` remain flow-enabled, or should the
-   first-run default become plan-only?
-2. Does the short `help` core subset give enough first-run orientation while
-   wallet generation, Friendbot bootstrap, testnet attestation and the other
-   advanced commands remain discoverable in `help all`?
-3. Should the x402-lite REPL commands remain as advanced compatibility aliases,
-   be redirected to the canonical access path, or be deprecated later?
-4. Does the root README's whole-product offline quickstart work as the first
-   run, or does manual use reveal a better core entrypoint?
-
-These are product choices, not defects. They stay unchanged until the manual
-acceptance pass supplies evidence and explicit direction.
+1. Zero-argument `neurochain-stellar` and explicit `--repl` start plan-only.
+   An effect-capable flow requires explicit `--flow`.
+2. The short `help` remains the core learning subset. Wallet generation,
+   Friendbot bootstrap, testnet attestation and other advanced commands remain
+   discoverable through `help all`.
+3. The x402-lite REPL commands remain functional advanced compatibility aliases
+   with visible deprecated-candidate guidance. Redirect or removal requires a
+   later compatibility decision.
+4. The root README's offline product quickstart remains the first-run path.

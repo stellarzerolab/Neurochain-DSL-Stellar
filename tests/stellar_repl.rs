@@ -200,13 +200,13 @@ fn stellar_repl_help_and_exit_work() {
             "Policy decisions: not_evaluated | approved | requires_approval | blocked.",
         ))
         .stdout(contains(
-            "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
+            "REPL role: human learning and diagnostics; plan-only by default; use --flow only for an explicit execution flow.",
         ))
         .stdout(contains(
             "Approved is a policy decision, not execution or submit permission.",
         ))
         .stdout(contains(
-            "Flow mode is enabled; restart with --no-flow before planning.",
+            "Flow mode is disabled; plain-text prompts stay plan-only.",
         ))
         .stdout(contains(
             "plain text intent: Transfer 5 XLM to <G-address>",
@@ -239,8 +239,19 @@ fn stellar_repl_quick_help_reports_active_no_flow_session() {
         .stdout(contains(
             "Flow mode is disabled; plain-text prompts stay plan-only.",
         ))
-        .stdout(contains("Flow mode is enabled; restart with --no-flow before planning.").not())
+        .stdout(contains("Flow mode is enabled by explicit --flow").not())
         .stdout(contains("plain text intent: Transfer 5 XLM to <G-address>"));
+}
+
+#[test]
+fn stellar_repl_explicit_repl_mode_is_plan_only_without_flow_flag() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--repl")
+        .write_stdin("exit\n\n")
+        .assert()
+        .success()
+        .stdout(contains("Flow mode: disabled (default plan-only)"));
 }
 
 #[test]
@@ -390,7 +401,7 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
             "Stellar REPL commands (all):",
             "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
             "Policy decisions: not_evaluated | approved | requires_approval | blocked.",
-            "REPL role: human learning and diagnostics; use --no-flow for the plan-only path.",
+            "REPL role: human learning and diagnostics; plan-only by default; use --flow only for an explicit execution flow.",
             "Approved is a policy decision, not execution or submit permission.",
             "Advanced operator setup (value required):",
             "Toggles (on/off):",
@@ -416,7 +427,10 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
         "generate and fund alias (REPL; .nc needs unsafe opt-in)",
     );
     let txrep_row = help_row("txrep", "enable txrep preview in flow");
-    let x402_row = help_row("x402", "enable x402-lite flow commands");
+    let x402_row = help_row(
+        "x402",
+        "deprecated-candidate compatibility alias; enable x402-lite commands",
+    );
     let enforce_row = help_row("allowlist_enforce", "enable allowlist enforce");
     let policy_row = help_row(
         "contract_policy: <path>",
@@ -442,11 +456,11 @@ fn stellar_repl_help_all_is_sectioned_and_single_line_formatted() {
     );
     let x402_request_row = help_row(
         "x402.request to=\"...\" amount=\"...\" asset_code=\"XLM\"",
-        "create x402-lite payment challenge",
+        "deprecated-candidate compatibility alias; create challenge",
     );
     let x402_finalize_row = help_row(
         "x402.finalize challenge_id=\"last\"",
-        "finalize challenge -> execute typed stellar_payment",
+        "deprecated-candidate compatibility alias; finalize typed payment",
     );
     let zk_demo_approved_row = help_row(
         "zk.demo approved",
@@ -1033,20 +1047,19 @@ fn stellar_repl_macro_from_ai_is_rejected_with_guidance() {
 }
 
 #[test]
-fn stellar_repl_defaults_to_flow_mode_without_flag() {
+fn stellar_repl_defaults_to_plan_only_without_flag() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.env_remove("NC_ALLOWLIST_ENFORCE")
         .env_remove("NC_CONTRACT_POLICY_ENFORCE")
         .env_remove("NC_ASSET_ALLOWLIST")
         .env_remove("NC_SOROBAN_ALLOWLIST")
-        .write_stdin("stellar.payment to=\"GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\" amount=\"1\" asset_code=\"XLM\"\n\nn\n\nexit\n\n")
+        .write_stdin("stellar.payment to=\"GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\" amount=\"1\" asset_code=\"XLM\"\n\nexit\n\n")
         .assert()
         .success()
-        .stdout(contains("Flow mode: enabled"))
-        .stderr(contains("=== Preview ==="))
-        .stderr(contains("Confirm submit? [y/N]"))
-        .stderr(contains("Submit aborted by user."));
+        .stdout(contains("Flow mode: disabled (default plan-only)"))
+        .stderr(contains("=== Preview ===").not())
+        .stderr(contains("Confirm submit? [y/N]").not());
 }
 
 #[test]
@@ -1059,6 +1072,24 @@ fn stellar_repl_no_flow_flag_disables_preview() {
         .success()
         .stdout(contains("Flow mode: disabled"))
         .stdout(contains("=== Preview ===").not());
+}
+
+#[test]
+fn stellar_repl_flow_requires_explicit_flag() {
+    #[allow(deprecated)]
+    let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
+    cmd.arg("--flow")
+        .env_remove("NC_ALLOWLIST_ENFORCE")
+        .env_remove("NC_CONTRACT_POLICY_ENFORCE")
+        .env_remove("NC_ASSET_ALLOWLIST")
+        .env_remove("NC_SOROBAN_ALLOWLIST")
+        .write_stdin("stellar.payment to=\"GBSBBQGSMZEZJLPCQZFIDSEUSUEZVKP3KHS3JKV27BSWWTUL35VEL72P\" amount=\"1\" asset_code=\"XLM\"\n\nn\n\nexit\n\n")
+        .assert()
+        .success()
+        .stdout(contains("Flow mode: enabled (explicit --flow)"))
+        .stderr(contains("=== Preview ==="))
+        .stderr(contains("Confirm submit? [y/N]"))
+        .stderr(contains("Submit aborted by user."));
 }
 
 #[test]
@@ -1110,6 +1141,7 @@ fn stellar_repl_intent_safety_block_reports_step_code_5() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     let output = cmd
+        .arg("--flow")
         .write_stdin(
             "AI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.99\n\nset stellar intent from AI: \"Tell me a joke about stars\"\n\nexit\n\n",
         )
@@ -1319,6 +1351,7 @@ fn stellar_repl_policy_typed_slot_error_reports_step_code_5() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     let output = cmd
+        .arg("--flow")
         .write_stdin(format!(
             "contract_policy: {}\n\nAI: \"models/intent_stellar/model.onnx\"\n\nintent_threshold: 0.00\n\nset stellar intent from AI: \"Invoke contract CBLFA6FCYHI7RN3MMTQJV5TUKEYECQJAUE74HD5ZJM4NXMHCN4OJKCIJ function hello args={{\"to\":\"Hello World\"}}\"\n\nexit\n\n",
             policy_path.to_string_lossy()
@@ -1350,6 +1383,7 @@ fn stellar_repl_typed_slot_error_reports_step_code_5() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     let output = cmd
+        .arg("--flow")
         .write_stdin(
             r#"AI: "models/intent_stellar/model.onnx"
 
