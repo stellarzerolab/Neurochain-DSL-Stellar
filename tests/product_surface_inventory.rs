@@ -44,6 +44,13 @@ fn all_inventory_objects(inventory: &Value) -> Vec<&Value> {
     .collect()
 }
 
+fn inventory_item_by_id<'a>(inventory: &'a Value, field: &str, id: &str) -> &'a Value {
+    array(inventory, field)
+        .iter()
+        .find(|item| required_string(item, "id") == id)
+        .unwrap_or_else(|| panic!("inventory field `{field}` is missing id `{id}`"))
+}
+
 #[test]
 fn inventory_has_unique_ids_valid_classes_and_existing_evidence() {
     let inventory = inventory();
@@ -191,6 +198,46 @@ fn canonical_vocabulary_defines_shared_stages_decisions_and_surface_roles() {
         );
     }
     assert!(!help_source.contains("Core setup (value required)"));
+}
+
+#[test]
+fn inventory_locks_repl_plan_only_default_and_explicit_flow_opt_in() {
+    let inventory = inventory();
+
+    let repl_surface = inventory["canonicalVocabulary"]["surfaceRoles"]
+        .as_array()
+        .expect("canonical surfaceRoles must be an array")
+        .iter()
+        .find(|surface| required_string(surface, "id") == "repl")
+        .expect("canonical surfaceRoles must include REPL");
+    assert_eq!(
+        required_string(repl_surface, "defaultBoundary"),
+        "plan_only_by_default_flow_requires_explicit_opt_in"
+    );
+
+    let repl_mode = inventory_item_by_id(&inventory, "cliModes", "cli.repl-plan-only");
+    assert_eq!(required_string(repl_mode, "classification"), "core");
+    assert_eq!(
+        required_string(repl_mode, "entrypoint"),
+        "neurochain-stellar"
+    );
+    assert!(required_string(repl_mode, "role")
+        .contains("--repl selects the same plan-only mode explicitly"));
+
+    let repl_flag = inventory_item_by_id(&inventory, "cliFlags", "cli-flag.repl");
+    assert_eq!(required_string(repl_flag, "classification"), "core");
+    assert!(required_string(repl_flag, "role").contains("only --flow opens"));
+
+    let no_flow_flag = inventory_item_by_id(&inventory, "cliFlags", "cli-flag.no-flow");
+    assert!(required_string(no_flow_flag, "role")
+        .contains("plan-only is already the default without --flow"));
+
+    let explicit_flow = inventory_item_by_id(&inventory, "cliModes", "cli.repl-explicit-flow");
+    assert_eq!(required_string(explicit_flow, "classification"), "advanced");
+    assert_eq!(
+        required_string(explicit_flow, "entrypoint"),
+        "neurochain-stellar --repl --flow"
+    );
 }
 
 #[test]

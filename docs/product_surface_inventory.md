@@ -95,7 +95,8 @@ does not silently redirect a command or authorize removal.
   or a checked-in input file without `--flow`.
 - The zero-argument REPL and explicit `--repl` mode are plan-only by default.
   Preview, confirmation and possible submit require explicit `--flow`.
-- `--no-flow` remains supported as an explicit plan-only compatibility flag.
+- `--no-flow` remains supported as an explicit plan-only compatibility flag;
+  neither the zero-argument REPL nor explicit `--repl` requires it.
 - REPL `help` now labels itself a compatibility reference because it still
   includes advanced operator actions. `help all` calls wallet, network,
   Friendbot, policy and model configuration `Advanced operator setup`, matching

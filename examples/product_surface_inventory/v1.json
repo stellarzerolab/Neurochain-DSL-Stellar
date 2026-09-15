@@ -76,7 +76,7 @@
       {
         "id": "repl",
         "role": "Human learning and diagnostics",
-        "defaultBoundary": "use_no_flow_for_canonical_plan_only_path"
+        "defaultBoundary": "plan_only_by_default_flow_requires_explicit_opt_in"
       },
       {
         "id": "nc",
@@ -220,8 +220,8 @@
     {
       "id": "cli.repl-plan-only",
       "classification": "core",
-      "entrypoint": "neurochain-stellar [--repl|--no-flow]",
-      "role": "Default human learning and diagnosis mode without preview or submit effects"
+      "entrypoint": "neurochain-stellar",
+      "role": "Canonical zero-argument human learning and diagnosis mode; --repl selects the same plan-only mode explicitly"
     },
     {
       "id": "cli.nc-scripting",
@@ -259,7 +259,7 @@
       "id": "cli-flag.no-flow",
       "flag": "--no-flow",
       "classification": "core",
-      "role": "Force the recommended plan-only mode"
+      "role": "Explicit plan-only compatibility spelling; plan-only is already the default without --flow"
     },
     {
       "id": "cli-flag.intent-text",
@@ -288,8 +288,8 @@
     {
       "id": "cli-flag.repl",
       "flag": "--repl",
-      "classification": "advanced",
-      "role": "Select REPL explicitly; pair with --no-flow for the core no-submit path"
+      "classification": "core",
+      "role": "Select the same plan-only REPL explicitly; only --flow opens preview, confirmation and possible submit effects"
     },
     {
       "id": "cli-flag.flow",
