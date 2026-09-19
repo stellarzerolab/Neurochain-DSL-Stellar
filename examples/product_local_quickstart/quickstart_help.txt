@@ -1,9 +1,13 @@
 NeuroChain local product quickstart
 
 Usage:
-  cargo run --offline --quiet --example product_local_quickstart
-  cargo run --offline --quiet --example product_local_quickstart -- --human
-  cargo run --offline --quiet --example product_local_quickstart -- --help
+  cargo run --offline --locked --quiet --example product_local_quickstart
+  cargo run --offline --locked --quiet --example product_local_quickstart -- --human
+  cargo run --offline --locked --quiet --example product_local_quickstart -- --help
+
+Fresh-clone prerequisite:
+  An empty Cargo cache needs cargo fetch --locked once; that bootstrap may use
+  the network. Skip it when the locked dependencies are already cached.
 
 Outputs:
   default   complete machine-readable schema-v1 JSON
@@ -11,6 +15,6 @@ Outputs:
   --help    show this help without running the product path
 
 Safety:
-  All modes use checked-in offline fixtures. They require no credential, keypair,
-  network, listener or persistent store and grant no payment, signing, dispatch,
-  execution, wallet, RPC or submit authority.
+  The product path itself uses checked-in offline fixtures. It requires no
+  credential, keypair, network, listener or persistent store and grants no
+  payment, signing, dispatch, execution, wallet, RPC or submit authority.

@@ -183,7 +183,7 @@ fn default_output_stays_machine_json_and_unknown_arguments_fail_closed() {
     assert_eq!(
         quickstart::quickstart_output(&["--unknown".to_string()])
             .expect_err("unknown output option must fail closed"),
-        "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human|--help]"
+        "usage: cargo run --offline --locked --quiet --example product_local_quickstart [-- --human|--help]"
     );
 }
 
@@ -198,7 +198,11 @@ fn help_output_is_successful_and_discovers_both_stable_views() {
         "default   complete machine-readable schema-v1 JSON",
         "--human   compact human-readable decision and authority summary",
         "--help    show this help without running the product path",
-        "grant no payment, signing, dispatch",
+        "An empty Cargo cache needs cargo fetch --locked once",
+        "that bootstrap may use",
+        "The product path itself uses checked-in offline fixtures",
+        "grants no",
+        "payment, signing, dispatch",
     ] {
         assert!(actual.contains(required), "help output missing {required}");
     }
@@ -230,12 +234,17 @@ fn mismatched_typed_action_fails_before_capability_consumption() {
 #[test]
 fn developer_docs_lock_the_offline_command_and_verification_boundary() {
     for path in [
+        "README.md",
         "docs/product_local_quickstart.md",
         "examples/product_local_quickstart/README.md",
     ] {
         let docs = fs::read_to_string(path).unwrap_or_else(|error| panic!("read {path}: {error}"));
         for required in [
-            "cargo run --offline --quiet --example product_local_quickstart",
+            "cargo run --offline --locked --quiet --example product_local_quickstart",
+            "cargo fetch --locked",
+            "empty Cargo cache",
+            "may use the network",
+            "product path itself",
             "--human",
             "--help",
             "machine-readable",

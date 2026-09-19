@@ -10,8 +10,19 @@ This repository contains the Stellar integration layer for NeuroChain DSL.
 
 Run the whole local product path before choosing an integration surface:
 
+A fresh clone needs Rust/Cargo and the locked Rust dependencies in the local
+Cargo cache. If the machine has an empty Cargo cache, populate it once:
+
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart -- --human
+cargo fetch --locked
+```
+
+That dependency bootstrap may use the network. It is a Cargo setup step, not a
+NeuroChain product call; skip it when the dependencies are already cached. The
+product path itself then runs offline:
+
+```powershell
+cargo run --offline --locked --quiet --example product_local_quickstart -- --human
 ```
 
 The checked-in scenarios run one coordinator through:
@@ -27,7 +38,7 @@ with a short decision and authority summary. Omit `-- --human` to retain the
 complete machine-readable JSON contract. Use `-- --help` to list both modes
 without running the product coordinator. Only `approved` reaches the exact
 single-use service-call capability gate, and even then service dispatch remains
-false. The quickstart needs no credential, keypair, listener, or network call
+false. The product path needs no credential, keypair, listener, or network call
 and grants no payment, proof, approval, settlement, signing, execution, wallet,
 shell, RPC, transaction submit, or ActionPlan-submit authority.
 

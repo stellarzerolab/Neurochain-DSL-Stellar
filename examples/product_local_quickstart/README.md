@@ -1,7 +1,8 @@
 # Product local quickstart fixtures
 
-These schema-version-1 fixtures drive the one-command, fully offline product
-reference path documented in `docs/product_local_quickstart.md`.
+These schema-version-1 fixtures drive the product path documented in
+`docs/product_local_quickstart.md`. The product path itself is fully offline
+once its locked Rust dependencies are in the local Cargo cache.
 
 The three scenarios reuse one local Bazaar catalog entry, one typed contract
 invocation and existing Groth16 proof artifacts. Only the deterministic policy
@@ -15,10 +16,19 @@ report's
 validates the public proof journal and exact ActionPlan projection locally, but
 does not perform Stellar cryptographic verification.
 
-Run from the repository root:
+On a fresh machine with an empty Cargo cache, populate the locked dependencies
+once:
 
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart -- --human
+cargo fetch --locked
+```
+
+That dependency bootstrap may use the network. It is a Cargo setup step, not a
+NeuroChain product call; skip it when the dependencies are already cached.
+Then run from the repository root:
+
+```powershell
+cargo run --offline --locked --quiet --example product_local_quickstart -- --human
 ```
 
 Omit `-- --human` for the unchanged machine-readable JSON output.

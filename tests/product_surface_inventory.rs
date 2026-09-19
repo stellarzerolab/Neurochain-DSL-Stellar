@@ -290,16 +290,28 @@ fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfac
     );
     assert_eq!(
         readme
-            .matches("cargo run --offline --quiet --example product_local_quickstart")
+            .matches("cargo run --offline --locked --quiet --example product_local_quickstart")
             .count(),
         1,
         "README must have exactly one canonical first-run command"
     );
     assert!(
-        readme
-            .contains("cargo run --offline --quiet --example product_local_quickstart -- --human"),
+        readme.contains(
+            "cargo run --offline --locked --quiet --example product_local_quickstart -- --human"
+        ),
         "README core start must use the human-readable product view"
     );
+    for marker in [
+        "cargo fetch --locked",
+        "empty Cargo cache",
+        "That dependency bootstrap may use the network",
+        "product path itself then runs offline",
+    ] {
+        assert!(
+            readme.contains(marker),
+            "README missing fresh-clone marker `{marker}`"
+        );
+    }
     for marker in [
         "Plan -> Evaluate -> optional Prove -> Verify -> separate capability gate",
         "cryptographicallyVerified=false",

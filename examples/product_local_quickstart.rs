@@ -493,7 +493,7 @@ pub fn quickstart_output(args: &[String]) -> Result<String, String> {
             .map_err(|error| format!("serialize report: {error}")),
         [flag] if flag == "--human" => human_readable_report(&quickstart_report()?),
         _ => Err(
-            "usage: cargo run --offline --quiet --example product_local_quickstart [-- --human|--help]"
+            "usage: cargo run --offline --locked --quiet --example product_local_quickstart [-- --human|--help]"
                 .to_string(),
         ),
     }

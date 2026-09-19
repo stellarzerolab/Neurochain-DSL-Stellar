@@ -1,16 +1,30 @@
 # NeuroChain product local quickstart
 
-This is the shortest fully offline path through the existing product layers:
+This is the shortest product path through the existing product layers. The
+product path itself is fully offline once its locked Rust dependencies are in
+the local Cargo cache:
 
 ```text
 Bazaar discovery -> x402 access state -> typed ActionPlan -> deterministic policy
 -> optional ZK proof artifact -> local binding verification -> exact capability gate
 ```
 
-Run one command from the repository root:
+## Fresh-clone prerequisite
+
+A fresh clone needs Rust/Cargo. If the machine has an empty Cargo cache,
+populate the repository's locked dependencies once:
 
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart -- --human
+cargo fetch --locked
+```
+
+That dependency bootstrap may use the network. It is a Cargo setup step, not a
+NeuroChain product call; skip it when the dependencies are already cached.
+
+Then run the product path from the repository root:
+
+```powershell
+cargo run --offline --locked --quiet --example product_local_quickstart -- --human
 ```
 
 The command reads only checked-in fixtures. It needs no credential, keypair,
@@ -21,7 +35,7 @@ capability-gate calls, ZK boundary and the all-false authority boundary. The
 default remains the stable machine-readable JSON contract:
 
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart
+cargo run --offline --locked --quiet --example product_local_quickstart
 ```
 
 Unknown output arguments fail closed with a usage error.
@@ -29,7 +43,7 @@ Unknown output arguments fail closed with a usage error.
 Discover both stable views without running the product coordinator:
 
 ```powershell
-cargo run --offline --quiet --example product_local_quickstart -- --help
+cargo run --offline --locked --quiet --example product_local_quickstart -- --help
 ```
 
 The help path exits successfully, reads no runtime input and preserves the same
