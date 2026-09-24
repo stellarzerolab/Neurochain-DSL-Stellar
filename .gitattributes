@@ -1,0 +1,2 @@
+# Keep exact human-readable product fixtures byte-stable across Git checkouts.
+examples/product_local_quickstart/*.txt text eol=lf
