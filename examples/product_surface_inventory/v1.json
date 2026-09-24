@@ -162,20 +162,6 @@
       "role": "Hosted WebSocket REPL adapter"
     },
     {
-      "id": "binary.neurochain-agent-repl",
-      "name": "neurochain-agent-repl",
-      "path": "src/bin/neurochain-agent-repl.rs",
-      "classification": "internal",
-      "role": "Legacy local development client for the external /api/agent/chat surface"
-    },
-    {
-      "id": "binary.eval-intent-stellar",
-      "name": "eval-intent-stellar",
-      "path": "src/bin/eval-intent-stellar.rs",
-      "classification": "internal",
-      "role": "Intent model dataset evaluation utility"
-    },
-    {
       "id": "binary.neurochain-mcp-v0-client-smoke",
       "name": "neurochain-mcp-v0-client-smoke",
       "path": "src/bin/neurochain-mcp-v0-client-smoke.rs",

@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use regex::Regex;
 use serde_json::Value;
@@ -364,20 +365,40 @@ fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfac
     }
 }
 
-#[test]
-fn inventory_covers_every_compiled_binary() {
-    let inventory = inventory();
-    let expected: BTreeMap<&str, &str> = array(&inventory, "binaries")
-        .iter()
-        .map(|binary| {
-            (
-                required_string(binary, "name"),
-                required_string(binary, "path"),
-            )
-        })
-        .collect();
+fn binary_name_and_path(path: &str) -> (String, String) {
+    let source = Path::new(path);
+    let name = if path == "src/main.rs" {
+        "neurochain".to_string()
+    } else {
+        source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .expect("binary filename must be UTF-8")
+            .to_string()
+    };
+    (name, path.replace('\\', "/"))
+}
 
-    let mut actual = BTreeMap::from([("neurochain".to_string(), "src/main.rs".to_string())]);
+fn versioned_binary_sources() -> BTreeMap<String, String> {
+    let output = Command::new("git")
+        .args(["ls-files", "--", "src/main.rs", "src/bin"])
+        .current_dir(repo_root())
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let paths = String::from_utf8(output.stdout).expect("git paths must be UTF-8");
+            return paths
+                .lines()
+                .filter(|path| path.ends_with(".rs"))
+                .map(binary_name_and_path)
+                .collect();
+        }
+    }
+
+    // Source archives may not include Git metadata. In that case the
+    // filesystem is already the complete versioned source set.
+    let mut sources = BTreeMap::from([("neurochain".to_string(), "src/main.rs".to_string())]);
     let bin_dir = repo_root().join("src/bin");
     for entry in fs::read_dir(&bin_dir).expect("src/bin must be readable") {
         let path = entry.expect("src/bin entry must be readable").path();
@@ -389,14 +410,34 @@ fn inventory_covers_every_compiled_binary() {
             .and_then(|value| value.to_str())
             .expect("binary filename must be UTF-8")
             .to_string();
-        actual.insert(name.clone(), format!("src/bin/{name}.rs"));
+        sources.insert(name.clone(), format!("src/bin/{name}.rs"));
     }
+    sources
+}
+
+#[test]
+fn inventory_covers_every_versioned_binary() {
+    let inventory = inventory();
+    let expected: BTreeMap<&str, &str> = array(&inventory, "binaries")
+        .iter()
+        .map(|binary| {
+            (
+                required_string(binary, "name"),
+                required_string(binary, "path"),
+            )
+        })
+        .collect();
+
+    let actual = versioned_binary_sources();
 
     let expected_owned: BTreeMap<String, String> = expected
         .into_iter()
         .map(|(name, path)| (name.to_string(), path.to_string()))
         .collect();
-    assert_eq!(actual, expected_owned, "binary surface inventory drifted");
+    assert_eq!(
+        actual, expected_owned,
+        "versioned binary surface inventory drifted"
+    );
 }
 
 fn source_routes(source: &Path, prefix: &str) -> BTreeSet<String> {

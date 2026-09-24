@@ -279,8 +279,6 @@ Advanced integration binaries:
 Internal development and conformance binaries:
 
 - `neurochain-stellar-demo-server`
-- `neurochain-agent-repl`
-- `eval-intent-stellar`
 - `neurochain-mcp-v0-client-smoke`
 - `neurochain-mcp-v0-fixture-runner`
 - `txrep-to-action`

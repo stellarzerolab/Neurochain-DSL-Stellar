@@ -109,9 +109,9 @@ does not silently redirect a command or authorize removal.
 - Wallet, Friendbot, network, raw Stellar CLI, allowlist/policy configuration,
   manual Stellar/Soroban actions and state-changing ZK operations remain
   advanced operator commands.
-- `neurochain-agent-repl` and `eval-intent-stellar` are internal development
-  utilities. They are compiled binaries, but neither belongs in the supported
-  first-run product surface.
+- The binary inventory covers versioned sources present in a fresh clone.
+  Local-only development utilities excluded by a developer's Git checkout are
+  not product surfaces and must not be inferred from one working tree.
 
 ### MCP
 
