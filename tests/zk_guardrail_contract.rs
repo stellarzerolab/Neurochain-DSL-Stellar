@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
+use neurochain::zk_attestation::ZkProofArtifact;
+use neurochain_zk_guardrail_contract::{DecisionStatus, ExitCode, PublicJournal};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 fn fixture(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -232,5 +235,179 @@ fn public_journal_fixture_matrix_locks_exit_semantics() {
             !journal.contains_key("commitment_salt"),
             "public journal must not reveal the policy salt"
         );
+    }
+}
+
+#[test]
+fn historical_testnet_record_matches_current_public_proof_bindings() {
+    // Windows PowerShell wrote this historical record with a UTF-8 BOM.
+    // Decode that encoding marker without rewriting the evidence file.
+    let raw = include_str!("../hackathons/stellar-real-world-zk/deployments/testnet.json");
+    let value: Value = serde_json::from_str(raw.strip_prefix('\u{feff}').unwrap_or(raw))
+        .expect("parse historical testnet record");
+    let record = object(&value, "historical testnet record");
+    assert_exact_keys(
+        record,
+        &[
+            "schema_version",
+            "generated_at_utc",
+            "network",
+            "repository_commit",
+            "verifier_upstream_commit",
+            "selector",
+            "evaluator_image_id",
+            "contracts",
+            "wasm_sha256",
+            "authorized_policies",
+            "safety",
+        ],
+        "historical testnet record",
+    );
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["network"], "testnet");
+    assert_eq!(record["generated_at_utc"], "2026-07-02T13:51:25.0071028Z");
+    assert_eq!(
+        record["repository_commit"],
+        "12ef1d45dce4dfc34bb9a911cda90c18bd61420f"
+    );
+    let verifier_revision = "e8ff6ea202db195352c0141ecc533ff649393fe4";
+    assert_eq!(record["verifier_upstream_commit"], verifier_revision);
+    assert!(
+        include_str!("../hackathons/stellar-real-world-zk/soroban/Cargo.toml")
+            .contains(&format!("rev = \"{verifier_revision}\""))
+    );
+    assert_hex32(&record["evaluator_image_id"], "evaluator image ID");
+    let selector = record["selector"].as_str().expect("selector string");
+    assert_eq!(selector, "73c457ba");
+
+    let contracts = object(&record["contracts"], "contract IDs");
+    let wasm_hashes = object(&record["wasm_sha256"], "WASM hashes");
+    let contract_names = [
+        "groth16_verifier",
+        "risc0_router",
+        "neurochain_zk_guardrail",
+    ];
+    assert_exact_keys(contracts, &contract_names, "contract IDs");
+    assert_exact_keys(wasm_hashes, &contract_names, "WASM hashes");
+    for name in contract_names {
+        let address = contracts[name].as_str().expect("contract address");
+        assert_eq!(address.len(), 56);
+        assert!(address.starts_with('C'));
+        assert!(address
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || (b'2'..=b'7').contains(&byte)));
+        assert_hex32(&wasm_hashes[name], name);
+    }
+
+    let safety = object(&record["safety"], "historical safety boundary");
+    assert_exact_keys(
+        safety,
+        &[
+            "read_only_verify_is_repeatable",
+            "consume_requires_owner_auth",
+            "underlying_action_submit_allowed",
+        ],
+        "historical safety boundary",
+    );
+    assert_eq!(safety["read_only_verify_is_repeatable"], true);
+    assert_eq!(safety["consume_requires_owner_auth"], true);
+    assert_eq!(safety["underlying_action_submit_allowed"], false);
+
+    let policies = record["authorized_policies"]
+        .as_array()
+        .expect("policy array");
+    assert_eq!(policies.len(), 3);
+    let mut seen = BTreeSet::new();
+    for policy in policies {
+        let policy = object(policy, "historical policy binding");
+        assert_exact_keys(
+            policy,
+            &[
+                "scenario",
+                "commitment",
+                "version",
+                "action_plan_hash",
+                "audit_nullifier",
+                "read_only_verified",
+            ],
+            "historical policy binding",
+        );
+        let scenario = policy["scenario"].as_str().expect("scenario name");
+        assert!(seen.insert(scenario), "duplicate historical scenario");
+        let (proof_name, decision, exit) = match scenario {
+            "approved" => (
+                "groth16_approved.json",
+                DecisionStatus::Approved,
+                ExitCode::Passed,
+            ),
+            "requires_approval" => (
+                "groth16_requires_approval.json",
+                DecisionStatus::RequiresApproval,
+                ExitCode::Passed,
+            ),
+            "blocked" => (
+                "groth16_blocked_exit_3.json",
+                DecisionStatus::Blocked,
+                ExitCode::Allowlist,
+            ),
+            _ => panic!("unexpected historical scenario: {scenario}"),
+        };
+        let proof: ZkProofArtifact =
+            serde_json::from_value(fixture(proof_name)).expect("strict public proof fixture");
+        assert_eq!(proof.schema_version, 1);
+        assert!(proof.seal_hex.starts_with(selector));
+        let journal_bytes = hex::decode(&proof.journal_hex).expect("journal hex");
+        assert_eq!(
+            hex::encode(Sha256::digest(&journal_bytes)),
+            proof.journal_digest_hex
+        );
+        let journal = PublicJournal::decode(&journal_bytes).expect("canonical public journal");
+        assert_eq!(record["evaluator_image_id"], proof.image_id_hex);
+        assert_eq!(hex::encode(journal.evaluator_image_id), proof.image_id_hex);
+        assert_eq!(policy["commitment"], hex::encode(journal.policy_commitment));
+        assert_eq!(policy["version"], journal.policy_version);
+        assert_eq!(
+            policy["action_plan_hash"],
+            hex::encode(journal.action_plan_hash)
+        );
+        assert_eq!(
+            policy["audit_nullifier"],
+            hex::encode(journal.audit_nullifier)
+        );
+        assert_eq!(policy["read_only_verified"], true);
+        assert_eq!(journal.decision_status, decision);
+        assert_eq!(journal.exit_code, exit);
+        assert_eq!(journal.requires_approval, scenario == "requires_approval");
+    }
+    assert_eq!(
+        seen,
+        BTreeSet::from(["approved", "requires_approval", "blocked"])
+    );
+}
+
+#[test]
+fn readiness_docs_separate_offline_crypto_historical_and_live_evidence() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let readme = fs::read_to_string(root.join("README.md")).expect("read root README");
+    assert!(readme.contains("docs/product_readiness.md"));
+    assert!(readme.contains("historical testnet evidence recorded on 2026-07-02"));
+    assert!(readme.contains("does not establish current network availability"));
+    let docs = fs::read_to_string(root.join("docs/product_readiness.md"))
+        .expect("read product evidence map");
+    for required in [
+        "Soroban SDK test environment",
+        "2026-07-02T13:51:25.0071028Z",
+        "read_only_verified=true",
+        "cryptographicallyVerified=false",
+        "stellarVerificationRequired=true",
+        "exact_canonical_client_e2e",
+        "approval_blocked",
+        "outcome_unknown",
+        "Manual acceptance with Ville",
+        "not run or approval-blocked",
+        "starting an HTTP/MCP listener needs separate approval",
+        "An independent developer's usefulness assessment comes after Ville's own",
+    ] {
+        assert!(docs.contains(required), "readiness docs missing {required}");
     }
 }

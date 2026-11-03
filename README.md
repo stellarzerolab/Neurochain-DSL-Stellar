@@ -98,9 +98,16 @@ Soroban verification with no state change. The separate local-only
 `zk.stellar.consume <scenario>` requires flow, confirmation and owner auth,
 stores the replay nullifier, and still never submits the underlying ActionPlan.
 
-The repository includes a testnet-only deployment script, but does not claim a
-testnet deployment until a successful authorized run creates
-`hackathons/stellar-real-world-zk/deployments/testnet.json`.
+The checked-in
+[`deployments/testnet.json`](hackathons/stellar-real-world-zk/deployments/testnet.json)
+is historical testnet evidence recorded on 2026-07-02. It records the deployed
+three-contract chain and read-only verification of all three policy scenarios.
+That record does not establish current network availability and does not
+authorize another deployment, verification call, attestation or payment.
+
+See [`docs/product_readiness.md`](docs/product_readiness.md) for the distinction
+between local binding, offline cryptographic verification, historical testnet
+evidence and a current live check, plus the manual acceptance sequence.
 
 Start with the public package:
 

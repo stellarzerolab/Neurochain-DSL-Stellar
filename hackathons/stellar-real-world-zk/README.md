@@ -239,15 +239,20 @@ Not implemented yet:
 - long-lived state-maintenance/restore policy beyond the network maximum TTL
 - production security audit and underlying ActionPlan submit integration
 
-Dependency audit is not clean yet. The pinned RISC Zero 3.0.5 toolchain
-currently brings in `RUSTSEC-2023-0071` (`rsa`, no fixed release available)
-and `RUSTSEC-2025-0055` (`tracing-subscriber`) transitively, plus
-unmaintained-crate warnings for `bincode`, `derivative` and `paste`. These are
-toolchain/upstream constraints, not ignored findings. This milestone is a
-hackathon prototype and must not be represented as production-audited.
-The Soroban test lock has no known vulnerability advisory, but still reports
-the transitive unmaintained-crate warnings `RUSTSEC-2024-0388` (`derivative`)
-and `RUSTSEC-2024-0436` (`paste`).
+Dependency audit is not clean. The 2026-11-03 offline `--no-fetch` scan of the
+pinned RISC Zero 3.0.5 lockfile reports `RUSTSEC-2023-0071` (`rsa`),
+`RUSTSEC-2026-0220` (`ruint`) and `RUSTSEC-2025-0055` (`tracing-subscriber`),
+plus unmaintained-crate warnings for `bincode`, `derivative` and `paste`.
+These are not ignored findings and do not by themselves establish an
+exploitable application path. This milestone remains a hackathon prototype,
+not a production-audited package.
+The same cached scan reports no vulnerability advisory for the Soroban test
+lock, but its strict warning gate fails on `RUSTSEC-2024-0388` (`derivative`)
+and `RUSTSEC-2024-0436` (`paste`). The advisory cache is dated 2026-08-27;
+it was not refreshed and is not a current production-security assessment.
+See the [product evidence map](../../docs/product_readiness.md) for the audit
+scope and the separate local, cryptographic, historical-testnet and live
+verification boundaries. No dependency or lockfile was changed for this review.
 
 The current `risc0/host` runner proves and verifies a real receipt locally,
 serializes it, then passes it through the existing host and dependency-free
