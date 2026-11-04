@@ -407,11 +407,36 @@ Wallet startup behavior:
 - `setup testnet` does not set the wallet automatically.
 - Default REPL `asset_allowlist` is `XLM`, unless overridden by environment or command.
 
-The short `help` output is the core learning path. It confirms the default
-plan-only mode, then shows plain-text planning, bundled local ZK inspection,
-status/setup inspection, documentation and exit. Wallet, network,
-Friendbot, x402-lite, policy, flow, Stellar verification/attestation and manual
-action commands remain available under `help all`.
+The short `help` output starts with the active mode, one plain-text example
+and the instruction to press Enter twice (an empty line completes REPL input).
+In plan-only mode, plain-text intents do not sign or submit. With explicit
+`--flow`, help warns that intents may sign and submit and explains how to
+restart in plan-only mode.
+
+```text
+Stellar REPL quick start:
+Mode: plan-only. Plain-text intents do not sign or submit.
+
+Write an intent, then press Enter twice:
+  Transfer 5 XLM to <G-address>
+
+Commands:
+  zk.demo approved         Inspect local ZK bindings only
+  zk status                Show local binding + last Stellar result
+  show setup               Show current settings
+  help all                 Full command and safety reference
+  help dsl                 Scripting reference
+  exit                     Quit
+
+Approval and ZK evidence do not grant execution permission.
+```
+
+Replace `<G-address>` with a valid public destination address. `help all`
+keeps the canonical stages, policy decisions, all three local ZK scenarios
+and the full safety reference. Wallet, network, Friendbot, x402-lite, policy,
+flow, Stellar verification/attestation and manual action commands remain there.
+This human-facing help does not change one-shot CLI JSON or MCP/API contracts;
+all surfaces retain the same ActionPlan and authority boundaries.
 
 REPL commands from `help all`:
 

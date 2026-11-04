@@ -188,33 +188,24 @@ fn spawn_friendbot_server() -> String {
 fn stellar_repl_help_and_exit_work() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
-    cmd.write_stdin("help\n\nexit\n\n")
+    let result = cmd
+        .write_stdin("help\n\nexit\n\n")
         .assert()
         .success()
         .stdout(contains("NeuroChain Stellar REPL"))
-        .stdout(contains("Stellar REPL core quick start"))
+        .stdout(contains("Stellar REPL quick start:"))
+        .stdout(contains("Canonical stages:").not())
+        .stdout(contains("Policy decisions:").not())
+        .stdout(contains("REPL role:").not())
         .stdout(contains(
-            "Canonical stages: Plan -> Evaluate -> optional Prove -> Verify -> separate capability decision.",
+            "Mode: plan-only. Plain-text intents do not sign or submit.",
         ))
-        .stdout(contains(
-            "Policy decisions: not_evaluated | approved | requires_approval | blocked.",
-        ))
-        .stdout(contains(
-            "REPL role: human learning and diagnostics; plan-only by default; use --flow only for an explicit execution flow.",
-        ))
-        .stdout(contains(
-            "Approved is a policy decision, not execution or submit permission.",
-        ))
-        .stdout(contains(
-            "Flow mode is disabled; plain-text prompts stay plan-only.",
-        ))
-        .stdout(contains(
-            "plain text intent: Transfer 5 XLM to <G-address>",
-        ))
+        .stdout(contains("Transfer 5 XLM to <G-address>"))
         .stdout(contains("help dsl"))
-        .stdout(contains("zk.demo approved|requires_approval|blocked"))
+        .stdout(contains("zk.demo approved"))
+        .stdout(contains("Inspect local ZK bindings only"))
         .stdout(contains(
-            "ZK Guardrail never grants permission to submit the underlying ActionPlan.",
+            "Approval and ZK evidence do not grant execution permission.",
         ))
         .stdout(contains("Soroban v2 template prompts").not())
         .stdout(contains("claim_rewards").not())
@@ -226,6 +217,29 @@ fn stellar_repl_help_and_exit_work() {
         .stdout(contains("zk.stellar.attest").not())
         .stdout(contains("soroban.contract.deploy").not())
         .stdout(contains("Exiting"));
+
+    let stdout = String::from_utf8_lossy(&result.get_output().stdout);
+    let help = stdout
+        .split_once("Stellar REPL quick start:")
+        .expect("quick help heading")
+        .1
+        .split("Enter Stellar prompt/code")
+        .next()
+        .expect("quick help body");
+    assert_contains_in_order(
+        help,
+        &[
+            "Mode: plan-only.",
+            "Write an intent, then press Enter twice:",
+            "Transfer 5 XLM to <G-address>",
+            "Commands:",
+            "help all",
+        ],
+    );
+    assert!(
+        help.lines().filter(|line| !line.trim().is_empty()).count() <= 14,
+        "quick help must stay compact; detailed explanations belong in help all"
+    );
 }
 
 #[test]
@@ -237,10 +251,10 @@ fn stellar_repl_quick_help_reports_active_no_flow_session() {
         .assert()
         .success()
         .stdout(contains(
-            "Flow mode is disabled; plain-text prompts stay plan-only.",
+            "Mode: plan-only. Plain-text intents do not sign or submit.",
         ))
-        .stdout(contains("Flow mode is enabled by explicit --flow").not())
-        .stdout(contains("plain text intent: Transfer 5 XLM to <G-address>"));
+        .stdout(contains("Mode: execution flow").not())
+        .stdout(contains("Transfer 5 XLM to <G-address>"));
 }
 
 #[test]
@@ -248,10 +262,13 @@ fn stellar_repl_explicit_repl_mode_is_plan_only_without_flow_flag() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.arg("--repl")
-        .write_stdin("exit\n\n")
+        .write_stdin("help\n\nexit\n\n")
         .assert()
         .success()
-        .stdout(contains("Flow mode: disabled (default plan-only)"));
+        .stdout(contains("Flow mode: disabled (default plan-only)"))
+        .stdout(contains(
+            "Mode: plan-only. Plain-text intents do not sign or submit.",
+        ));
 }
 
 #[test]
@@ -259,10 +276,15 @@ fn stellar_repl_starts_with_flow_flag_only() {
     #[allow(deprecated)]
     let mut cmd = Command::cargo_bin("neurochain-stellar").expect("bin build");
     cmd.arg("--flow")
-        .write_stdin("exit\n\n")
+        .write_stdin("help\n\nexit\n\n")
         .assert()
         .success()
         .stdout(contains("NeuroChain Stellar REPL"))
+        .stdout(contains(
+            "Mode: execution flow (--flow). Plain-text intents may sign and submit.",
+        ))
+        .stdout(contains("Restart without --flow for plan-only planning."))
+        .stdout(contains("Mode: plan-only.").not())
         .stdout(contains("Exiting"));
 }
 

@@ -4136,47 +4136,32 @@ fn print_repl_help_quick(
     _debug: bool,
     flow: bool,
 ) {
-    const HELP_COL_WIDTH: usize = 58;
-    println!("Stellar REPL core quick start:");
-    println!("{CANONICAL_STAGES_HELP}");
-    println!("{CANONICAL_DECISIONS_HELP}");
-    println!("{REPL_ROLE_HELP}");
-    println!("{APPROVAL_BOUNDARY_HELP}");
+    const HELP_COL_WIDTH: usize = 24;
+    println!("Stellar REPL quick start:");
     if flow {
-        println!(
-            "Flow mode is enabled by explicit --flow; restart without it before planning. Advanced commands remain in `help all`."
-        );
+        println!("Mode: execution flow (--flow). Plain-text intents may sign and submit.");
+        println!("Restart without --flow for plan-only planning.");
     } else {
-        println!(
-            "Flow mode is disabled; plain-text prompts stay plan-only. Advanced commands remain in `help all`."
-        );
+        println!("Mode: plan-only. Plain-text intents do not sign or submit.");
     }
+    println!();
+    println!("Write an intent, then press Enter twice:");
+    println!("  Transfer 5 XLM to <G-address>");
+    println!();
+    println!("Commands:");
     let quick_rows = [
-        (
-            "plain text intent: Transfer 5 XLM to <G-address>",
-            "(type directly -> typed ActionPlan; --no-flow never submits)",
-        ),
-        (
-            "zk.demo approved|requires_approval|blocked",
-            "(inspect bundled public binding; never submits)",
-        ),
-        ("zk status", "(show local binding + last Stellar result)"),
-        ("show setup", "(inspect the current session boundary)"),
-        ("help all", "(advanced operator + compatibility commands)"),
-        ("help dsl", "(show normal NeuroChain DSL help)"),
-        ("exit", ""),
+        ("zk.demo approved", "Inspect local ZK bindings only"),
+        ("zk status", "Show local binding + last Stellar result"),
+        ("show setup", "Show current settings"),
+        ("help all", "Full command and safety reference"),
+        ("help dsl", "Scripting reference"),
+        ("exit", "Quit"),
     ];
     for (command, desc) in quick_rows {
-        if desc.is_empty() {
-            println!("- {command}");
-        } else {
-            println!("- {:<HELP_COL_WIDTH$} {}", command, desc);
-        }
+        println!("  {command:<HELP_COL_WIDTH$} {desc}");
     }
-    println!(
-        "- help all retains wallet, network, deprecated-candidate x402 aliases, policy, flow, and ZK operator commands."
-    );
-    println!("- ZK Guardrail never grants permission to submit the underlying ActionPlan.");
+    println!();
+    println!("Approval and ZK evidence do not grant execution permission.");
 }
 
 fn print_repl_help_section(title: &str, rows: &[(&str, &str)]) {

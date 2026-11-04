@@ -338,11 +338,14 @@ fn root_readme_and_short_help_lock_one_core_start_without_hiding_advanced_surfac
         .expect("full help function must exist");
     let quick_help = &help_source[quick_start..all_start];
     for marker in [
-        "Stellar REPL core quick start",
-        "Flow mode is enabled by explicit --flow; restart without it before planning",
-        "Flow mode is disabled; plain-text prompts stay plan-only",
-        "plain text intent: Transfer 5 XLM to <G-address>",
-        "zk.demo approved|requires_approval|blocked",
+        "Stellar REPL quick start:",
+        "Mode: execution flow (--flow). Plain-text intents may sign and submit.",
+        "Restart without --flow for plan-only planning.",
+        "Mode: plan-only. Plain-text intents do not sign or submit.",
+        "Write an intent, then press Enter twice:",
+        "Transfer 5 XLM to <G-address>",
+        "zk.demo approved",
+        "Approval and ZK evidence do not grant execution permission.",
         "help all",
     ] {
         assert!(quick_help.contains(marker), "short help missing `{marker}`");
