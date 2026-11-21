@@ -87,8 +87,9 @@ temporary `127.0.0.1` listener. The API returned the same plan with
 `underlying_action_submit_allowed` remained `false` in all three responses.
 The listener was closed and its port was verified free of listeners.
 
-The local technical checks passed. The owner's final usability acceptance is
-pending. The walkthrough established local ZK binding and fixture behavior.
+The local technical checks passed. The owner accepted the local walkthrough
+on 2026-11-22 and deferred independent developer testing. The walkthrough
+established local ZK binding and fixture behavior.
 Live Stellar verification, live x402 settlement and ActionPlan execution
 remain outside its scope.
 
