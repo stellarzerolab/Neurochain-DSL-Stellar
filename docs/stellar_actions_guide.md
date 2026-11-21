@@ -1463,9 +1463,9 @@ hash, validate the journal digest and image binding, and display the decision.
 They do not perform the Groth16 pairing check, so the output says
 `cryptographic_verification: required_on_stellar`.
 
-The local result keeps the stable machine field
-`next_step: verify_on_stellar_then_separate_approval`, but the REPL also prints
-decision-aware `operator_guidance`:
+The REPL prints decision-specific `operator_guidance`. It displays the
+optional `next_step` line for `approved` and `requires_approval`. A
+`blocked` result displays only the stop instruction as its guidance.
 
 - `approved`: the local policy approved, but evidence verification and any
   later action remain separately authorized operations

@@ -2313,7 +2313,8 @@ fn print_zk_inspection(inspection: &ZkReplInspection) {
     println!("- policy_commitment: {}", attestation.policy_commitment);
     println!("- policy_version: {}", attestation.policy_version);
     println!("- action_plan_hash: {}", attestation.action_plan_hash);
-    println!("- decision: {}", attestation.attested_decision.status);
+    let decision = attestation.attested_decision.status.as_str();
+    println!("- decision: {decision}");
     println!("- exit_code: {}", attestation.attested_decision.exit_code);
     println!("- reason: {}", attestation.attested_decision.reason);
     println!(
@@ -2323,10 +2324,12 @@ fn print_zk_inspection(inspection: &ZkReplInspection) {
     println!("- audit_nullifier: {}", attestation.audit_nullifier);
     println!("- submit_allowed: {}", response.execution.submit_allowed);
     println!("- execution_state: {}", response.execution.state);
-    if let Some(next_step) = response.execution.next_step.as_deref() {
+    if let ("approved" | "requires_approval", Some(next_step)) =
+        (decision, response.execution.next_step.as_deref())
+    {
         println!("- next_step: {next_step}");
     }
-    let operator_guidance = match attestation.attested_decision.status.as_str() {
+    let operator_guidance = match decision {
         "approved" => {
             "local policy approved; verify evidence before any separately authorized action"
         }

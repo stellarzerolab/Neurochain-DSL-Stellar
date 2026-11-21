@@ -652,31 +652,46 @@ fn stellar_repl_zk_demo_scenarios_are_proof_only() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("- source: bundled demo: approved"));
-    assert!(stdout.contains("- source: bundled demo: requires_approval"));
-    assert!(stdout.contains("- source: bundled demo: blocked"));
-    assert!(stdout.contains("- decision: approved"));
-    assert!(stdout.contains("- decision: requires_approval"));
-    assert!(stdout.contains("- decision: blocked"));
-    assert!(stdout.contains("- exit_code: 3"));
-    assert!(stdout.contains("- reason: allowlist"));
-    assert!(stdout.contains("- cryptographic_verification: required_on_stellar"));
-    assert!(stdout.contains("- private_policy_revealed: false"));
-    assert!(stdout.contains("- submit_allowed: false"));
-    assert!(stdout.contains("- execution_state: blocked"));
-    assert!(stdout.contains(
+    let (inspections, status) = stdout
+        .split_once("ZK Guardrail status:")
+        .expect("ZK status output");
+    let mut demos = inspections.split("ZK Guardrail (local binding):").skip(1);
+    let approved = demos.next().expect("approved demo output");
+    let requires_approval = demos.next().expect("requires_approval demo output");
+    let blocked = demos.next().expect("blocked demo output");
+    assert!(demos.next().is_none());
+
+    for (name, demo) in [
+        ("approved", approved),
+        ("requires_approval", requires_approval),
+        ("blocked", blocked),
+    ] {
+        assert!(demo.contains(&format!("- source: bundled demo: {name}\n")));
+        assert!(demo.contains(&format!("- decision: {name}\n")));
+        assert!(demo.contains("- cryptographic_verification: required_on_stellar"));
+        assert!(demo.contains("- private_policy_revealed: false"));
+        assert!(demo.contains("- submit_allowed: false"));
+        assert!(demo.contains("- execution_state: blocked"));
+    }
+
+    let next_step = "- next_step: verify_on_stellar_then_separate_approval";
+    assert!(approved.contains(next_step));
+    assert!(requires_approval.contains(next_step));
+    assert!(!blocked.contains("- next_step:"), "{blocked}");
+    assert!(blocked.contains("- exit_code: 3"));
+    assert!(blocked.contains("- reason: allowlist"));
+    assert!(approved.contains(
         "- operator_guidance: local policy approved; verify evidence before any separately authorized action"
     ));
-    assert!(stdout.contains(
+    assert!(requires_approval.contains(
         "- operator_guidance: verification is evidence only; explicit action approval is still required"
     ));
-    assert!(stdout.contains(
+    assert!(blocked.contains(
         "- operator_guidance: stop; this ActionPlan is not eligible for an execution capability"
     ));
-    assert!(stdout.contains("ZK Guardrail status:"));
-    assert!(stdout.contains("- stellar_verification: not_run"));
-    assert!(stdout.contains("- attestation_submitted: false"));
-    assert!(stdout.contains("- underlying_action_submit_allowed: false"));
+    assert!(status.contains("- stellar_verification: not_run"));
+    assert!(status.contains("- attestation_submitted: false"));
+    assert!(status.contains("- underlying_action_submit_allowed: false"));
 }
 
 #[test]
