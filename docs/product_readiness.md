@@ -73,6 +73,27 @@ remediation and a refreshed advisory scan remain separate approval decisions.
 
 ## Manual acceptance with Ville
 
+### Local walkthrough completed on 2026-11-21
+
+The owner ran the human and JSON quickstarts, plan-only REPL and bundled ZK
+examples, one-shot CLI, `.nc` example, MCP stdio smoke client, and Bazaar/x402
+reference path. The REPL, CLI and `.nc` runs produced the same 5 XLM payment
+plan. The reference paths produced the expected three decisions and gate calls
+`1/0/0`, with service dispatch disabled.
+
+Codex ran the three HTTP plan-only requests with the owner's approval on a
+temporary `127.0.0.1` listener. The API returned the same plan with
+`approved`, `requires_approval`, and `blocked` (allowlist code 3).
+`underlying_action_submit_allowed` remained `false` in all three responses.
+The listener was closed and its port was verified free of listeners.
+
+The local technical checks passed. The owner's final usability acceptance is
+pending. The walkthrough established local ZK binding and fixture behavior.
+Live Stellar verification, live x402 settlement and ActionPlan execution
+remain outside its scope.
+
+### Walkthrough procedure
+
 The first pass is the whole existing product, not only a new isolated example.
 Record each step as passed, failed, not run or approval-blocked, with the actual
 output and Ville's usability observations. Do not mark a live or interactive
