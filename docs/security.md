@@ -17,9 +17,7 @@ Before committing:
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
-cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0186
+cargo audit --no-fetch --deny warnings --ignore RUSTSEC-2024-0436
 ```
 
 Note: `cargo test` includes AI model smoke tests (`src/ai/model/tests.rs`). These tests auto-skip if the referenced ONNX files are missing (useful if you clone without `models/`). For end-to-end validation, run the example scripts that load models (see `docs/getting_started.md` and `examples/`).
@@ -105,11 +103,17 @@ RustSec note: `RUSTSEC-2026-0190` was resolved by updating `anyhow 1.0.100 ->
 updating `rustls-webpki 0.103.12 -> 0.103.13`. `RUSTSEC-2026-0185` was
 resolved by updating `quinn-proto 0.11.14 -> 0.11.15`. `RUSTSEC-2026-0217`
 was resolved by updating the `tract` dependency family from `0.21.13` to
-`0.22.3`. The temporary
-`RUSTSEC-2026-0186` ignore covers `memmap2 0.9.9`, which is transitive through
-`tract-onnx 0.22.3`; the advisory currently has no patched release. Keep the
-ignore scoped to this advisory and remove it when the ONNX dependency can move
-to a fixed `memmap2` release.
+`0.22.3`.
+
+The November 2026 root audit updates cover Quinn, Rustls and its trust stores,
+`url`, `tokio` and `rustix`. Updating Hyper and `futures-util` removed
+`pin-utils` (`RUSTSEC-2026-0441`). Updating `tract-onnx` to `0.23.10` removed
+`anymap2` (`RUSTSEC-2026-0319`) from the root lockfile. Check the local ONNX
+smoke tests with the model files present when updating Tract.
+
+`memmap2 0.9.11` resolves `RUSTSEC-2026-0186`. The root audit now carries
+one documented exception for `paste 1.0.15` (`RUSTSEC-2024-0436`), an
+unmaintained dependency. `rustls-pemfile` is absent from the root lockfile.
 
 ## 3. CI/CD Gatekeepers (GitHub Actions Example)
 Keep audit as a separate job; combining fmt+clippy saves time.
@@ -198,11 +202,8 @@ jobs:
         run: cargo install cargo-audit
       - name: Run Audit
         run: |
-          # Known transitive warnings are scoped and documented in docs/security.md.
-          cargo audit --deny warnings \
-            --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0186
+          # The remaining transitive warning is documented in docs/security.md.
+          cargo audit --deny warnings --ignore RUSTSEC-2024-0436
 ```
 
 ## 4. Supply Chain Hardening (Later)
@@ -225,7 +226,5 @@ cargo install cargo-audit
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
-cargo audit --deny warnings --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0186
+cargo audit --no-fetch --deny warnings --ignore RUSTSEC-2024-0436
 ```

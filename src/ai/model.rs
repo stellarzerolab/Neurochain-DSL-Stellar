@@ -1,6 +1,6 @@
 //! AI model loader + classifier (CPU ONNX).
 
-use std::{path::Path, rc::Rc};
+use std::{path::Path, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use tokenizers::{
@@ -9,8 +9,6 @@ use tokenizers::{
 };
 use tract_ndarray::prelude::{Array as TractArray, Ix2 as TractIx2, IxDyn as TractIxDyn};
 use tract_onnx::prelude::*;
-
-type TractPlan = SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>;
 
 /* -------------------------------------------------------------------------- */
 #[derive(Clone, Debug, PartialEq)]
@@ -26,7 +24,7 @@ pub enum ModelKind {
 
 #[derive(Clone)]
 pub struct AIModel {
-    plan: Rc<TractPlan>,
+    plan: Arc<TypedRunnableModel>,
     tokenizer: Tokenizer,
     model_kind: ModelKind,
     pad_token: String,
@@ -70,7 +68,7 @@ impl AIModel {
             .into_runnable()?;
 
         Ok(Self {
-            plan: Rc::new(plan),
+            plan,
             tokenizer,
             model_kind,
             pad_token,
@@ -105,7 +103,7 @@ impl AIModel {
 
         let outs = self.plan.run(tvec![ids.into(), mask.into()])?;
         let logits = outs[0]
-            .to_array_view::<f32>()?
+            .to_plain_array_view::<f32>()?
             .into_dimensionality::<TractIx2>()?;
         let row = logits.row(0);
 

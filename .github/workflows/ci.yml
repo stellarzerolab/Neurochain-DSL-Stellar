@@ -77,8 +77,5 @@ jobs:
         run: cargo install cargo-audit
       - name: Run audit
         run: |
-          # Known transitive warnings are scoped and documented in docs/security.md.
-          cargo audit --deny warnings \
-            --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0186
+          # The remaining transitive warning is documented in docs/security.md.
+          cargo audit --deny warnings --ignore RUSTSEC-2024-0436

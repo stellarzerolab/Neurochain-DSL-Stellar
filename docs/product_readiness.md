@@ -62,7 +62,7 @@ findings, not a claim that all advisories through today's date were checked.
 
 | Lockfile scope | Result with denied warnings | Recorded findings |
 | --- | --- | --- |
-| Root `Cargo.lock` | Pass with the three existing documented ignores | `RUSTSEC-2024-0436`, `RUSTSEC-2025-0134`, `RUSTSEC-2026-0186` remain explicit exceptions. |
+| Root `Cargo.lock` | Pass with three documented ignores in this snapshot | `RUSTSEC-2024-0436`, `RUSTSEC-2025-0134`, `RUSTSEC-2026-0186` were exceptions in this run. |
 | Soroban `Cargo.lock` | Fails the strict warning gate | Two unmaintained warnings: `derivative` / `RUSTSEC-2024-0388`, `paste` / `RUSTSEC-2024-0436`. No vulnerability advisory was reported by this cached scan. |
 | RISC Zero `Cargo.lock` | Fails the strict vulnerability/warning gate | Three advisories: `rsa` / `RUSTSEC-2023-0071`, `ruint` / `RUSTSEC-2026-0220`, `tracing-subscriber` / `RUSTSEC-2025-0055`; three unmaintained warnings: `bincode`, `derivative`, `paste`. |
 
