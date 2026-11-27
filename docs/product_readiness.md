@@ -93,6 +93,25 @@ established local ZK binding and fixture behavior.
 Live Stellar verification, live x402 settlement and ActionPlan execution
 remain outside its scope.
 
+### Offline MCP agent pilot on 2026-11-27
+
+The local MCP stdio process used IntentStellar to plan a fictional 5 XLM
+transfer to a checked-in test address. `evaluate_guardrails` checked each
+returned ActionPlan against its hash. The pilot used an enforced XLM asset
+allowlist and ran against [product commit `2109c8c`](https://github.com/stellarzerolab/Neurochain-DSL-Stellar/commit/2109c8c0058d2a56face4c9af71e73223907c6f6).
+
+| Request | Decision | Reason | Guardrail exit code |
+| --- | --- | --- | ---: |
+| Complete transfer request | `approved` | `passed` | 0 |
+| Same plan with explicit `requires_approval: true` | `requires_approval` | `approval_threshold` | 0 |
+| Transfer request without a recipient | `blocked` | `intent_safety` | 5 |
+
+All five planning and evaluation responses kept
+`underlying_action_submit_allowed=false`. Agent clients should present the
+evaluation's `decision` and `reason_code`. When the plan contains an
+`unknown` action with `slot_missing: TransferXLM missing to`, the agent
+can ask for the recipient address before planning again.
+
 ### Walkthrough procedure
 
 The first pass is the whole existing product, not only a new isolated example.
